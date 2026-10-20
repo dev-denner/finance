@@ -1,0 +1,22 @@
+node_modules/
+dist/
+server/data/
+backups/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+.env
+.env.*
+.DS_Store
+*.log
+*.tmp
+*.csv
+*.txt
+*.xls
+*.xlsx
+# Exceção: arquivo de exemplo genérico (sem dados pessoais) usado pela documentação.
+!sample-finance.csv
+coverage/
+client/dist/
