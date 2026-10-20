@@ -1,0 +1,6 @@
+﻿Data Compra;Vencimento;Compra;Valor;Pagamento;Parcelas;Categorias;Transf
+05/01/2026;10/01/2026;Supermercado Extra;-R$ 450,25;Cartão Nubank;1/3;Mercado;
+07/01/2026;12/01/2026;Salário;R$ 8.500,00;Conta Itaú;;Salário;
+10/01/2026;15/01/2026;Aluguel;-R$ 2.100,00;Pix;;Moradia;
+15/01/2026;20/01/2026;Transferência para poupança;-R$ 1.000,00;Pix;;Investimentos;Sim
+20/01/2026;25/01/2026;Farmácia;-R$ 89,90;Cartão Nubank;;Saúde;

@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792412507168,
+      "tag": "0000_friendly_network",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792420285138,
+      "tag": "0001_motionless_silver_surfer",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792454926695,
+      "tag": "0002_needy_triton",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792509305497,
+      "tag": "0003_romantic_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792518447094,
+      "tag": "0004_sour_obadiah_stane",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "finance",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gestão local de lançamentos financeiros",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w server && npm run build -w client",
+    "start": "npm run start -w server",
+    "test": "npm run test -w server",
+    "test:watch": "npm run test:watch -w server",
+    "db:generate": "npm run db:generate -w server",
+    "db:migrate": "npm run db:migrate -w server",
+    "db:backup": "npm run db:backup -w server",
+    "db:reset:data": "npm run db:reset:data -w server",
+    "db:reset:all": "npm run db:reset:all -w server",
+    "db:restore": "npm run db:restore -w server",
+    "db:studio": "npm run db:studio -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
+  }
+}
