@@ -1,0 +1,37 @@
+{
+  "name": "finance-server",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate-cli.ts",
+    "db:backup": "tsx src/db/backup-cli.ts",
+    "db:reset:data": "tsx src/db/reset-cli.ts data",
+    "db:reset:all": "tsx src/db/reset-cli.ts all",
+    "db:restore": "tsx src/db/restore-cli.ts",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^9.2.1",
+    "@fastify/static": "^10.1.6",
+    "better-sqlite3": "^12.2.0",
+    "drizzle-orm": "^0.45.4",
+    "fastify": "^5.4.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.3.0",
+    "drizzle-kit": "^0.31.4",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

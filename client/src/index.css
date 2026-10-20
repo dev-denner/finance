@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-800 dark:bg-ink-950 dark:text-ink-100;
+  }
+
+  ::selection {
+    @apply bg-blue-200/70 text-blue-950 dark:bg-blue-900/60 dark:text-blue-50;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+
+  .dark * {
+    scrollbar-color: #334155 transparent;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-ink-200/80 bg-white shadow-soft dark:border-ink-800 dark:bg-ink-900;
+  }
+
+  .label {
+    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-500 dark:text-ink-400;
+  }
+
+  .input {
+    @apply h-9 w-full rounded-lg border border-ink-200 bg-white px-3 text-sm text-ink-800 shadow-sm outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-400 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100 dark:placeholder:text-ink-500 dark:focus:border-blue-500 dark:disabled:bg-ink-800;
+  }
+
+  .select {
+    @apply input cursor-pointer appearance-none bg-[length:16px_16px] bg-[right_0.55rem_center] bg-no-repeat pr-8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23667085' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+
+  .btn {
+    @apply inline-flex h-9 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 text-[13px] font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-blue-600 text-white shadow-sm hover:bg-blue-700 active:bg-blue-800;
+  }
+
+  .btn-secondary {
+    @apply btn border border-ink-200 bg-white text-ink-700 shadow-sm hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-600 hover:bg-ink-100 hover:text-ink-900 dark:text-ink-300 dark:hover:bg-ink-800 dark:hover:text-white;
+  }
+
+  .btn-danger {
+    @apply btn bg-rose-600 text-white shadow-sm hover:bg-rose-700;
+  }
+
+  .btn-danger-soft {
+    @apply btn border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-ink-900 dark:text-rose-400 dark:hover:bg-rose-950/40;
+  }
+
+  .icon-btn {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-400 transition hover:bg-ink-100 hover:text-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 dark:hover:bg-ink-800 dark:hover:text-ink-100;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+
+  .th {
+    @apply whitespace-nowrap border-b border-ink-200 bg-ink-50/95 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-500 backdrop-blur dark:border-ink-800 dark:bg-ink-900/95 dark:text-ink-400;
+  }
+
+  .td {
+    @apply border-b border-ink-100 px-3 py-2.5 align-middle text-[13px] dark:border-ink-800/70;
+  }
+
+  .table-shell {
+    @apply overflow-auto overscroll-contain;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30;
+  }
+}
