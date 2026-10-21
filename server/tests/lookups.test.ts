@@ -8,6 +8,8 @@ import {
   listLookups,
   renameLookup,
 } from '../src/services/lookups';
+import { persistCategoryAlias } from '../src/services/category-matching';
+import { categoryImportAliases } from '../src/db/schema';
 import { seedTransaction } from './helpers';
 import { createTestDatabase } from './helpers';
 
@@ -64,6 +66,21 @@ describe('normalização e cadastros auxiliares', () => {
       expect(() => deleteLookup(handle.db, 'category', category!.id)).toThrow(/em uso/i);
     });
 
+    it('exclui categoria sem uso sem tentar reatribuir alias', () => {
+      const semUso = createLookup(handle.db, 'category', 'Categoria Sem Uso');
+      persistCategoryAlias(handle.db, 'Origem Sem Uso', semUso.id);
+      expect(
+        handle.db.select().from(categoryImportAliases).all(),
+      ).toHaveLength(1);
+      const result = deleteLookup(handle.db, 'category', semUso.id);
+      expect(result.reassigned).toBe(0);
+      expect(listLookups(handle.db, 'category').map((item) => item.name)).not.toContain(
+        'Categoria Sem Uso',
+      );
+      // ON DELETE cascade remove o alias sem tentar gravar target indefinido.
+      expect(handle.db.select().from(categoryImportAliases).all()).toHaveLength(0);
+    });
+
     it('reatribui os lançamentos antes de excluir', () => {
       const transaction = seedTransaction(handle.db, {
         dueDate: '2026-01-10',
@@ -82,6 +99,25 @@ describe('normalização e cadastros auxiliares', () => {
         .get(transaction.id) as { category_id: number };
       expect(updated.category_id).toBe(casa.id);
       expect(listLookups(handle.db, 'category').map((item) => item.name)).toEqual(['Casa']);
+    });
+
+    it('reatribui o alias da categoria excluída para o novo destino', () => {
+      const transaction = seedTransaction(handle.db, {
+        dueDate: '2026-01-10',
+        amount: '-R$ 100,00',
+        category: 'Mercado',
+        payment: 'Pix',
+      });
+      expect(transaction.id).toBeGreaterThan(0);
+      const mercado = listLookups(handle.db, 'category').find((item) => item.name === 'Mercado')!;
+      const casa = createLookup(handle.db, 'category', 'Casa');
+      persistCategoryAlias(handle.db, 'Mercadinho', mercado.id);
+
+      const result = deleteLookup(handle.db, 'category', mercado.id, casa.id);
+      expect(result.reassigned).toBe(1);
+      const aliases = handle.db.select().from(categoryImportAliases).all();
+      expect(aliases).toHaveLength(1);
+      expect(aliases[0].targetCategoryId).toBe(casa.id);
     });
   });
 });

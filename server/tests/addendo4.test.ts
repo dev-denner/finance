@@ -452,3 +452,444 @@ describe('addendo4 - preview categorySuggestions', () => {
     expect(preview.categorySuggestions[0].confidence).toBe('high');
   });
 });
+
+describe('addendo4 - importação completa pela interface', () => {
+  it('importa Data compra | Lançamento | Categoria | parcela | Valor com conta e revisão de categorias', () => {
+    const db = createTestDatabase().db;
+    const destino = ensureLookup(db, 'payment', 'Conta Destino');
+    const construcao = ensureLookup(db, 'category', 'Construção');
+    const pagamentoCartao = ensureLookup(db, 'category', 'Pagamento de cartão');
+
+    const header = 'Data compra;Lançamento;Categoria;parcela;Valor';
+    const csv = makeCsv(
+      [
+        '01/02/2024;Loja Exemplo A;CONSTRUCAO;Parcela 1/10;R$ 12,34',
+        '02/02/2024;Fornecedor Exemplo;OUTROS;Compra à vista;-R$ 99,90',
+        '03/02/2024;Pagamento Fatura;PAGAMENTO_RECEBIDO;Compra à vista;R$ 1.500,00',
+        '10/01/2024;Loja Exemplo B;OUTROS;Parcela 5/10;-R$ 45,67',
+      ],
+      header,
+    );
+
+    const preview = previewImport(db, csv, 'fatura-exemplo.csv');
+    expect(preview.mapping.paymentMethod ?? null).toBeNull();
+    expect(preview.mapping.dueDate ?? null).toBeNull();
+    expect(preview.rows.every((row) => row.errors.length === 0)).toBe(true);
+    expect(preview.rows[0].values.dueDate).toBe('2024-02-01');
+    expect(preview.rows[0].values.dueDateSource).toBe('estimated_from_installment');
+    expect(preview.rows[1].values.dueDate).toBe('2024-02-02');
+    expect(preview.rows[1].values.dueDateSource).toBe('derived_from_cash_purchase');
+    expect(preview.rows[3].values.dueDate).toBe('2024-05-10');
+
+    const decisions = buildCategoryDecisions(preview.categorySuggestions, {
+      // Simula o usuário confirmando explicitamente a equivalência contextual.
+      pagamento_recebido: {
+        action: 'accept',
+        sourceCategory: 'PAGAMENTO_RECEBIDO',
+        targetCategoryId: pagamentoCartao.id,
+      },
+    });
+    expect(decisions.pagamento_recebido.confirmed).toBe(true);
+    expect(
+      preview.categorySuggestions.find((group) => group.sourceNormalized === 'pagamento_recebido')
+        ?.method,
+    ).toBe('contextual');
+    const summary = importWorkbook(db, csv, 'fatura-exemplo.csv', {
+      mapping: preview.mapping,
+      destinationPaymentMethodId: destino.id,
+      categoryDecisions: decisions,
+    });
+    expect(summary.importedRows).toBe(4);
+
+    const stored = db.select().from(schema.transactions).all();
+    expect(stored).toHaveLength(4);
+    expect(stored.every((row) => row.paymentMethodId === destino.id)).toBe(true);
+    const byDescription = new Map(stored.map((row) => [row.description, row]));
+
+    const pagamento = byDescription.get('Pagamento Fatura')!;
+    expect(pagamento.amountCents).toBe(150000);
+    expect(pagamento.categoryId).toBe(pagamentoCartao.id);
+    expect(byDescription.get('Fornecedor Exemplo')!.amountCents).toBe(-9990);
+    expect(byDescription.get('Fornecedor Exemplo')!.dueDateSource).toBe(
+      'derived_from_cash_purchase',
+    );
+    expect(byDescription.get('Loja Exemplo B')!.dueDate).toBe('2024-05-10');
+    expect(byDescription.get('Loja Exemplo B')!.amountCents).toBe(-4567);
+    expect(byDescription.get('Loja Exemplo A')!.categoryId).toBe(construcao.id);
+
+    const aliases = db
+      .select()
+      .from(schema.categoryImportAliases)
+      .all()
+      .map((alias) => alias.sourceNormalizedName);
+    expect(aliases).toContain('pagamento_recebido');
+
+    // Reimportação pelo mesmo caminho da tela: prévia com conta e decisões
+    // marca duplicidades, e a importação recebe essas linhas em rejectedRows.
+    const previewAgain = previewImport(
+      db,
+      csv,
+      'fatura-exemplo.csv',
+      preview.mapping,
+      undefined,
+      undefined,
+      undefined,
+      { destinationPaymentMethodId: destino.id, categoryDecisions: decisions },
+    );
+    expect(previewAgain.rows.every((row) => row.duplicate?.kind === 'exact')).toBe(true);
+    const rejectedRows = previewAgain.rows
+      .filter((row) => row.duplicate?.kind === 'exact')
+      .map((row) => row.rowNumber);
+
+    const second = importWorkbook(db, csv, 'fatura-exemplo.csv', {
+      mapping: preview.mapping,
+      destinationPaymentMethodId: destino.id,
+      categoryDecisions: decisions,
+      skipDuplicates: false,
+      rejectedRows,
+    });
+    expect(second.importedRows).toBe(0);
+    expect(second.explicitRejections).toBe(4);
+    expect(db.select().from(schema.transactions).all()).toHaveLength(4);
+  });
+
+  it('não persiste alias para sugestão automática não confirmada', () => {
+    const db = createTestDatabase().db;
+    const destino = ensureLookup(db, 'payment', 'Conta Destino');
+    const cartao = ensureLookup(db, 'category', 'Pagamento de cartão');
+    const csv = makeCsv(
+      ['03/02/2024;Pagamento Fatura;PAGAMENTO_RECEBIDO;Compra à vista;R$ 1.500,00'],
+      'Data compra;Lançamento;Categoria;parcela;Valor',
+    );
+    const preview = previewImport(db, csv, 't.csv');
+    const decisions = buildCategoryDecisions(preview.categorySuggestions, {});
+    expect(decisions.pagamento_recebido.action).toBe('accept');
+    expect(decisions.pagamento_recebido.confirmed).toBe(false);
+
+    importWorkbook(db, csv, 't.csv', {
+      mapping: preview.mapping,
+      destinationPaymentMethodId: destino.id,
+      categoryDecisions: decisions,
+    });
+    // A categoria sugerida foi aplicada no lote, mas sem aprendizado permanente.
+    const stored = db.select().from(schema.transactions).all();
+    expect(stored[0].categoryId).toBe(cartao.id);
+    expect(db.select().from(schema.categoryImportAliases).all()).toHaveLength(0);
+  });
+
+  it('permite importar duplicata intencional quando a linha não é rejeitada', () => {
+    const db = createTestDatabase().db;
+    const destino = ensureLookup(db, 'payment', 'Conta Destino');
+    const csv = makeCsv(
+      ['05/03/2024;Mercado X;Mercado;Parcela 1/2;R$ 20,00'],
+      'Data compra;Lançamento;Categoria;parcela;Valor',
+    );
+    const preview = previewImport(db, csv, 'd.csv');
+    const decisions = buildCategoryDecisions(preview.categorySuggestions, {});
+    const options = {
+      mapping: preview.mapping,
+      destinationPaymentMethodId: destino.id,
+      categoryDecisions: decisions,
+      skipDuplicates: false,
+    } as const;
+
+    importWorkbook(db, csv, 'd.csv', options);
+    const again = previewImport(
+      db,
+      csv,
+      'd.csv',
+      preview.mapping,
+      undefined,
+      undefined,
+      undefined,
+      { destinationPaymentMethodId: destino.id, categoryDecisions: decisions },
+    );
+    expect(again.rows[0].duplicate?.kind).toBe('exact');
+
+    // Usuário revisou a prévia e decidiu importar mesmo assim, sem rejeitar.
+    const summary = importWorkbook(db, csv, 'd.csv', { ...options, rejectedRows: [] });
+    expect(summary.importedRows).toBe(1);
+    expect(summary.skippedDuplicates).toBe(0);
+    expect(db.select().from(schema.transactions).all()).toHaveLength(2);
+  });
+
+  it('aplica a conta de destino somente às linhas sem conta do arquivo', () => {
+    const db = createTestDatabase().db;
+    const arquivo = ensureLookup(db, 'payment', 'Cartão do arquivo');
+    const destino = ensureLookup(db, 'payment', 'Conta Destino');
+    const csv = makeCsv(
+      [
+        '01/04/2024;Compra A;Mercado;Parcela 1/2;R$ 10,00;Cartão do arquivo',
+        '02/04/2024;Compra B;Mercado;Parcela 1/2;R$ 20,00;',
+      ],
+      'Data compra;Lançamento;Categoria;parcela;Valor;Pagamento',
+    );
+    const preview = previewImport(
+      db,
+      csv,
+      'p.csv',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { destinationPaymentMethodId: destino.id },
+    );
+    expect(preview.rows[0].values.paymentMethod).toBe('Cartão do arquivo');
+    // A linha sem conta continua sem conta na prévia; o destino é aplicado
+    // somente na gravação e apenas a ela.
+    expect(preview.rows[1].values.paymentMethod).toBeNull();
+
+    // Sem destino, a importação é bloqueada pela linha sem conta.
+    expect(() =>
+      importWorkbook(db, csv, 'p.csv', {
+        mapping: preview.mapping,
+        categoryDecisions: buildCategoryDecisions(preview.categorySuggestions, {}),
+      }),
+    ).toThrow(/Informe a conta\/forma de pagamento de destino/);
+
+    importWorkbook(db, csv, 'p.csv', {
+      mapping: preview.mapping,
+      destinationPaymentMethodId: destino.id,
+      categoryDecisions: buildCategoryDecisions(preview.categorySuggestions, {}),
+    });
+    const stored = db.select().from(schema.transactions).all();
+    const byDescription = new Map(stored.map((row) => [row.description, row]));
+    expect(byDescription.get('Compra A')!.paymentMethodId).toBe(arquivo.id);
+    expect(byDescription.get('Compra B')!.paymentMethodId).toBe(destino.id);
+  });
+
+  it('rejeita decisão de categoria com destino inexistente ou ausente', () => {
+    const db = createTestDatabase().db;
+    const destino = ensureLookup(db, 'payment', 'Conta Destino');
+    ensureLookup(db, 'category', 'Mercado');
+    const csv = makeCsv(
+      ['01/05/2024;Compra;Mercado;Parcela 1/2;R$ 10,00'],
+      'Data compra;Lançamento;Categoria;parcela;Valor',
+    );
+    const preview = previewImport(db, csv, 'i.csv');
+    expect(() =>
+      previewImport(db, csv, 'i.csv', preview.mapping, undefined, undefined, undefined, {
+        destinationPaymentMethodId: destino.id,
+        categoryDecisions: {
+          Mercado: {
+            action: 'accept',
+            sourceCategory: 'Mercado',
+            targetCategoryId: 999_999,
+          },
+        },
+      }),
+    ).toThrow(/Decisão de categoria inválida/);
+
+    expect(() =>
+      importWorkbook(db, csv, 'i.csv', {
+        mapping: preview.mapping,
+        destinationPaymentMethodId: destino.id,
+        categoryDecisions: {
+          Mercado: { action: 'accept', sourceCategory: 'Mercado', targetCategoryId: null },
+        },
+      }),
+    ).toThrow(/Decisão de categoria inválida/);
+
+    // Nada foi gravado nem criado silenciosamente.
+    expect(db.select().from(schema.transactions).all()).toHaveLength(0);
+    expect(db.select().from(schema.categoryImportAliases).all()).toHaveLength(0);
+  });
+
+  it('identifica vencimento fallback da compra quando não há parcela', () => {
+    const db = createTestDatabase().db;
+    const csv = makeCsv(
+      ['07/06/2024;Compra sem parcela;Mercado;;R$ 10,00'],
+      'Data compra;Lançamento;Categoria;parcela;Valor',
+    );
+    const preview = previewImport(db, csv, 'f.csv');
+    expect(preview.rows[0].values.dueDate).toBe('2024-06-07');
+    expect(preview.rows[0].values.dueDateSource).toBe('derived_from_purchase_fallback');
+  });
+
+  it('mantém paridade de duplicidade quando o arquivo já tem coluna de pagamento', () => {
+    const db = createTestDatabase().db;
+    ensureLookup(db, 'payment', 'Conta A');
+    ensureLookup(db, 'category', 'Supermercado');
+
+    const csv = makeCsv(
+      ['01/02/2024;Supermerc;Supermerc;Parcela 1/3;Conta A;R$ 30,00'],
+      'Data compra;Lançamento;Categoria;Parcela;Pagamento;Valor',
+    );
+    const preview = previewImport(db, csv, 'com-conta.csv');
+    expect(preview.mapping.paymentMethod).not.toBeUndefined();
+    const decisions = buildCategoryDecisions(preview.categorySuggestions, {});
+
+    importWorkbook(db, csv, 'com-conta.csv', {
+      mapping: preview.mapping,
+      categoryDecisions: decisions,
+    });
+    expect(db.select().from(schema.transactions).all()).toHaveLength(1);
+
+    // Sem conta de destino: a prévia usa apenas a conta do arquivo.
+    const previewAgain = previewImport(
+      db,
+      csv,
+      'com-conta.csv',
+      preview.mapping,
+      undefined,
+      undefined,
+      undefined,
+      { destinationPaymentMethodId: null, categoryDecisions: decisions },
+    );
+    expect(previewAgain.rows.every((row) => row.duplicate?.kind === 'exact')).toBe(true);
+  });
+
+  it('nunca aceita automaticamente sugestão ambígua ou de baixa confiança', () => {
+    const baseGroup = {
+      sourceCategory: 'Origem',
+      sourceNormalized: 'origem',
+      count: 1,
+      targetCategoryId: 7,
+      targetCategoryName: 'Destino',
+      reason: 'teste',
+      method: 'text_similarity',
+      alternatives: [],
+    };
+
+    const low = buildCategoryDecisions(
+      [{ ...baseGroup, confidence: 'low', ambiguous: false }],
+      {},
+    );
+    expect(low.origem.action).toBe('create');
+    expect(low.origem.confirmed).toBe(false);
+
+    const ambiguous = buildCategoryDecisions(
+      [{ ...baseGroup, confidence: 'high', ambiguous: true }],
+      {},
+    );
+    expect(ambiguous.origem.action).toBe('create');
+    expect(ambiguous.origem.targetCategoryId).toBeUndefined();
+    expect(ambiguous.origem.confirmed).toBe(false);
+  });
+
+  it('marca grupo ambíguo quando linhas da mesma origem têm sugestões diferentes', () => {
+    const db = createTestDatabase().db;
+    const destino = ensureLookup(db, 'payment', 'Conta Destino');
+    const cartao = ensureLookup(db, 'category', 'Pagamento de cartão');
+    ensureLookup(db, 'category', 'Pagamento de fornecedor');
+
+    const csv = makeCsv(
+      [
+        '01/02/2024;Pagamento fatura cartão;Pagamento;Parcela 1/2;R$ 10,00',
+        '02/02/2024;Pagamento fornecedor;Pagamento;Parcela 1/2;R$ 20,00',
+      ],
+      'Data compra;Lançamento;Categoria;parcela;Valor',
+    );
+    const preview = previewImport(db, csv, 't.csv');
+    const group = preview.categorySuggestions.find(
+      (item) => item.sourceNormalized === 'pagamento',
+    )!;
+    expect(group.count).toBe(2);
+    expect(group.ambiguous).toBe(true);
+
+    const decisions = buildCategoryDecisions(preview.categorySuggestions, {});
+    expect(decisions.pagamento.action).toBe('create');
+    expect(decisions.pagamento.confirmed).toBe(false);
+
+    importWorkbook(db, csv, 't.csv', {
+      mapping: preview.mapping,
+      destinationPaymentMethodId: destino.id,
+      categoryDecisions: decisions,
+    });
+    const pagamento = db
+      .select()
+      .from(schema.categories)
+      .all()
+      .find((category) => category.name === 'Pagamento')!;
+    const stored = db.select().from(schema.transactions).all();
+    expect(stored).toHaveLength(2);
+    expect(stored.every((row) => row.categoryId === pagamento.id)).toBe(true);
+    expect(stored.every((row) => row.categoryId !== cartao.id)).toBe(true);
+    expect(db.select().from(schema.categoryImportAliases).all()).toHaveLength(0);
+  });
+});
+
+describe('addendo4 - rotas de categoria', () => {
+  function multipart(parts: { name: string; value: string; filename?: string }[]): {
+    payload: string;
+    headers: Record<string, string>;
+  } {
+    const boundary = 'addendo4boundary';
+    const body = parts
+      .map((part) => {
+        const disposition = part.filename
+          ? `form-data; name="${part.name}"; filename="${part.filename}"`
+          : `form-data; name="${part.name}"`;
+        const contentType = part.filename ? 'Content-Type: text/csv\r\n' : '';
+        return `--${boundary}\r\nContent-Disposition: ${disposition}\r\n${contentType}\r\n${part.value}\r\n`;
+      })
+      .join('');
+    return {
+      payload: `${body}--${boundary}--\r\n`,
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    };
+  }
+
+  it('retorna 400 para payload de categoria inválido', async () => {
+    const handle = createTestDatabase();
+    const app = await buildApp({ db: handle.db, logger: false });
+    const csv = makeCsv(
+      ['01/02/2024;Compra;Mercado;Parcela 1/2;R$ 10,00'],
+      'Data compra;Lançamento;Categoria;parcela;Valor',
+    ).toString('utf8');
+    try {
+      const invalidAction = multipart([
+        { name: 'file', value: csv, filename: 'i.csv' },
+        {
+          name: 'categoryDecisions',
+          value: JSON.stringify({ Mercado: { action: 'inventar', sourceCategory: 'Mercado' } }),
+        },
+      ]);
+      const actionResponse = await app.inject({
+        method: 'POST',
+        url: '/api/imports/preview',
+        payload: invalidAction.payload,
+        headers: invalidAction.headers,
+      });
+      expect(actionResponse.statusCode).toBe(400);
+
+      const missingTarget = multipart([
+        { name: 'file', value: csv, filename: 'i.csv' },
+        {
+          name: 'categoryDecisions',
+          value: JSON.stringify({
+            Mercado: { action: 'accept', sourceCategory: 'Mercado', targetCategoryId: null },
+          }),
+        },
+      ]);
+      const missingResponse = await app.inject({
+        method: 'POST',
+        url: '/api/imports/preview',
+        payload: missingTarget.payload,
+        headers: missingTarget.headers,
+      });
+      expect(missingResponse.statusCode).toBe(400);
+
+      const unknownTarget = multipart([
+        { name: 'file', value: csv, filename: 'i.csv' },
+        {
+          name: 'categoryDecisions',
+          value: JSON.stringify({
+            Mercado: { action: 'accept', sourceCategory: 'Mercado', targetCategoryId: 999_999 },
+          }),
+        },
+      ]);
+      const unknownResponse = await app.inject({
+        method: 'POST',
+        url: '/api/imports/preview',
+        payload: unknownTarget.payload,
+        headers: unknownTarget.headers,
+      });
+      expect(unknownResponse.statusCode).toBe(400);
+
+      expect(handle.db.select().from(schema.transactions).all()).toHaveLength(0);
+    } finally {
+      await app.close();
+    }
+  });
+});
