@@ -9,9 +9,15 @@ Execute o pipeline com **todos** os gates na ordem: planner (G0) → implementer
 
 Regras:
 - Não pule gate, não aceite "passou" sem a saída literal do comando.
-- Rode reviewer, security e (quando independentes) qa em paralelo.
-- Se um gate falhar, devolva ao subagente certo com o erro colado. Máximo 3 ciclos por gate; no 3º, pare e escale.
+- Rode `reviewer` e `security` na mesma rodada (são independentes).
+- **Máximo de 2 rodadas por gate**; na 2ª, se ainda falhar, pare e escale ao usuário.
+- Reexecute um gate somente se o diff mudou (`git diff HEAD | sha256sum`). Hash igual = reaproveite o veredito.
+- **`git-commit` é o último passo** e só entra com G1–G5 verdes. Nenhum commit antes disso.
+- Execuções da suíte completa: máximo 2 (G1 e G5). Nos demais gates, rode escopo (`npm run test -w server -- tests/<arquivo>.test.ts`).
+- Orçamento do ciclo: 8 delegações, 45 min. Ao estourar, pare e reporte o estado parcial.
 - Não faça push.
+
+Ambiente: Bash em Linux, gerenciador **npm** (workspaces). Não use `pnpm` nem comandos PowerShell. Não existe script `lint` — typecheck é `npm run build`.
 
 Gate de build no estado atual:
 

@@ -1,0 +1,32 @@
+# Quebras de linha: LF no repositório (índice e working tree).
+# Motivo: o projeto é editado em Windows (CRLF) e Pop!_OS (LF). Sem esta
+# regra, o mesmo arquivo alterna entre CRLF e LF conforme a máquina, gerando
+# diffs inteiros de arquivos e ruído para o reviewer.
+#
+# Nota: `core.autocrlf=input` já normaliza CRLF->LF no índice nas duas
+# máquinas. Esta regra acrescenta o `eol=lf`, que também normaliza o
+# working tree. Nada é renormalizado retroativamente: o conteúdo atual dos
+# arquivos em disco só passa a LF em um checkout limpo.
+* text=auto eol=lf
+
+# Exceções que o Windows precisa ler com CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binários: nunca converter.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.xlsx binary
+*.xls binary
+*.pdf binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
