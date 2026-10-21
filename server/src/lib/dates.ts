@@ -94,7 +94,8 @@ export function parseIsoDate(input: unknown): ParseResult<string> {
 export type DueDateSource =
   | 'file'
   | 'estimated_from_installment'
-  | 'derived_from_cash_purchase';
+  | 'derived_from_cash_purchase'
+  | 'derived_from_purchase_fallback';
 
 function daysInMonth(year: number, month: number): number {
   if (month === 2) {

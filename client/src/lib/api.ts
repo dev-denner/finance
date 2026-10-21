@@ -3,6 +3,7 @@ import type {
   Bill,
   BillListResponse,
   CategoryClassification,
+  CategoryDecisionsPayload,
   ColumnMapping,
   ConsolidationResponse,
   DateField,
@@ -177,6 +178,10 @@ export const api = {
     overrides?: ImportOverrides,
     toleranceDays?: number,
     templateId?: number,
+    options?: {
+      destinationPaymentMethodId?: number | null;
+      categoryDecisions?: CategoryDecisionsPayload;
+    },
   ) => {
     const form = new FormData();
     form.append('file', file);
@@ -184,6 +189,12 @@ export const api = {
     if (overrides) form.append('overrides', JSON.stringify(overrides));
     if (toleranceDays !== undefined) form.append('toleranceDays', String(toleranceDays));
     if (templateId !== undefined) form.append('templateId', String(templateId));
+    if (options?.destinationPaymentMethodId !== undefined && options.destinationPaymentMethodId !== null) {
+      form.append('destinationPaymentMethodId', String(options.destinationPaymentMethodId));
+    }
+    if (options?.categoryDecisions) {
+      form.append('categoryDecisions', JSON.stringify(options.categoryDecisions));
+    }
     return request<ImportPreview>('/imports/preview', { method: 'POST', body: form });
   },
 
@@ -194,11 +205,13 @@ export const api = {
       overrides?: ImportOverrides;
       skipDuplicates: boolean;
       rejectedRows: number[];
+      /** Linhas que o usuário escolheu importar mesmo sendo duplicatas. */
+      includedDuplicateRows?: number[];
       toleranceDays?: number;
       transferDecisions?: Record<string, TransferDecision>;
       templateId?: number;
       destinationPaymentMethodId?: number | null;
-      categoryDecisions?: unknown;
+      categoryDecisions?: CategoryDecisionsPayload;
     },
   ) => {
     const form = new FormData();
@@ -207,6 +220,9 @@ export const api = {
     form.append('overrides', JSON.stringify(options.overrides ?? {}));
     form.append('skipDuplicates', String(options.skipDuplicates));
     form.append('rejectedRows', JSON.stringify(options.rejectedRows));
+    if (options.includedDuplicateRows !== undefined) {
+      form.append('includedDuplicateRows', JSON.stringify(options.includedDuplicateRows));
+    }
     if (options.toleranceDays !== undefined) {
       form.append('toleranceDays', String(options.toleranceDays));
     }

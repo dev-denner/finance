@@ -89,7 +89,34 @@ export function suggestCategory(
     }
   }
 
-  // 4. Similaridade textual.
+  // 4. Contextual: pagamento de fatura/cartão. Vem antes da similaridade
+  // textual porque distância de texto isolada não deve decidir equivalência
+  // financeira. Exige descrição de fatura/cartão e categoria de origem de
+  // pagamento, evitando confundir "pagamento de fornecedor" com cartão.
+  const descriptionNormalized = normalizeName(description ?? '');
+  const looksLikeCardPayment =
+    descriptionNormalized.includes('fatura') || descriptionNormalized.includes('cartao');
+  if (looksLikeCardPayment && sourceNormalized.includes('pagamento')) {
+    const contextual = allCategories.find((category) => {
+      const normalized = normalizeName(category.name);
+      return normalized.includes('pagamento') && normalized.includes('cartao');
+    });
+    if (contextual) {
+      return {
+        sourceCategory,
+        sourceNormalized,
+        targetCategoryId: contextual.id,
+        targetCategoryName: contextual.name,
+        confidence: 'medium',
+        reason: 'Descrição indica fatura/cartão e a categoria de origem é de pagamento.',
+        method: 'contextual',
+        ambiguous: false,
+        alternatives,
+      };
+    }
+  }
+
+  // 5. Similaridade textual.
   const scored = allCategories
     .map((category) => {
       const score = Math.max(
@@ -123,31 +150,6 @@ export function suggestCategory(
       ambiguous,
       alternatives,
     };
-  }
-
-  // 5. Contextual: pagamento/fatura.
-  const descriptionNormalized = normalizeName(description ?? '');
-  if (
-    (descriptionNormalized.includes('pagamento') || descriptionNormalized.includes('fatura')) &&
-    sourceNormalized.includes('pagamento')
-  ) {
-    const contextual = allCategories.find((category) => {
-      const normalized = normalizeName(category.name);
-      return normalized.includes('pagamento') && normalized.includes('cartao');
-    });
-    if (contextual) {
-      return {
-        sourceCategory,
-        sourceNormalized,
-        targetCategoryId: contextual.id,
-        targetCategoryName: contextual.name,
-        confidence: 'medium',
-        reason: 'Lançamento identificado como pagamento de cartão.',
-        method: 'contextual',
-        ambiguous: false,
-        alternatives,
-      };
-    }
   }
 
   return {

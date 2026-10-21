@@ -78,7 +78,7 @@ export interface Transaction {
   purchaseDate: string;
   /** Origem da data de compra: arquivo, derivada do vencimento ou não registrada. */
   purchaseDateSource: 'file' | 'due_date_fallback' | null;
-  dueDateSource: 'file' | 'estimated_from_installment' | 'derived_from_cash_purchase' | null;
+  dueDateSource: 'file' | 'estimated_from_installment' | 'derived_from_cash_purchase' | 'derived_from_purchase_fallback' | null;
   dueDate: string;
   description: string;
   amountCents: number;
@@ -225,7 +225,7 @@ export interface PreviewValues {
   purchaseDateSource: 'file' | 'due_date_fallback' | null;
   dueDate: string | null;
   /** Origem da data de vencimento: arquivo ou derivada da data de compra. */
-  dueDateSource: 'file' | 'estimated_from_installment' | 'derived_from_cash_purchase' | null;
+  dueDateSource: 'file' | 'estimated_from_installment' | 'derived_from_cash_purchase' | 'derived_from_purchase_fallback' | null;
   description: string;
   amountCents: number | null;
   paymentMethod: string | null;
@@ -308,6 +308,18 @@ export interface CategorySuggestionGroup {
   ambiguous: boolean;
   alternatives: CategorySuggestionAlternative[];
 }
+
+/** Decisão enviada pelo cliente para resolver uma categoria de origem. */
+export interface CategoryDecisionPayload {
+  action: 'accept' | 'use' | 'create' | 'reject';
+  sourceCategory?: string | null;
+  targetCategoryId?: number | null;
+  newCategoryName?: string | null;
+  /** true somente para escolha explícita do usuário (aceite/uso). */
+  confirmed?: boolean;
+}
+
+export type CategoryDecisionsPayload = Record<string, CategoryDecisionPayload>;
 
 export interface PreviewRow {
   rowNumber: number;

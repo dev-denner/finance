@@ -39,6 +39,15 @@ import { useMeta } from '../context/MetaContext';
 import { useToast } from '../context/ToastContext';
 import { api, errorMessage } from '../lib/api';
 import {
+  buildCategoryDecisions,
+  buildImportIdentity,
+  canAutoAcceptSuggestion,
+  importIdentityKey,
+  isMappingIdentityCompatible,
+  isReviewableCategoryGroup,
+  resolveIncludedDuplicateRows,
+} from '../lib/import-decisions';
+import {
   formatBRL,
   formatDateBR,
   formatDateTimeBR,
@@ -47,6 +56,8 @@ import {
   isoToParts,
 } from '../lib/format';
 import type {
+  CategoryDecisionsPayload,
+  CategorySuggestionGroup,
   ColumnMapping,
   DuplicateCounterpart,
   DuplicateInfo,
@@ -70,7 +81,7 @@ const FIELD_CONFIG: {
   required: boolean;
 }[] = [
   { field: 'purchaseDate', label: 'Data Compra', required: false },
-  { field: 'dueDate', label: 'Vencimento', required: true },
+  { field: 'dueDate', label: 'Vencimento', required: false },
   { field: 'description', label: 'Compra', required: true },
   { field: 'amount', label: 'Valor', required: true },
   { field: 'paymentMethod', label: 'Pagamento', required: false },
@@ -317,9 +328,11 @@ function CorrectionModal({
                 ? 'Aceita -R$ 500,00, R$ 1.250,50 e -R$ 500.00'
                 : config.field === 'installments'
                   ? 'Ex.: 1/12 ou 12x'
-                  : config.field === 'purchaseDate' || config.field === 'dueDate'
+                  : config.field === 'purchaseDate'
                     ? 'DD/MM/AAAA'
-                    : undefined
+                    : config.field === 'dueDate'
+                      ? 'Opcional: calculado pela data de compra e parcela'
+                      : undefined
             }
           >
             <input
@@ -1090,12 +1103,21 @@ function InstallmentRecoverySection({
 }
 
 export function ImportsPage() {
-  const { refresh: refreshMeta } = useMeta();
+  const { meta, refresh: refreshMeta } = useMeta();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const fileInput = useRef<HTMLInputElement>(null);
   const previewRequest = useRef(0);
   const previousPreview = useRef<ImportPreview | null>(null);
+  // Mantém a identidade usada na prévia alinhada com a importação mesmo quando
+  // o usuário remapeia colunas ou corrige linhas.
+  const destinationRef = useRef<number | null>(null);
+  const decisionsRef = useRef<CategoryDecisionsPayload>({});
+  const previewGroupsRef = useRef<CategorySuggestionGroup[]>([]);
+  /** Identidade (conta + decisões) usada na última prévia bem-sucedida. */
+  const previewIdentityRef = useRef('');
+  /** Espelho em estado para bloquear a importação durante o debounce. */
+  const [syncedIdentity, setSyncedIdentity] = useState('');
 
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -1129,6 +1151,10 @@ export function ImportsPage() {
   const [savingTemplate, setSavingTemplate] = useState(false);
   /** Último modelo aplicado a este arquivo (é registrado no lote importado). */
   const [appliedTemplateId, setAppliedTemplateId] = useState<number | null>(null);
+  /** Conta de destino quando o arquivo não tem coluna de pagamento. */
+  const [destinationPaymentMethodId, setDestinationPaymentMethodId] = useState<number | null>(null);
+  /** Decisões de categoria por categoria de origem, agrupadas na prévia. */
+  const [categoryDecisions, setCategoryDecisions] = useState<CategoryDecisionsPayload>({});
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -1164,12 +1190,28 @@ export function ImportsPage() {
       nextMapping?: ColumnMapping,
       nextOverrides?: ImportOverrides,
       nextTemplateId?: number,
+      nextOptions?: {
+        destinationPaymentMethodId?: number | null;
+        categoryDecisions?: CategoryDecisionsPayload;
+      },
+      preserveDrafts = false,
+      silentSync = false,
     ) => {
       const requestId = previewRequest.current + 1;
       previewRequest.current = requestId;
       const priorPreview = previousPreview.current;
       setLoadingPreview(true);
       setError(null);
+      // Sem opções explícitas, replica exatamente as decisões que a importação
+      // vai enviar (incluindo aceites automáticos), para que a duplicidade da
+      // prévia use a mesma identidade gravada.
+      const options = nextOptions ?? {
+        destinationPaymentMethodId: destinationRef.current,
+        categoryDecisions: buildCategoryDecisions(
+          previewGroupsRef.current,
+          decisionsRef.current,
+        ),
+      };
       try {
         const response = await api.previewImport(
           selectedFile,
@@ -1177,8 +1219,12 @@ export function ImportsPage() {
           nextOverrides ?? overrides,
           undefined,
           nextTemplateId,
+          options,
         );
         if (requestId !== previewRequest.current) return;
+        const identity = JSON.stringify(options);
+        previewIdentityRef.current = identity;
+        setSyncedIdentity(identity);
         if (response.appliedTemplate) {
           setAppliedTemplateId(response.appliedTemplate.id);
         }
@@ -1186,7 +1232,7 @@ export function ImportsPage() {
           priorPreview !== null &&
           duplicateGroupSignature(priorPreview.rows) !==
             duplicateGroupSignature(response.rows);
-        if (groupsChanged) {
+        if (groupsChanged && !silentSync) {
           setDuplicateNotice(
             'A estrutura de duplicidades foi recalculada após a edição. As decisões anteriores foram preservadas; confira a seleção antes de importar.',
           );
@@ -1201,20 +1247,23 @@ export function ImportsPage() {
           }
           return next;
         });
-        setInlineDrafts({});
-        const validRows = new Set(response.rows.map((row) => row.rowNumber));
+        setInlineDrafts((current) => (preserveDrafts ? current : {}));
+        const rowNumbers = new Set(response.rows.map((row) => row.rowNumber));
         setRejected(
-          (current) => new Set([...current].filter((rowNumber) => validRows.has(rowNumber))),
+          (current) => new Set([...current].filter((rowNumber) => rowNumbers.has(rowNumber))),
         );
         setDuplicateIncludes(
-          (current) => new Set([...current].filter((rowNumber) => validRows.has(rowNumber))),
+          (current) => new Set([...current].filter((rowNumber) => rowNumbers.has(rowNumber))),
         );
       } catch (err) {
         if (requestId !== previewRequest.current) return;
-        previousPreview.current = null;
-        setDuplicateNotice(null);
+        // Re-prévia automática não deve apagar a revisão atual em caso de falha.
+        if (!silentSync) {
+          previousPreview.current = null;
+          setDuplicateNotice(null);
+          setPreview(null);
+        }
         setError(errorMessage(err));
-        setPreview(null);
         showToast(errorMessage(err), 'error');
       } finally {
         if (requestId === previewRequest.current) setLoadingPreview(false);
@@ -1222,6 +1271,44 @@ export function ImportsPage() {
     },
     [overrides, showToast],
   );
+
+  // Sincroniza a identidade usada por padrão em toda prévia (remapeamento,
+  // correção, modelo) com a conta e as decisões atuais.
+  useEffect(() => {
+    destinationRef.current = destinationPaymentMethodId;
+    decisionsRef.current = categoryDecisions;
+    previewGroupsRef.current = preview?.categorySuggestions ?? [];
+  });
+
+  // A prévia precisa usar a mesma identidade que a importação (conta de
+  // destino + decisões de categoria, incluindo aceites automáticos). Quando a
+  // prévia atual foi calculada com outra identidade, recalcula uma vez.
+  useEffect(() => {
+    if (!file || !preview) return;
+    const identity = buildImportIdentity(
+      preview.categorySuggestions,
+      categoryDecisions,
+      destinationPaymentMethodId,
+    );
+    const desired = importIdentityKey(identity);
+    if (desired === previewIdentityRef.current) return;
+    const timer = window.setTimeout(() => {
+      void runPreview(
+        file,
+        mapping,
+        overrides,
+        appliedTemplateId ?? undefined,
+        {
+          destinationPaymentMethodId: identity.destinationPaymentMethodId,
+          categoryDecisions: identity.categoryDecisions,
+        },
+        true,
+        true,
+      );
+    }, 300);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview, destinationPaymentMethodId, categoryDecisions]);
 
   const resetImport = useCallback(() => {
     previewRequest.current += 1;
@@ -1242,6 +1329,13 @@ export function ImportsPage() {
     setLoadingPreview(false);
     setAppliedTemplateId(null);
     setTemplateName('');
+    setDestinationPaymentMethodId(null);
+    setCategoryDecisions({});
+    destinationRef.current = null;
+    decisionsRef.current = {};
+    previewGroupsRef.current = [];
+    previewIdentityRef.current = '';
+    setSyncedIdentity('');
     if (fileInput.current) fileInput.current.value = '';
   }, []);
 
@@ -1267,6 +1361,13 @@ export function ImportsPage() {
     setTransferDecisions({});
     setError(null);
     setAppliedTemplateId(null);
+    setDestinationPaymentMethodId(null);
+    setCategoryDecisions({});
+    destinationRef.current = null;
+    decisionsRef.current = {};
+    previewGroupsRef.current = [];
+    previewIdentityRef.current = '';
+    setSyncedIdentity('');
     void runPreview(selectedFile, undefined, {});
   };
 
@@ -1283,6 +1384,21 @@ export function ImportsPage() {
       [field]: value === '' ? null : Number(value),
     };
     setMapping(next);
+    if (!isMappingIdentityCompatible(mapping, next)) {
+      // A conta de destino e as decisões de categoria dependem das colunas de
+      // conta e categoria do arquivo. Uma seleção feita para o mapeamento
+      // anterior não pode ser reutilizada em silêncio: ela é descartada e o
+      // usuário precisa escolher de novo.
+      setDestinationPaymentMethodId(null);
+      setCategoryDecisions({});
+      destinationRef.current = null;
+      decisionsRef.current = {};
+      // Os grupos da prévia anterior não valem para o novo mapeamento.
+      previewGroupsRef.current = [];
+      setDuplicateNotice(
+        'O mapeamento mudou nas colunas de conta/categoria. Selecione a conta de destino e revise as categorias antes de importar.',
+      );
+    }
     if (file) void runPreview(file, next, overrides);
   };
 
@@ -1763,27 +1879,70 @@ export function ImportsPage() {
     [preview, templates, appliedTemplateId],
   );
 
+  // A conta só é obrigatória quando alguma linha que será importada não tem conta.
+  const needsDestinationAccount = acceptedRows.some(
+    (row) => row.values.paymentMethod == null,
+  );
+
+  const reviewCategoryGroups = useMemo(
+    () => (preview?.categorySuggestions ?? []).filter(isReviewableCategoryGroup),
+    [preview],
+  );
+
+  // A importação só é liberada quando a prévia exibida já usou a mesma
+  // identidade (conta + decisões) que será enviada. Fecha a janela do debounce
+  // em que o usuário poderia importar com a tabela desatualizada.
+  const desiredIdentity = importIdentityKey(
+    buildImportIdentity(
+      preview?.categorySuggestions ?? [],
+      categoryDecisions,
+      destinationPaymentMethodId,
+    ),
+  );
+
   const canImport =
     Boolean(file) &&
     Boolean(preview) &&
     preview!.mappingErrors.length === 0 &&
     acceptedRows.length > 0 &&
     !loadingPreview &&
-    !importing;
+    !importing &&
+    desiredIdentity === syncedIdentity &&
+    (!needsDestinationAccount || destinationPaymentMethodId !== null);
 
   const executeImport = async () => {
     if (!file || !preview) return;
+    if (needsDestinationAccount && destinationPaymentMethodId === null) return;
     setImporting(true);
     try {
+      // Cada grupo recebe uma decisão explícita. A mesma função alimenta a
+      // prévia, garantindo identidade de duplicidade igual à da importação.
+      const identity = buildImportIdentity(
+        preview.categorySuggestions,
+        categoryDecisions,
+        destinationPaymentMethodId,
+      );
+      // Duplicata só entra quando o usuário pediu explicitamente. O servidor
+      // trata a lista como autoridade.
+      const includedDuplicateRows = resolveIncludedDuplicateRows(preview.rows, {
+        skipDuplicates,
+        duplicateIncludes,
+      });
+
       const response = await api.importFile(file, {
         mapping,
         overrides,
         // As decisões da revisão são enviadas explicitamente em rejectedRows.
         skipDuplicates: false,
         rejectedRows: [...effectiveRejected],
+        includedDuplicateRows,
         toleranceDays: preview.transferToleranceDays,
         transferDecisions,
         templateId: appliedTemplateId ?? undefined,
+        // A conta de destino é enviada sempre, igual à prévia: é parte da
+        // identidade usada para calcular a duplicidade.
+        destinationPaymentMethodId: destinationPaymentMethodId ?? undefined,
+        categoryDecisions: identity.categoryDecisions,
       });
       setSummary(response);
       showToast(
@@ -2079,6 +2238,183 @@ export function ImportsPage() {
                 </div>
               </div>
 
+              {needsDestinationAccount && (
+                <div className="card overflow-hidden">
+                  <div className="flex flex-wrap items-center gap-3 border-b border-ink-200 px-4 py-3 dark:border-ink-800">
+                    <div>
+                      <h2 className="text-sm font-semibold text-ink-900 dark:text-white">
+                        Conta de destino do lote
+                      </h2>
+                      <p className="text-[11px] text-ink-400">
+                        Algumas linhas não trazem conta/pagamento. Escolha a conta usada apenas
+                        nessas linhas; as contas informadas no arquivo são preservadas.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3">
+                    <select
+                      className="select max-w-sm"
+                      value={destinationPaymentMethodId ?? ''}
+                      onChange={(event) =>
+                        setDestinationPaymentMethodId(
+                          event.target.value ? Number(event.target.value) : null,
+                        )
+                      }
+                    >
+                      <option value="">Selecione uma conta…</option>
+                      {(meta?.paymentMethods ?? []).map((paymentMethod) => (
+                        <option key={paymentMethod.id} value={paymentMethod.id}>
+                          {paymentMethod.name}
+                        </option>
+                      ))}
+                    </select>
+                    {destinationPaymentMethodId === null && (
+                      <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                        Selecione uma conta para liberar a importação.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {reviewCategoryGroups.length > 0 && (
+                <div className="card overflow-hidden">
+                  <div className="border-b border-ink-200 px-4 py-3 dark:border-ink-800">
+                    <h2 className="text-sm font-semibold text-ink-900 dark:text-white">
+                      Revisão de categorias
+                    </h2>
+                    <p className="text-[11px] text-ink-400">
+                      Sugestões agrupadas por categoria de origem. A decisão vale para todas as
+                      linhas do grupo. Sugestões ambíguas não são aplicadas sozinhas e aliases só
+                      são salvos ao confirmar uma equivalência.
+                    </p>
+                  </div>
+                  <ul className="divide-y divide-ink-200 dark:divide-ink-800">
+                    {reviewCategoryGroups
+                      .map((group) => {
+                        const chosen = categoryDecisions[group.sourceNormalized];
+                        const canAutoAccept = canAutoAcceptSuggestion(group);
+                        const currentValue =
+                          chosen === undefined
+                            ? canAutoAccept
+                              ? 'accept'
+                              : 'create'
+                            : chosen.action === 'use'
+                              ? `cat:${chosen.targetCategoryId}`
+                              : chosen.action;
+                        const confidenceLabel =
+                          group.confidence === 'high'
+                            ? 'alta'
+                            : group.confidence === 'medium'
+                              ? 'média'
+                              : 'baixa';
+                        return (
+                          <li
+                            key={group.sourceNormalized}
+                            className="flex flex-wrap items-start justify-between gap-3 px-4 py-3"
+                          >
+                            <div className="min-w-[240px] flex-1">
+                              <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-ink-900 dark:text-white">
+                                {group.sourceCategory}
+                                <span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10px] font-normal text-ink-500 dark:bg-ink-800 dark:text-ink-400">
+                                  {group.count} linha(s)
+                                </span>
+                                <span
+                                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                                    group.confidence === 'high'
+                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                                      : group.confidence === 'medium'
+                                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                                        : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                                  }`}
+                                  title="Nível de confiança da sugestão"
+                                >
+                                  confiança {confidenceLabel}
+                                </span>
+                                {group.ambiguous && (
+                                  <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                                    ambígua
+                                  </span>
+                                )}
+                              </p>
+                              <p className="mt-0.5 text-[11px] text-ink-500 dark:text-ink-400">
+                                {group.reason}
+                                {group.targetCategoryName
+                                  ? ` Sugestão: ${group.targetCategoryName}.`
+                                  : ''}
+                              </p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                              <select
+                                className="select h-8 max-w-[260px] text-[12px]"
+                                value={currentValue}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setCategoryDecisions((previous) => ({
+                                    ...previous,
+                                    [group.sourceNormalized]: value.startsWith('cat:')
+                                      ? {
+                                          action: 'use',
+                                          targetCategoryId: Number(value.slice(4)),
+                                        }
+                                      : value === 'accept'
+                                        ? {
+                                            action: 'accept',
+                                            targetCategoryId: group.targetCategoryId ?? undefined,
+                                          }
+                                        : { action: 'create' },
+                                  }));
+                                }}
+                              >
+                                {group.targetCategoryId !== null && (
+                                  <option value="accept">
+                                    Usar sugerida{group.targetCategoryName
+                                      ? ` (${group.targetCategoryName})`
+                                      : ''}
+                                  </option>
+                                )}
+                                <option value="create">Criar “{group.sourceCategory}”</option>
+                                {(meta?.categories ?? []).length > 0 && (
+                                  <optgroup label="Escolher categoria existente">
+                                    {(meta?.categories ?? []).map((category) => (
+                                      <option key={category.id} value={`cat:${category.id}`}>
+                                        {category.name}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                              {currentValue === 'accept' && chosen === undefined && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCategoryDecisions((previous) => ({
+                                      ...previous,
+                                      [group.sourceNormalized]: {
+                                        action: 'accept',
+                                        targetCategoryId: group.targetCategoryId ?? undefined,
+                                      },
+                                    }))
+                                  }
+                                  className="text-[10px] font-semibold text-blue-600 transition hover:text-blue-500 dark:text-blue-400"
+                                  title="Salvar esta equivalência como alias para próximas importações"
+                                >
+                                  Salvar equivalência
+                                </button>
+                              )}
+                              {chosen !== undefined && chosen.action !== 'create' && (
+                                <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                                  Equivalência confirmada
+                                </span>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </div>
+              )}
+
               <div className="card overflow-hidden">
                 <div className="flex flex-wrap items-center gap-3 border-b border-ink-200 px-4 py-3 dark:border-ink-800">
                   <div>
@@ -2265,6 +2601,30 @@ export function ImportsPage() {
                               {row.values.dueDate
                                 ? formatDateBR(row.values.dueDate)
                                 : row.raw.dueDate || '—'}
+                              {row.values.dueDateSource === 'estimated_from_installment' && (
+                                <span
+                                  className="ml-1.5 rounded bg-blue-50 px-1 align-middle text-[9px] font-semibold uppercase text-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+                                  title="Vencimento não informado no arquivo: calculado pela data de compra e pela parcela atual. Pode diferir do vencimento bancário real."
+                                >
+                                  estimado
+                                </span>
+                              )}
+                              {row.values.dueDateSource === 'derived_from_purchase_fallback' && (
+                                <span
+                                  className="ml-1.5 rounded bg-ink-100 px-1 align-middle text-[9px] font-semibold uppercase text-ink-500 dark:bg-ink-800 dark:text-ink-300"
+                                  title="Sem vencimento e sem parcela válida: assumido igual à data de compra, sem cálculo de parcela."
+                                >
+                                  sem parcela
+                                </span>
+                              )}
+                              {row.values.dueDateSource === 'derived_from_cash_purchase' && (
+                                <span
+                                  className="ml-1.5 rounded bg-emerald-50 px-1 align-middle text-[9px] font-semibold uppercase text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                  title="Compra à vista: vencimento considerado igual à data de compra."
+                                >
+                                  à vista
+                                </span>
+                              )}
                             </td>
                             <td className="td whitespace-nowrap">
                               {row.values.estimatedFirstInstallmentDate ? (

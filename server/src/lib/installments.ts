@@ -38,10 +38,11 @@ export interface InstallmentParseResult {
 export function isCashPurchaseText(value: unknown): boolean {
   const normalized = normalizeName(String(value ?? ''));
   if (!normalized) return false;
+  // Aceita apenas a expressão isolada (com "compra" opcional). Evita casar
+  // "Loja Vista" ou "Ótica A Vista" como se fossem compra à vista.
   return (
-    normalized.includes('a vista') ||
-    normalized.includes('avista') ||
-    normalized === 'vista'
+    /^(?:compra\s+)?(?:a\s+)?vista$/.test(normalized) ||
+    /^(?:compra\s+)?avista$/.test(normalized)
   );
 }
 

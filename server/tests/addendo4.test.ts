@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMonthsIso, parseDateValue } from '../src/lib/dates';
+import { addMonthsIso } from '../src/lib/dates';
 import type { DueDateSource } from '../src/lib/dates';
 import {
   deriveDueDateFromPurchase,
@@ -13,9 +13,11 @@ import {
   previewImport,
   REQUIRED_FIELDS,
 } from '../src/services/import';
-import { createTestDatabase, makeCsv, csvBuffer } from './helpers';
+import { createTestDatabase, makeCsv } from './helpers';
 import * as schema from '../src/db/schema';
 import { ensureLookup } from '../src/services/lookups';
+import { buildCategoryDecisions } from '../../client/src/lib/import-decisions';
+import { buildApp } from '../src/app';
 
 describe('addendo4 - datas', () => {
   it('addMonthsIso adiciona meses com clamp de fim de mês e ano bissexto', () => {
@@ -53,6 +55,25 @@ describe('addendo4 - parcelas', () => {
     expect(cash.value.total).toBeNull();
     expect(cash.cashPurchase).toBe(true);
     expect(isCashPurchaseText('Compra à vista')).toBe(true);
+  });
+
+  it('não confunde nome de estabelecimento com compra à vista', () => {
+    expect(isCashPurchaseText('Loja Vista')).toBe(false);
+    expect(isCashPurchaseText('Ótica A Vista')).toBe(false);
+    expect(isCashPurchaseText('Vista')).toBe(true);
+    expect(isCashPurchaseText('compra a vista')).toBe(true);
+
+    const db = createTestDatabase();
+    const csv = makeCsv(
+      ['10/01/2024;Loja Vista;Mercado;Parcela 5/12;R$ 100,00'],
+      'Data compra;Lançamento;Categoria;parcela;Valor',
+    );
+    const preview = previewImport(db.db, csv, 't.csv');
+    const values = preview.rows[0].values;
+    expect(values.installmentNumber).toBe(5);
+    expect(values.installmentTotal).toBe(12);
+    expect(values.dueDate).toBe('2024-05-10');
+    expect(values.dueDateSource).toBe('estimated_from_installment');
   });
 
   it('não trata serial do Excel como parcela', () => {
@@ -143,8 +164,7 @@ describe('addendo4 - import', () => {
 
   it('importWorkbook usa destino e persiste alias em accept', () => {
     const db = createTestDatabase();
-    ensureLookup(db.db, 'payment', 'Conta Destino');
-    const destino = db.db.select().from(schema.paymentMethods).all().find((p: any) => p.name === 'Conta Destino')!;
+    const destino = ensureLookup(db.db, 'payment', 'Conta Destino');
     const mercado = ensureLookup(db.db, 'category', 'Mercado');
     ensureLookup(db.db, 'category', 'Supermercado');
 
@@ -153,20 +173,23 @@ describe('addendo4 - import', () => {
       'Data Compra;Vencimento;Compra;Valor;Pagamento;Categorias',
     );
     const preview = previewImport(db.db, csv, 't.csv');
-    const suggestion = preview.rows[0].categorySuggestion;
     const summary = importWorkbook(db.db, csv, 't.csv', {
       mapping: preview.mapping,
       destinationPaymentMethodId: destino.id,
       categoryDecisions: {
-        Mercado: { action: 'accept', sourceCategory: 'Mercado', targetCategoryId: mercado.id },
+        Mercado: {
+          action: 'accept',
+          sourceCategory: 'Mercado',
+          targetCategoryId: mercado.id,
+          confirmed: true,
+        },
       },
     });
     expect(summary.importedRows).toBe(1);
 
-    // alias persisted? target same as source normalized -> no alias because distinct false; test distinct target
+    // Alias só é criado quando o alvo tem nome normalizado diferente da origem.
     const db2 = createTestDatabase();
-    ensureLookup(db2.db, 'payment', 'Conta Destino');
-    const destino2 = db2.db.select().from(schema.paymentMethods).all().find((p: any) => p.name === 'Conta Destino')!;
+    const destino2 = ensureLookup(db2.db, 'payment', 'Conta Destino');
     ensureLookup(db2.db, 'category', 'Mercado');
     const superm = ensureLookup(db2.db, 'category', 'Supermercado');
     const csv2 = makeCsv(
@@ -177,7 +200,12 @@ describe('addendo4 - import', () => {
       mapping: preview.mapping,
       destinationPaymentMethodId: destino2.id,
       categoryDecisions: {
-        Mercado: { action: 'use', sourceCategory: 'Mercado', targetCategoryId: superm.id },
+        Mercado: {
+          action: 'use',
+          sourceCategory: 'Mercado',
+          targetCategoryId: superm.id,
+          confirmed: true,
+        },
       },
     });
     const aliasRow = db2.db.select().from(schema.categoryImportAliases).all();
@@ -348,8 +376,7 @@ describe('addendo4 - import (bordas)', () => {
 
   it('importWorkbook persiste alias na ação accept com alvo distinto', () => {
     const db = createTestDatabase();
-    ensureLookup(db.db, 'payment', 'Conta Destino');
-    const destino = db.db.select().from(schema.paymentMethods).all().find((p: any) => p.name === 'Conta Destino')!;
+    const destino = ensureLookup(db.db, 'payment', 'Conta Destino');
     ensureLookup(db.db, 'category', 'Mercado');
     const superm = ensureLookup(db.db, 'category', 'Supermercado');
 
@@ -362,7 +389,12 @@ describe('addendo4 - import (bordas)', () => {
       mapping: preview.mapping,
       destinationPaymentMethodId: destino.id,
       categoryDecisions: {
-        Mercado: { action: 'accept', sourceCategory: 'Mercado', targetCategoryId: superm.id },
+        Mercado: {
+          action: 'accept',
+          sourceCategory: 'Mercado',
+          targetCategoryId: superm.id,
+          confirmed: true,
+        },
       },
     });
     const aliasRow = db.db.select().from(schema.categoryImportAliases).all();

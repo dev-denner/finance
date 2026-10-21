@@ -291,7 +291,9 @@ export function deleteLookup(
       reassigned = result.changes;
     }
 
-    if (kind === 'category') {
+    // Sem uso (sem destino de reatribuição) o ON DELETE cascade remove os
+    // aliases; não há valor para atualizar.
+    if (kind === 'category' && reassignTo !== undefined) {
       tx
         .update(categoryImportAliases)
         .set({ targetCategoryId: reassignTo })

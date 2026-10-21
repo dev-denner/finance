@@ -4,7 +4,7 @@ import { desc, eq } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
 import { categories, importBatches, importMappingTemplates, paymentMethods, transactions } from '../db/schema';
 import { parseDateValue, type DueDateSource } from '../lib/dates';
-import { badRequest, nowIso } from '../lib/errors';
+import { badRequest, HttpError, nowIso } from '../lib/errors';
 import {
   deriveDueDateFromPurchase,
   estimateFirstInstallmentDate,
@@ -237,6 +237,8 @@ export interface CategoryDecision {
   sourceCategory?: string | null;
   targetCategoryId?: number | null;
   newCategoryName?: string | null;
+  /** false quando a decisão foi apenas o padrão da UI (não confirmada pelo usuário). */
+  confirmed?: boolean;
 }
 
 export type CategoryDecisions = Record<string, CategoryDecision>;
@@ -248,6 +250,12 @@ export interface ImportOptions {
   overrides?: ImportOverrides;
   skipDuplicates?: boolean;
   rejectedRows?: number[];
+  /**
+   * Linhas que o usuário escolheu importar mesmo sendo duplicatas exatas.
+   * Quando presente, o servidor é a autoridade: duplicata exata só entra se
+   * estiver nesta lista. Ausente, vale a semântica legada de `skipDuplicates`.
+   */
+  includedDuplicateRows?: number[];
   transferToleranceDays?: number;
   transferDecisions?: Record<string, TransferDecision>;
   /** Modelo de mapeamento aplicado nesta importação (registra no lote). */
@@ -657,7 +665,10 @@ export function parseRowFields(
     } else {
       const derived = deriveDueDateFromPurchase(purchase.value, installmentNumber);
       dueDate = derived ?? purchase.value;
-      dueDateSource = 'estimated_from_installment';
+      dueDateSource =
+        installmentNumber !== null
+          ? 'estimated_from_installment'
+          : 'derived_from_purchase_fallback';
     }
   } else if (dueEmpty && purchaseEmpty) {
     push('dueDate', 'Data de vencimento não informada.');
@@ -818,9 +829,116 @@ function loadDatabaseComparisons(db: AppDatabase): {
   return { exact, probable };
 }
 
+function buildDecisionsMap(
+  decisions: CategoryDecisions | CategoryDecision[] | undefined,
+): Map<string, CategoryDecision> {
+  const map = new Map<string, CategoryDecision>();
+  if (Array.isArray(decisions)) {
+    for (const decision of decisions) {
+      const key = normalizeName(decision.sourceCategory ?? '');
+      if (key) map.set(key, decision);
+    }
+  } else if (decisions) {
+    for (const [key, decision] of Object.entries(decisions)) {
+      map.set(normalizeName(decision.sourceCategory ?? key), decision);
+    }
+  }
+  return map;
+}
+
+function lookupNames(db: AppDatabase): {
+  categoryNames: Map<number, string>;
+  paymentMethodNames: Map<number, string>;
+} {
+  return {
+    categoryNames: new Map(
+      db
+        .select({ id: categories.id, name: categories.name })
+        .from(categories)
+        .all()
+        .map((category) => [category.id, category.name]),
+    ),
+    paymentMethodNames: new Map(
+      db
+        .select({ id: paymentMethods.id, name: paymentMethods.name })
+        .from(paymentMethods)
+        .all()
+        .map((paymentMethod) => [paymentMethod.id, paymentMethod.name]),
+    ),
+  };
+}
+
+/** Nome efetivo da categoria depois da decisão do usuário (usado na duplicidade). */
+function effectiveCategoryName(
+  sourceCategory: string,
+  decision: CategoryDecision | undefined,
+  categoryNames: Map<number, string>,
+): string {
+  if (!decision) return sourceCategory;
+  if (decision.action === 'create') {
+    return decision.newCategoryName?.trim() || sourceCategory;
+  }
+  if (decision.action === 'accept' || decision.action === 'use') {
+    const targetName = decision.targetCategoryId
+      ? categoryNames.get(decision.targetCategoryId)
+      : undefined;
+    return targetName ?? sourceCategory;
+  }
+  return sourceCategory;
+}
+
+/** Conta efetiva: arquivo quando informada; senão, a conta de destino do lote. */
+function effectivePaymentMethodName(
+  paymentMethod: string | null,
+  destinationPaymentMethodId: number | null | undefined,
+  paymentMethodNames: Map<number, string>,
+): string {
+  if (paymentMethod !== null) return paymentMethod;
+  if (!destinationPaymentMethodId) return '';
+  return paymentMethodNames.get(destinationPaymentMethodId) ?? '';
+}
+
+/**
+ * Valida decisões de categoria na fronteira do serviço: ação de aceite/uso
+ * precisa apontar para uma categoria existente. Um alvo inválido nunca pode
+ * cair silenciosamente na criação da categoria de origem.
+ */
+function assertValidCategoryDecisions(
+  decisions: Map<string, CategoryDecision>,
+  categoryNames: Map<number, string>,
+): void {
+  for (const [key, decision] of decisions) {
+    const source = (decision.sourceCategory ?? key).trim();
+    if (!source) {
+      throw badRequest('Decisão de categoria sem categoria de origem.');
+    }
+    if (decision.action === 'accept' || decision.action === 'use') {
+      const target = decision.targetCategoryId;
+      if (
+        typeof target !== 'number' ||
+        !Number.isInteger(target) ||
+        target <= 0 ||
+        !categoryNames.has(target)
+      ) {
+        throw badRequest(
+          `Decisão de categoria inválida para "${source}": a categoria de destino não existe.`,
+        );
+      }
+    }
+    if (
+      decision.action === 'create' &&
+      typeof decision.newCategoryName === 'string' &&
+      decision.newCategoryName.trim().length > 120
+    ) {
+      throw badRequest('Nome da nova categoria muito longo (máximo 120 caracteres).');
+    }
+  }
+}
+
 function fileComparable(
   rowNumber: number,
   values: ParsedImportValues,
+  identity: { paymentMethod: string; category: string },
 ): DuplicateCounterpart {
   return {
     source: 'file',
@@ -830,8 +948,10 @@ function fileComparable(
     dueDate: values.dueDate as string,
     description: values.description,
     amountCents: values.amountCents as number,
-    paymentMethod: values.paymentMethod ?? '',
-    category: values.category,
+    // A contraparte exibe a identidade resolvida (conta de destino e categoria
+    // escolhida), a mesma usada na impressão digital da duplicidade.
+    paymentMethod: identity.paymentMethod,
+    category: identity.category,
     installmentNumber: values.installmentNumber,
     installmentTotal: values.installmentTotal,
     importBatchId: null,
@@ -882,6 +1002,11 @@ function detectCandidates(
   return detectTransferCandidates([...fileParties, ...databaseParties], { toleranceDays });
 }
 
+export interface PreviewOptions {
+  destinationPaymentMethodId?: number | null;
+  categoryDecisions?: CategoryDecisions | CategoryDecision[];
+}
+
 export function previewImport(
   db: AppDatabase,
   buffer: Buffer,
@@ -890,6 +1015,7 @@ export function previewImport(
   overrides?: ImportOverrides,
   toleranceDays: number = DEFAULT_TRANSFER_TOLERANCE_DAYS,
   templateId?: number,
+  options: PreviewOptions = {},
 ): ImportPreview {
   const workbook = readWorkbook(buffer, filename);
   const requested = requestedMapping ?? {};
@@ -909,6 +1035,11 @@ export function previewImport(
   const comparisons = loadDatabaseComparisons(db);
   const fileExact = new Map<string, DuplicateCounterpart>();
   const fileProbable = new Map<string, DuplicateCounterpart>();
+  // A duplicidade precisa usar a mesma identidade que será gravada: conta de
+  // destino e categoria resolvida pela decisão do usuário.
+  const previewDecisions = buildDecisionsMap(options.categoryDecisions);
+  const { categoryNames, paymentMethodNames } = lookupNames(db);
+  assertValidCategoryDecisions(previewDecisions, categoryNames);
 
   const duplicateInfo = (
     kind: 'exact' | 'probable',
@@ -950,13 +1081,20 @@ export function previewImport(
     let duplicate: DuplicateInfo | null = null;
     if (parsed.errors.length === 0) {
       const values = parsed.values;
+      const decision = previewDecisions.get(normalizeName(values.category));
+      const effectiveCategory = effectiveCategoryName(values.category, decision, categoryNames);
+      const effectivePaymentMethod = effectivePaymentMethodName(
+        values.paymentMethod,
+        options.destinationPaymentMethodId,
+        paymentMethodNames,
+      );
       const fingerprint = transactionFingerprint({
         purchaseDate: values.purchaseDate as string,
         dueDate: values.dueDate as string,
         description: values.description,
         amountCents: values.amountCents as number,
-        paymentMethod: values.paymentMethod ?? '',
-        category: values.category,
+        paymentMethod: effectivePaymentMethod,
+        category: effectiveCategory,
         installmentNumber: values.installmentNumber,
         installmentTotal: values.installmentTotal,
         transfer: values.transfer,
@@ -965,7 +1103,7 @@ export function previewImport(
         purchaseDate: values.purchaseDate as string,
         dueDate: values.dueDate as string,
         amountCents: values.amountCents as number,
-        paymentMethod: values.paymentMethod ?? '',
+        paymentMethod: effectivePaymentMethod,
       });
 
       const exactDatabase = comparisons.exact.get(fingerprint);
@@ -1000,10 +1138,22 @@ export function previewImport(
       }
 
       if (!fileExact.has(fingerprint)) {
-        fileExact.set(fingerprint, fileComparable(row.rowNumber, values));
+        fileExact.set(
+          fingerprint,
+          fileComparable(row.rowNumber, values, {
+            paymentMethod: effectivePaymentMethod,
+            category: effectiveCategory,
+          }),
+        );
       }
       if (!fileProbable.has(probableKey)) {
-        fileProbable.set(probableKey, fileComparable(row.rowNumber, values));
+        fileProbable.set(
+          probableKey,
+          fileComparable(row.rowNumber, values, {
+            paymentMethod: effectivePaymentMethod,
+            category: effectiveCategory,
+          }),
+        );
       }
     }
 
@@ -1036,9 +1186,12 @@ export function previewImport(
     }
   >();
   for (const row of rows) {
+    // Linhas inválidas não serão importadas; não entram na revisão de categorias.
+    if (row.errors.length > 0) continue;
     const suggestion = row.categorySuggestion;
     const key = suggestion.sourceNormalized;
-    if (!categorySuggestionGroupsMap.has(key)) {
+    const existing = categorySuggestionGroupsMap.get(key);
+    if (!existing) {
       categorySuggestionGroupsMap.set(key, {
         sourceCategory: suggestion.sourceCategory,
         sourceNormalized: suggestion.sourceNormalized,
@@ -1051,6 +1204,16 @@ export function previewImport(
         ambiguous: suggestion.ambiguous,
         alternatives: suggestion.alternatives,
       });
+    } else if (
+      existing.targetCategoryId !== suggestion.targetCategoryId ||
+      existing.method !== suggestion.method
+    ) {
+      // Mesma categoria de origem com sugestões divergentes: o grupo é
+      // ambíguo e não pode ser aplicado automaticamente.
+      existing.ambiguous = true;
+      existing.confidence = 'low';
+      existing.reason =
+        'Linhas desta categoria de origem geraram sugestões diferentes; decida manualmente.';
     }
     const group = categorySuggestionGroupsMap.get(key)!;
     group.count += 1;
@@ -1110,6 +1273,15 @@ export function importWorkbook(
   const databaseComparisons = loadDatabaseComparisons(db);
   const fileFingerprints = new Set<string>();
   const rejected = new Set((options.rejectedRows ?? []).map(Number));
+  const includedDuplicateRows = new Set((options.includedDuplicateRows ?? []).map(Number));
+  const hasExplicitDuplicateList = options.includedDuplicateRows !== undefined;
+
+  // Decisões de categoria e nomes resolvidos também são usados na impressão
+  // digital de duplicidade: o lançamento gravado recebe a categoria/conta de
+  // destino, então a reimportação precisa comparar com os mesmos nomes.
+  const decisionsMap = buildDecisionsMap(options.categoryDecisions);
+  const { categoryNames, paymentMethodNames } = lookupNames(db);
+  assertValidCategoryDecisions(decisionsMap, categoryNames);
   const parsedRows = workbook.rows.map((row) => {
     const raw = rawMap(row, mapping);
     const override = options.overrides?.[String(row.rowNumber)] ?? {};
@@ -1143,13 +1315,20 @@ export function importWorkbook(
     }
 
     const values = row.parsed.values;
+    const decision = decisionsMap.get(normalizeName(values.category));
+    const effectiveCategory = effectiveCategoryName(values.category, decision, categoryNames);
+    const effectivePaymentMethod = effectivePaymentMethodName(
+      values.paymentMethod,
+      options.destinationPaymentMethodId,
+      paymentMethodNames,
+    );
     const fingerprint = transactionFingerprint({
       purchaseDate: values.purchaseDate as string,
       dueDate: values.dueDate as string,
       description: values.description,
       amountCents: values.amountCents as number,
-      paymentMethod: values.paymentMethod ?? '',
-      category: values.category,
+      paymentMethod: effectivePaymentMethod,
+      category: effectiveCategory,
       installmentNumber: values.installmentNumber,
       installmentTotal: values.installmentTotal,
       transfer: values.transfer,
@@ -1159,9 +1338,17 @@ export function importWorkbook(
     fileFingerprints.add(fingerprint);
     if (isDuplicate) duplicateRows += 1;
 
-    if (isDuplicate && options.skipDuplicates) {
-      skippedDuplicates += 1;
-      continue;
+    if (isDuplicate) {
+      // Com lista explícita de duplicatas aceitas, o servidor é a autoridade:
+      // duplicata exata só entra quando o usuário pediu por ela. Sem lista,
+      // vale a semântica legada de `skipDuplicates`.
+      const mustSkip = hasExplicitDuplicateList
+        ? !includedDuplicateRows.has(row.rowNumber)
+        : options.skipDuplicates === true;
+      if (mustSkip) {
+        skippedDuplicates += 1;
+        continue;
+      }
     }
     accepted.push(row);
   }
@@ -1169,18 +1356,6 @@ export function importWorkbook(
   const createdCategories = new Set<string>();
   const createdPaymentMethods = new Set<string>();
   const dates: string[] = [];
-
-  const decisionsMap = new Map<string, CategoryDecision>();
-  if (Array.isArray(options.categoryDecisions)) {
-    for (const decision of options.categoryDecisions) {
-      const key = normalizeName(decision.sourceCategory ?? '');
-      if (key) decisionsMap.set(key, decision);
-    }
-  } else if (options.categoryDecisions) {
-    for (const [key, decision] of Object.entries(options.categoryDecisions)) {
-      decisionsMap.set(normalizeName(decision.sourceCategory ?? key), decision);
-    }
-  }
 
   const toleranceDays = options.transferToleranceDays ?? DEFAULT_TRANSFER_TOLERANCE_DAYS;
   const acceptedRowNumbers = new Set(accepted.map((row) => row.rowNumber));
@@ -1274,8 +1449,11 @@ export function importWorkbook(
           const target = tx.select().from(categories).where(eq(categories.id, targetId)).get();
           if (!target) throw badRequest('Categoria de destino não encontrada.');
           categoryId = target.id;
-          if (normalizeName(sourceCategory) !== target.normalizedName) {
-            persistCategoryAlias(tx as unknown as AppDatabase, sourceCategory, target.id);
+          if (
+            decision.confirmed === true &&
+            normalizeName(sourceCategory) !== target.normalizedName
+          ) {
+            persistCategoryAlias(tx, sourceCategory, target.id);
           }
         } else {
           const categoryBefore = tx
@@ -1355,7 +1533,10 @@ export function importWorkbook(
           origin: 'import',
         });
         confirmedTransfers += 1;
-      } catch {
+      } catch (error) {
+        // Apenas rejeições de regra de negócio (conta igual, valor divergente)
+        // contam como transferência rejeitada; erro inesperado deve abortar.
+        if (!(error instanceof HttpError)) throw error;
         rejectedTransfers += 1;
       }
     }
