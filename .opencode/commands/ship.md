@@ -5,7 +5,7 @@ agent: lead
 
 Entrega: $ARGUMENTS
 
-Execute o pipeline com **todos** os gates na ordem: planner (G0) → implementer (G1) → test-author (G2) → reviewer + security (G3) → qa (G4) → regression (G5) → git-commit (G6).
+Execute o pipeline automático na ordem: planner (G0) → implementer (G1) → test-author (G2) → reviewer + security (G3) → qa (G4) → regression (G5) → git-commit (G6). G7 (publicação) é separado e só pode ocorrer após autorização humana explícita.
 
 Regras:
 - Não pule gate, não aceite "passou" sem a saída literal do comando.
@@ -15,7 +15,7 @@ Regras:
 - **`git-commit` é o último passo** e só entra com G1–G5 verdes. Nenhum commit antes disso.
 - Execuções da suíte completa: máximo 2 (G1 e G5). Nos demais gates, rode escopo (`npm run test -w server -- tests/<arquivo>.test.ts`).
 - Orçamento do ciclo: 8 delegações, 45 min. Ao estourar, pare e reporte o estado parcial.
-- Não faça push.
+- Ao concluir G6, informe branch, upstream, commits à frente/atrás e peça autorização humana explícita para G7. Se autorizada, publique somente a branch atual, sem force, e confirme a SHA no remoto. Não crie PR ou merge.
 
 Ambiente: Bash em Linux, gerenciador **npm** (workspaces). Não use `pnpm` nem comandos PowerShell. Não existe script `lint` — typecheck é `npm run build`.
 

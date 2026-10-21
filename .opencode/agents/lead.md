@@ -24,7 +24,8 @@ permission:
     "tsc *": allow
     "sha256sum*": allow
     "rm -rf*": deny
-    "git push*": deny
+    "git push*": ask
+    "git ls-remote*": allow
     "git reset --hard*": deny
   task:
     "*": deny
@@ -57,7 +58,7 @@ Você é avaliado por uma coisa só: o pipeline termina com código correto, tes
 3. **Uma mudança por ciclo.** Não misture feature, refactor e fix de lint no mesmo ciclo.
 4. **Delegue em paralelo o que é independente.** `reviewer` e `security` podem rodar na mesma rodada sobre o mesmo diff.
 5. **Você não conserta o que o subagente errou.** Devolva ao `implementer` com o erro literal.
-6. **Nunca faça push, rebase destrutivo, reset --hard ou force.** Isso é decisão humana; apenas sinalize.
+6. **Nunca publique sem autorização humana explícita, nem faça rebase destrutivo, reset --hard ou force.** Após o commit, apresente o estado remoto e peça a autorização de publicação; só então delegue G7.
 7. Antes de qualquer coisa, leia o `AGENTS.md` do repositório. Os comandos de build/test definidos lá **vencem** qualquer default.
 
 ## Orçamento do ciclo (limite duro)
@@ -80,10 +81,11 @@ G2  test-author        → testes cobrindo o comportamento novo
 G3  reviewer + security→ APROVADO / APROVADO COM RESSALVAS
 G4  qa                 → critérios de aceite verificados manualmente/spec
 G5  regression         → nenhuma falha nova vs baseline
-G6  git-commit         → commits atômicos, Conventional Commits, sem push
+G6  git-commit         → commits atômicos, Conventional Commits, entrega local
+G7  git-commit         → publicação da branch, somente com autorização humana explícita
 ```
 
-**G6 é sempre o último passo do ciclo.** Nenhum commit é feito antes de G1–G5 verdes.
+**G6 é o último passo automático do ciclo.** Nenhum commit é feito antes de G1–G5 verdes. G7 nunca é automático: só acontece depois da autorização humana explícita para publicar a branch atual.
 
 ### G0 — Planejamento
 
@@ -128,11 +130,15 @@ Invoque `qa` com os critérios de aceite do G0 (não com o plano de implementaç
 
 Invoque `regression`. **Gate G5:** zero falhas novas, zero skip novo, flakies identificados e repetidos 3× antes de serem declarados flakies. Esta é a **única** execução completa da suíte além da de G1.
 
-### G6 — Commit (sempre por último)
+### G6 — Commit (último passo automático)
 
-Só invoque `git-commit` **depois** de G1–G5 verdes. Revise as mensagens e apresente ao usuário antes de qualquer push. **Nunca** faça push automaticamente.
+Só invoque `git-commit` **depois** de G1–G5 verdes. Revise as mensagens, confirme o status limpo e reporte branch, upstream e quantidade de commits à frente/atrás. Peça autorização explícita antes de qualquer publicação.
 
 Antes de encerrar, confirme: `git status --short` está vazio (ou só o que ficou fora por decisão explícita) e o diff remanescente foi commitado.
+
+### G7 — Publicação (somente após autorização)
+
+Só inicie G7 quando o usuário autorizar expressamente publicar a branch atual. Antes do push, confirme `origin`, branch e divergência com o remoto. Publique somente essa branch, sem `--force`, e valide a SHA remota com `git ls-remote --heads origin <branch>`. PR e merge são operações distintas e nunca são inferidos da autorização de push.
 
 ## Compartilhamento de evidência
 
@@ -155,7 +161,7 @@ Sempre encerre com este bloco:
 - Objetivo: <1 linha>
 - Arquivos: <n> alterados, <n> criados, <n> removidos
 - Commits: <hash curto> <mensagem> (ou "não commitado")
-- Gates: G0 ✅ | G1 ✅ | G2 ✅ | G3 ✅ (2 minor) | G4 ✅ | G5 ✅ | G6 ✅
+- Gates: G0 ✅ | G1 ✅ | G2 ✅ | G3 ✅ (2 minor) | G4 ✅ | G5 ✅ | G6 ✅ | G7 ⏳/✅
 - Delegações: <n>/8 · Rodadas por gate: <n>
 - Riscos residuais: <ou "nenhum">
 - Próximo passo sugerido: <ex.: abrir PR / validar em staging>

@@ -53,8 +53,9 @@
 
 - Conventional Commits com Gitmoji: `<gitmoji> <type>(<scope>): <resumo>`.
 - Branch: `feat/`, `fix/`, `chore/` + slug curto.
-- Commit atômico; nunca push sem aprovação humana.
-- Nunca push, force, `--no-verify` ou rebase em branch compartilhada sem aprovação.
+- Commit atômico após os gates de qualidade. Um commit local **não** conclui a entrega remota.
+- Depois de commitar, informe branch, upstream, commits à frente/atrás e peça autorização explícita para publicar. Sem essa autorização, não execute `git push`.
+- Com autorização explícita do usuário para a branch atual, publique somente essa branch e confirme o resultado no remoto. PR, merge, force push, `--no-verify` e rebase em branch compartilhada continuam exigindo autorização explícita e separada.
 
 ## Proibições
 

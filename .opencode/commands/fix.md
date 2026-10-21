@@ -11,6 +11,7 @@ Ordem obrigatória:
 3. `implementer` aplica a correção mínima. Rode o teste: deve passar.
 4. `regression` verifica que nada mais quebrou.
 5. `git-commit` commita com `fix(escopo): ...` e o corpo explicando a causa raiz.
+6. Ao final, reporte branch, upstream e commits à frente/atrás. Só publique em G7 se houver autorização humana explícita; push não autoriza PR ou merge.
 
 Regras:
 - `git-commit` é sempre o **último** passo, e só depois que os gates anteriores estão verdes.
