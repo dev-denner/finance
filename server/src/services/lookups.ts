@@ -1,6 +1,6 @@
 import { and, asc, count, eq, ne, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
-import { categories, paymentMethods, transactions } from '../db/schema';
+import { categories, categoryImportAliases, paymentMethods, transactions } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { displayName, normalizeName } from '../lib/normalize';
 import { ensurePaymentChangeKeepsTransfers } from './transfers';
@@ -117,6 +117,9 @@ export function ensureLookup(db: Executor, kind: LookupKind, rawName: string) {
   const normalized = normalizeName(name);
   if (!normalized) {
     throw conflict('Informe um nome válido.');
+  }
+  if (name.length > 120) {
+    throw conflict('O nome deve ter no máximo 120 caracteres.');
   }
 
   const existing = db.select().from(table).where(eq(table.normalizedName, normalized)).get();
@@ -286,6 +289,14 @@ export function deleteLookup(
               .where(eq(transactions.paymentMethodId, id))
               .run();
       reassigned = result.changes;
+    }
+
+    if (kind === 'category') {
+      tx
+        .update(categoryImportAliases)
+        .set({ targetCategoryId: reassignTo })
+        .where(eq(categoryImportAliases.targetCategoryId, id))
+        .run();
     }
 
     tx.delete(table).where(eq(table.id, id)).run();

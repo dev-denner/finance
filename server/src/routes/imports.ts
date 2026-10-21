@@ -11,6 +11,8 @@ import {
   previewImport,
   saveMappingTemplate,
   DEFAULT_TRANSFER_TOLERANCE_DAYS,
+  type CategoryDecision,
+  type CategoryDecisions,
   type ColumnMapping,
   type ImportField,
   type ImportOverrides,
@@ -27,6 +29,8 @@ interface MultipartData {
   toleranceDays?: number;
   transferDecisions?: unknown;
   templateId?: number;
+  destinationPaymentMethodId?: number;
+  categoryDecisions?: unknown;
 }
 
 function parseJson(value: string, label: string): unknown {
@@ -86,6 +90,70 @@ function sanitizeRejectedRows(input: unknown): number[] {
         .slice(0, 25_000),
     ),
   ];
+}
+
+function sanitizeDestinationPaymentMethodId(input: unknown): number | null | undefined {
+  if (input === undefined || input === null || input === '') return undefined;
+  const value = Number(input);
+  if (!Number.isInteger(value) || value <= 0) return undefined;
+  return value;
+}
+
+function sanitizeCategoryDecisions(input: unknown): CategoryDecisions | CategoryDecision[] | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  if (Array.isArray(input)) {
+    const result: CategoryDecision[] = [];
+    for (const item of input.slice(0, 5_000)) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const source = item as Record<string, unknown>;
+      const action = source.action;
+      if (
+        action !== 'accept' &&
+        action !== 'use' &&
+        action !== 'create' &&
+        action !== 'reject'
+      ) {
+        continue;
+      }
+      result.push({
+        action,
+        sourceCategory:
+          typeof source.sourceCategory === 'string' ? source.sourceCategory : null,
+        targetCategoryId:
+          typeof source.targetCategoryId === 'number' && Number.isInteger(source.targetCategoryId)
+            ? (source.targetCategoryId as number)
+            : null,
+        newCategoryName:
+          typeof source.newCategoryName === 'string' ? source.newCategoryName : null,
+      });
+    }
+    return result as unknown as CategoryDecisions;
+  }
+  const source = input as Record<string, unknown>;
+  const result: CategoryDecisions = {};
+  for (const [key, value] of Object.entries(source).slice(0, 5_000)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const item = value as Record<string, unknown>;
+    const action = item.action;
+    if (
+      action !== 'accept' &&
+      action !== 'use' &&
+      action !== 'create' &&
+      action !== 'reject'
+    ) {
+      continue;
+    }
+    result[key] = {
+      action,
+      sourceCategory: typeof item.sourceCategory === 'string' ? item.sourceCategory : key,
+      targetCategoryId:
+        typeof item.targetCategoryId === 'number' && Number.isInteger(item.targetCategoryId)
+          ? (item.targetCategoryId as number)
+          : null,
+      newCategoryName: typeof item.newCategoryName === 'string' ? item.newCategoryName : null,
+    };
+  }
+  return result;
 }
 
 function sanitizeTolerance(input: unknown): number | undefined {
@@ -148,6 +216,19 @@ async function readMultipart(request: FastifyRequest): Promise<MultipartData> {
         data.templateId = parsed;
         break;
       }
+      case 'destinationPaymentMethodId': {
+        if (value === '' || value === undefined) break;
+        const parsed = Number(value);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          throw badRequest('Identificador de forma de pagamento de destino inválido.');
+        }
+        data.destinationPaymentMethodId = parsed;
+        break;
+      }
+      case 'categoryDecisions': {
+        if (value) data.categoryDecisions = parseJson(value, 'Decisões de categoria');
+        break;
+      }
       default:
         break;
     }
@@ -193,6 +274,8 @@ export function registerImportRoutes(app: FastifyInstance, db: AppDatabase): voi
           ? undefined
           : sanitizeTransferDecisions(data.transferDecisions),
       templateId: data.templateId,
+      destinationPaymentMethodId: sanitizeDestinationPaymentMethodId(data.destinationPaymentMethodId),
+      categoryDecisions: sanitizeCategoryDecisions(data.categoryDecisions),
     });
 
     return reply.status(201).send(summary);

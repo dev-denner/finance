@@ -197,6 +197,8 @@ export const api = {
       toleranceDays?: number;
       transferDecisions?: Record<string, TransferDecision>;
       templateId?: number;
+      destinationPaymentMethodId?: number | null;
+      categoryDecisions?: unknown;
     },
   ) => {
     const form = new FormData();
@@ -213,6 +215,12 @@ export const api = {
     }
     if (options.templateId !== undefined) {
       form.append('templateId', String(options.templateId));
+    }
+    if (options.destinationPaymentMethodId !== undefined && options.destinationPaymentMethodId !== null) {
+      form.append('destinationPaymentMethodId', String(options.destinationPaymentMethodId));
+    }
+    if (options.categoryDecisions) {
+      form.append('categoryDecisions', JSON.stringify(options.categoryDecisions));
     }
     return request<ImportSummary>('/imports', { method: 'POST', body: form });
   },
