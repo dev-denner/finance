@@ -78,6 +78,7 @@ export interface Transaction {
   purchaseDate: string;
   /** Origem da data de compra: arquivo, derivada do vencimento ou não registrada. */
   purchaseDateSource: 'file' | 'due_date_fallback' | null;
+  dueDateSource: 'file' | 'estimated_from_installment' | 'derived_from_cash_purchase' | null;
   dueDate: string;
   description: string;
   amountCents: number;
@@ -223,9 +224,11 @@ export interface PreviewValues {
   /** Origem da data de compra: arquivo ou derivada do vencimento (fallback). */
   purchaseDateSource: 'file' | 'due_date_fallback' | null;
   dueDate: string | null;
+  /** Origem da data de vencimento: arquivo ou derivada da data de compra. */
+  dueDateSource: 'file' | 'estimated_from_installment' | 'derived_from_cash_purchase' | null;
   description: string;
   amountCents: number | null;
-  paymentMethod: string;
+  paymentMethod: string | null;
   category: string;
   installmentNumber: number | null;
   installmentTotal: number | null;
@@ -233,6 +236,7 @@ export interface PreviewValues {
   installmentOriginal: string | null;
   /** Data estimada da primeira parcela (calculada, nunca histórica). */
   estimatedFirstInstallmentDate: string | null;
+  cashPurchase: boolean;
   transfer: string | null;
 }
 
@@ -274,6 +278,37 @@ export interface DuplicateInfo {
   reason: string;
 }
 
+export interface CategorySuggestionAlternative {
+  categoryId: number;
+  categoryName: string;
+  score: number;
+}
+
+export interface CategorySuggestion {
+  sourceCategory: string;
+  sourceNormalized: string;
+  targetCategoryId: number | null;
+  targetCategoryName: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  method: string;
+  ambiguous: boolean;
+  alternatives: CategorySuggestionAlternative[];
+}
+
+export interface CategorySuggestionGroup {
+  sourceCategory: string;
+  sourceNormalized: string;
+  count: number;
+  targetCategoryId: number | null;
+  targetCategoryName: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  method: string;
+  ambiguous: boolean;
+  alternatives: CategorySuggestionAlternative[];
+}
+
 export interface PreviewRow {
   rowNumber: number;
   raw: Record<ImportField, string>;
@@ -283,6 +318,7 @@ export interface PreviewRow {
   suggestions: RowSuggestion[];
   installmentNote: string | null;
   duplicate: DuplicateInfo | null;
+  categorySuggestion: CategorySuggestion;
 }
 
 export interface ImportPreview {
@@ -302,6 +338,7 @@ export interface ImportPreview {
   rows: PreviewRow[];
   transferToleranceDays: number;
   transferCandidates: TransferCandidate[];
+  categorySuggestions: CategorySuggestionGroup[];
 }
 
 export interface ImportMappingTemplate {

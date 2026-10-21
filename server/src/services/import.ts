@@ -3,13 +3,21 @@ import * as XLSX from 'xlsx';
 import { desc, eq } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
 import { categories, importBatches, importMappingTemplates, paymentMethods, transactions } from '../db/schema';
-import { parseDateValue } from '../lib/dates';
+import { parseDateValue, type DueDateSource } from '../lib/dates';
 import { badRequest, nowIso } from '../lib/errors';
 import {
+  deriveDueDateFromPurchase,
   estimateFirstInstallmentDate,
+  isCashPurchaseText,
   normalizeTransfer,
   parseInstallments,
 } from '../lib/installments';
+import {
+  suggestCategory,
+  persistCategoryAlias,
+  type CategorySuggestion,
+  type CategorySuggestionAlternative,
+} from './category-matching';
 import { parseAmountToCents } from '../lib/money';
 import { displayName, EMPTY_CATEGORY_NAME, EMPTY_PAYMENT_METHOD_NAME, normalizeName } from '../lib/normalize';
 import { ensureLookup } from './lookups';
@@ -35,7 +43,7 @@ export const IMPORT_FIELDS = [
 export type ImportField = (typeof IMPORT_FIELDS)[number];
 export type ColumnMapping = Partial<Record<ImportField, number | null>>;
 
-const REQUIRED_FIELDS: ImportField[] = ['dueDate', 'description', 'amount'];
+export const REQUIRED_FIELDS: ImportField[] = ['description', 'amount'];
 
 export const FIELD_LABELS: Record<ImportField, string> = {
   purchaseDate: 'Data Compra',
@@ -120,10 +128,13 @@ export interface ParsedImportValues {
   /** Origem da data de compra: arquivo ou derivada do vencimento por fallback. */
   purchaseDateSource: PurchaseDateSource | null;
   dueDate: string | null;
+  /** Origem da data de vencimento: arquivo ou derivada da data de compra. */
+  dueDateSource: DueDateSource | null;
   description: string;
   amountCents: number | null;
-  paymentMethod: string;
+  paymentMethod: string | null;
   category: string;
+  cashPurchase: boolean;
   installmentNumber: number | null;
   installmentTotal: number | null;
   installmentSource: 'column' | 'description' | null;
@@ -181,6 +192,7 @@ export interface PreviewRow {
   suggestions: RowSuggestion[];
   installmentNote: string | null;
   duplicate: DuplicateInfo | null;
+  categorySuggestion: CategorySuggestion;
 }
 
 export interface ImportPreview {
@@ -200,14 +212,39 @@ export interface ImportPreview {
   rows: PreviewRow[];
   transferToleranceDays: number;
   transferCandidates: TransferCandidate[];
+  categorySuggestions: {
+    sourceCategory: string;
+    sourceNormalized: string;
+    count: number;
+    targetCategoryId: number | null;
+    targetCategoryName: string | null;
+    confidence: 'high' | 'medium' | 'low';
+    reason: string;
+    method: string;
+    ambiguous: boolean;
+    alternatives: CategorySuggestionAlternative[];
+  }[];
 }
 
 export interface ImportOverrides {
   [rowNumber: string]: Partial<Record<ImportField, string>>;
 }
 
+export type CategoryDecisionAction = 'accept' | 'use' | 'create' | 'reject';
+
+export interface CategoryDecision {
+  action: CategoryDecisionAction;
+  sourceCategory?: string | null;
+  targetCategoryId?: number | null;
+  newCategoryName?: string | null;
+}
+
+export type CategoryDecisions = Record<string, CategoryDecision>;
+
 export interface ImportOptions {
   mapping: ColumnMapping;
+  destinationPaymentMethodId?: number | null;
+  categoryDecisions?: CategoryDecisions | CategoryDecision[];
   overrides?: ImportOverrides;
   skipDuplicates?: boolean;
   rejectedRows?: number[];
@@ -553,17 +590,22 @@ export function parseRowFields(
     errors.push(`${FIELD_LABELS[field]}: ${message}`);
   };
 
-  const purchase = parseDateValue(fields.purchaseDate);
-  const due = parseDateValue(fields.dueDate);
-  if (!due.ok) push('dueDate', due.error);
-
-  // Data de compra: quando o arquivo não traz valor (coluna ausente ou célula
-  // vazia), aplica-se o fallback já usado pela aplicação (vencimento), com
-  // origem identificável. Valor presente, porém inválido, continua sendo erro.
   const purchaseEmpty =
     fields.purchaseDate === null ||
     fields.purchaseDate === undefined ||
     String(fields.purchaseDate).trim() === '';
+  const dueEmpty =
+    fields.dueDate === null ||
+    fields.dueDate === undefined ||
+    String(fields.dueDate).trim() === '';
+
+  const purchase = parseDateValue(fields.purchaseDate);
+  const due = parseDateValue(fields.dueDate);
+
+  // Data de compra: quando o arquivo não traz valor (coluna ausente ou célula
+  // vazia), aplica-se o fallback já usado pela aplicação (vencimento), com
+  // origem identificável. Valor presente, porém inválido, continua sendo erro.
+  // O fallback só ocorre quando o vencimento veio do arquivo (due.ok).
   let purchaseDate: string | null = null;
   let purchaseDateSource: PurchaseDateSource | null = null;
   if (purchase.ok) {
@@ -589,14 +631,68 @@ export function parseRowFields(
   });
   if (installments.error) push('installments', installments.error);
 
-  const paymentMethod = displayName(String(fields.paymentMethod ?? '')) || EMPTY_PAYMENT_METHOD_NAME;
+  const cashPurchase = installments.cashPurchase || isCashPurchaseText(fields.description);
+  if (cashPurchase) {
+    installments.value = { number: null, total: null };
+    installments.source = null;
+  }
+
+  // Precedência do vencimento:
+  // 1. vencimento informado no arquivo;
+  // 2. derivado da data de compra + parcela (ou da própria compra, à vista);
+  // 3. caso contrário, ausente (erro).
+  let dueDate: string | null = null;
+  let dueDateSource: DueDateSource | null = null;
+
+  if (due.ok) {
+    dueDate = due.value;
+    dueDateSource = 'file';
+  } else if (!dueEmpty && due.error !== 'Data não informada.') {
+    push('dueDate', due.error);
+  } else if (purchase.ok) {
+    const installmentNumber = installments.value.number;
+    if (cashPurchase) {
+      dueDate = purchase.value;
+      dueDateSource = 'derived_from_cash_purchase';
+    } else {
+      const derived = deriveDueDateFromPurchase(purchase.value, installmentNumber);
+      dueDate = derived ?? purchase.value;
+      dueDateSource = 'estimated_from_installment';
+    }
+  } else if (dueEmpty && purchaseEmpty) {
+    push('dueDate', 'Data de vencimento não informada.');
+  }
+
+  // Se vencimento inválido (não vazio) já reportado; se ausente e sem compra, reportado acima.
+
+  const paymentMethodRaw = displayName(String(fields.paymentMethod ?? ''));
+  const paymentMethod = paymentMethodRaw ? paymentMethodRaw : null;
   const category = displayName(String(fields.category ?? '')) || EMPTY_CATEGORY_NAME;
+
+  // estimatedFirstInstallmentDate
+  let estimatedFirstInstallmentDate: string | null = null;
+  if (!cashPurchase) {
+    if (dueDateSource === 'file' && due.ok) {
+      estimatedFirstInstallmentDate = estimateFirstInstallmentDate(
+        due.value,
+        installments.value.number,
+        installments.value.total,
+      );
+    } else if (
+      (dueDateSource === 'estimated_from_installment' ||
+        dueDateSource === 'derived_from_cash_purchase') &&
+      purchaseDate
+    ) {
+      estimatedFirstInstallmentDate = purchaseDate;
+    }
+  }
 
   return {
     values: {
       purchaseDate,
       purchaseDateSource,
-      dueDate: due.ok ? due.value : null,
+      dueDate,
+      dueDateSource,
       description,
       amountCents: amount.ok ? amount.value : null,
       paymentMethod,
@@ -606,14 +702,8 @@ export function parseRowFields(
       installmentSource: installments.source,
       installmentOriginal:
         installments.source === 'description' ? (installments.original ?? null) : null,
-      // Calculada após a interpretação/recuperação das parcelas e a validação das datas.
-      estimatedFirstInstallmentDate: due.ok
-        ? estimateFirstInstallmentDate(
-            due.value,
-            installments.value.number,
-            installments.value.total,
-          )
-        : null,
+      estimatedFirstInstallmentDate,
+      cashPurchase,
       transfer: normalizeTransfer(fields.transfer),
     },
     errors,
@@ -740,7 +830,7 @@ function fileComparable(
     dueDate: values.dueDate as string,
     description: values.description,
     amountCents: values.amountCents as number,
-    paymentMethod: values.paymentMethod,
+    paymentMethod: values.paymentMethod ?? '',
     category: values.category,
     installmentNumber: values.installmentNumber,
     installmentTotal: values.installmentTotal,
@@ -760,7 +850,7 @@ function buildFileParties(
         dueDate: row.values.dueDate,
         description: row.values.description,
         amountCents: row.values.amountCents,
-        paymentMethod: row.values.paymentMethod,
+        paymentMethod: row.values.paymentMethod ?? '',
         transfer: row.values.transfer,
         category: row.values.category,
         classification: classifications.get(normalizeName(row.values.category)) ?? null,
@@ -850,6 +940,13 @@ export function previewImport(
         : (row.meta[installmentsIndex] ?? null);
     const parsed = parseRowFields(merged, { installmentsMeta });
 
+    const categorySuggestion = suggestCategory(
+      db,
+      parsed.values.category,
+      parsed.values.description,
+      parsed.values.amountCents ?? 0,
+    );
+
     let duplicate: DuplicateInfo | null = null;
     if (parsed.errors.length === 0) {
       const values = parsed.values;
@@ -858,7 +955,7 @@ export function previewImport(
         dueDate: values.dueDate as string,
         description: values.description,
         amountCents: values.amountCents as number,
-        paymentMethod: values.paymentMethod,
+        paymentMethod: values.paymentMethod ?? '',
         category: values.category,
         installmentNumber: values.installmentNumber,
         installmentTotal: values.installmentTotal,
@@ -868,7 +965,7 @@ export function previewImport(
         purchaseDate: values.purchaseDate as string,
         dueDate: values.dueDate as string,
         amountCents: values.amountCents as number,
-        paymentMethod: values.paymentMethod,
+        paymentMethod: values.paymentMethod ?? '',
       });
 
       const exactDatabase = comparisons.exact.get(fingerprint);
@@ -919,8 +1016,46 @@ export function previewImport(
       suggestions: parsed.suggestions,
       installmentNote: parsed.installmentNote,
       duplicate,
+      categorySuggestion,
     };
   });
+
+  const categorySuggestionGroupsMap = new Map<
+    string,
+    {
+      sourceCategory: string;
+      sourceNormalized: string;
+      count: number;
+      targetCategoryId: number | null;
+      targetCategoryName: string | null;
+      confidence: 'high' | 'medium' | 'low';
+      reason: string;
+      method: string;
+      ambiguous: boolean;
+      alternatives: CategorySuggestionAlternative[];
+    }
+  >();
+  for (const row of rows) {
+    const suggestion = row.categorySuggestion;
+    const key = suggestion.sourceNormalized;
+    if (!categorySuggestionGroupsMap.has(key)) {
+      categorySuggestionGroupsMap.set(key, {
+        sourceCategory: suggestion.sourceCategory,
+        sourceNormalized: suggestion.sourceNormalized,
+        count: 0,
+        targetCategoryId: suggestion.targetCategoryId,
+        targetCategoryName: suggestion.targetCategoryName,
+        confidence: suggestion.confidence,
+        reason: suggestion.reason,
+        method: suggestion.method,
+        ambiguous: suggestion.ambiguous,
+        alternatives: suggestion.alternatives,
+      });
+    }
+    const group = categorySuggestionGroupsMap.get(key)!;
+    group.count += 1;
+  }
+  const categorySuggestions = [...categorySuggestionGroupsMap.values()];
 
   return {
     filename,
@@ -936,6 +1071,7 @@ export function previewImport(
     duplicateRows: rows.filter((row) => row.duplicate !== null).length,
     rows,
     transferToleranceDays: toleranceDays,
+    categorySuggestions,
     transferCandidates: detectCandidates(
       db,
       rows
@@ -1012,7 +1148,7 @@ export function importWorkbook(
       dueDate: values.dueDate as string,
       description: values.description,
       amountCents: values.amountCents as number,
-      paymentMethod: values.paymentMethod,
+      paymentMethod: values.paymentMethod ?? '',
       category: values.category,
       installmentNumber: values.installmentNumber,
       installmentTotal: values.installmentTotal,
@@ -1033,6 +1169,18 @@ export function importWorkbook(
   const createdCategories = new Set<string>();
   const createdPaymentMethods = new Set<string>();
   const dates: string[] = [];
+
+  const decisionsMap = new Map<string, CategoryDecision>();
+  if (Array.isArray(options.categoryDecisions)) {
+    for (const decision of options.categoryDecisions) {
+      const key = normalizeName(decision.sourceCategory ?? '');
+      if (key) decisionsMap.set(key, decision);
+    }
+  } else if (options.categoryDecisions) {
+    for (const [key, decision] of Object.entries(options.categoryDecisions)) {
+      decisionsMap.set(normalizeName(decision.sourceCategory ?? key), decision);
+    }
+  }
 
   const toleranceDays = options.transferToleranceDays ?? DEFAULT_TRANSFER_TOLERANCE_DAYS;
   const acceptedRowNumbers = new Set(accepted.map((row) => row.rowNumber));
@@ -1094,21 +1242,76 @@ export function importWorkbook(
     for (const row of accepted) {
       const values = row.parsed.values;
 
-      const categoryBefore = tx
-        .select()
-        .from(categories)
-        .where(eq(categories.normalizedName, normalizeName(values.category)))
-        .get();
-      const category = ensureLookup(tx, 'category', values.category);
-      if (!categoryBefore) createdCategories.add(category.name);
+      // Categoria: aplica decisão do usuário, se houver.
+      const sourceCategory = values.category;
+      const decision = decisionsMap.get(normalizeName(sourceCategory));
+      let categoryId: number;
+      let createdCategoryName: string | null = null;
 
-      const paymentBefore = tx
-        .select()
-        .from(paymentMethods)
-        .where(eq(paymentMethods.normalizedName, normalizeName(values.paymentMethod)))
-        .get();
-      const payment = ensureLookup(tx, 'payment', values.paymentMethod);
-      if (!paymentBefore) createdPaymentMethods.add(payment.name);
+      if (!decision || decision.action === 'reject') {
+        const categoryBefore = tx
+          .select()
+          .from(categories)
+          .where(eq(categories.normalizedName, normalizeName(sourceCategory)))
+          .get();
+        const category = ensureLookup(tx, 'category', sourceCategory);
+        if (!categoryBefore) createdCategories.add(category.name);
+        categoryId = category.id;
+      } else if (decision.action === 'create') {
+        const newName = decision.newCategoryName?.trim() || sourceCategory;
+        const categoryBefore = tx
+          .select()
+          .from(categories)
+          .where(eq(categories.normalizedName, normalizeName(newName)))
+          .get();
+        const category = ensureLookup(tx, 'category', newName);
+        if (!categoryBefore) createdCategories.add(category.name);
+        categoryId = category.id;
+      } else {
+        // accept / use
+        const targetId = decision.targetCategoryId;
+        if (targetId) {
+          const target = tx.select().from(categories).where(eq(categories.id, targetId)).get();
+          if (!target) throw badRequest('Categoria de destino não encontrada.');
+          categoryId = target.id;
+          if (normalizeName(sourceCategory) !== target.normalizedName) {
+            persistCategoryAlias(tx as unknown as AppDatabase, sourceCategory, target.id);
+          }
+        } else {
+          const categoryBefore = tx
+            .select()
+            .from(categories)
+            .where(eq(categories.normalizedName, normalizeName(sourceCategory)))
+            .get();
+          const category = ensureLookup(tx, 'category', sourceCategory);
+          if (!categoryBefore) createdCategories.add(category.name);
+          categoryId = category.id;
+        }
+      }
+
+      // Forma de pagamento: usa destino quando ausente no arquivo.
+      let paymentMethodId: number;
+      if (values.paymentMethod === null) {
+        if (!options.destinationPaymentMethodId) {
+          throw badRequest('Informe a conta/forma de pagamento de destino para linhas sem pagamento.');
+        }
+        const destination = tx
+          .select()
+          .from(paymentMethods)
+          .where(eq(paymentMethods.id, options.destinationPaymentMethodId))
+          .get();
+        if (!destination) throw badRequest('Forma de pagamento de destino não encontrada.');
+        paymentMethodId = destination.id;
+      } else {
+        const paymentBefore = tx
+          .select()
+          .from(paymentMethods)
+          .where(eq(paymentMethods.normalizedName, normalizeName(values.paymentMethod)))
+          .get();
+        const payment = ensureLookup(tx, 'payment', values.paymentMethod);
+        if (!paymentBefore) createdPaymentMethods.add(payment.name);
+        paymentMethodId = payment.id;
+      }
 
       const inserted = tx
         .insert(transactions)
@@ -1116,10 +1319,11 @@ export function importWorkbook(
           purchaseDate: values.purchaseDate as string,
           purchaseDateSource: values.purchaseDateSource,
           dueDate: values.dueDate as string,
+          dueDateSource: values.dueDateSource,
           description: values.description,
           amountCents: values.amountCents as number,
-          paymentMethodId: payment.id,
-          categoryId: category.id,
+          paymentMethodId,
+          categoryId,
           installmentNumber: values.installmentNumber,
           installmentTotal: values.installmentTotal,
           installmentSource: values.installmentSource,
@@ -1143,13 +1347,17 @@ export function importWorkbook(
       const outgoingId = resolveId(candidate.outgoing);
       const incomingId = resolveId(candidate.incoming);
       if (!outgoingId || !incomingId) continue;
-      insertTransferRecord(tx, {
-        outgoingTransactionId: outgoingId,
-        incomingTransactionId: incomingId,
-        confidence: candidate.confidence === 'high' ? 'high' : 'probable',
-        origin: 'import',
-      });
-      confirmedTransfers += 1;
+      try {
+        insertTransferRecord(tx, {
+          outgoingTransactionId: outgoingId,
+          incomingTransactionId: incomingId,
+          confidence: candidate.confidence === 'high' ? 'high' : 'probable',
+          origin: 'import',
+        });
+        confirmedTransfers += 1;
+      } catch {
+        rejectedTransfers += 1;
+      }
     }
 
     return batch.id;

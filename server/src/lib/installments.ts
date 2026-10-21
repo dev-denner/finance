@@ -1,4 +1,5 @@
 import { normalizeName } from './normalize';
+import { addMonthsIso } from './dates';
 
 export interface ParsedInstallments {
   number: number | null;
@@ -31,6 +32,17 @@ export interface InstallmentParseResult {
   note?: string;
   original?: string;
   suggestions: InstallmentSuggestion[];
+  cashPurchase: boolean;
+}
+
+export function isCashPurchaseText(value: unknown): boolean {
+  const normalized = normalizeName(String(value ?? ''));
+  if (!normalized) return false;
+  return (
+    normalized.includes('a vista') ||
+    normalized.includes('avista') ||
+    normalized === 'vista'
+  );
 }
 
 const NO_TRANSFER_VALUES = new Set([
@@ -60,7 +72,7 @@ function emptyResult(
   status: InstallmentStatus = 'empty',
   extra: Partial<InstallmentParseResult> = {},
 ): InstallmentParseResult {
-  return { value: EMPTY(), status, source: null, suggestions: [], ...extra };
+  return { value: EMPTY(), status, source: null, suggestions: [], cashPurchase: false, ...extra };
 }
 
 /** Números seriais de data do Excel ficam nesta faixa (1900–2100 aproximadamente). */
@@ -125,6 +137,10 @@ function parseColumn(input: unknown, meta?: InstallmentCellMeta | null): ColumnP
 
   const raw = String(input).replace(/\u00a0/g, ' ').trim();
   if (!raw) return { status: 'empty', value: EMPTY() };
+
+  if (isCashPurchaseText(raw)) {
+    return { status: 'empty', value: EMPTY(), original: raw };
+  }
 
   if (meta?.type === 'd') {
     return {
@@ -321,6 +337,8 @@ export function parseInstallments(
   const column = parseColumn(input, options.meta);
   const description = findDescriptionInstallments(options.description ?? '');
   const original = column.original ?? (input === null || input === undefined ? undefined : String(input).trim() || undefined);
+  const cashPurchase =
+    isCashPurchaseText(input) || isCashPurchaseText(options.description ?? '');
 
   if (column.status === 'ok') {
     const columnValue = column.value;
@@ -337,6 +355,7 @@ export function parseInstallments(
           status: 'ok',
           source: 'column',
           suggestions: [],
+          cashPurchase,
         };
       }
       const columnLabel =
@@ -369,6 +388,7 @@ export function parseInstallments(
             label: `Usar a descrição (${pairLabel(desc.number, desc.total)})`,
           },
         ],
+        cashPurchase,
       };
     }
     return {
@@ -376,6 +396,7 @@ export function parseInstallments(
       status: 'ok',
       source: 'column',
       suggestions: [],
+      cashPurchase,
     };
   }
 
@@ -388,6 +409,7 @@ export function parseInstallments(
       note: `Parcela ${pad2(desc.number)}/${pad2(desc.total)} recuperada da descrição.`,
       original,
       suggestions: [],
+      cashPurchase,
     };
   }
 
@@ -395,9 +417,10 @@ export function parseInstallments(
     if (description.ambiguous) {
       return emptyResult('empty', {
         note: `A descrição contém mais de uma indicação de parcelas (${description.raw ?? ''}). Revise se necessário.`,
+        cashPurchase,
       });
     }
-    return emptyResult();
+    return emptyResult('empty', { cashPurchase });
   }
 
   if (description.ambiguous) {
@@ -408,6 +431,7 @@ export function parseInstallments(
       error: `${column.error} A descrição contém mais de uma indicação de parcelas (${description.raw ?? ''}); não foi possível recuperar automaticamente.`,
       original,
       suggestions: [],
+      cashPurchase,
     };
   }
 
@@ -419,6 +443,7 @@ export function parseInstallments(
       error: 'O valor parece uma data do Excel e não foi possível recuperar a parcela pela descrição.',
       original,
       suggestions: [],
+      cashPurchase,
     };
   }
 
@@ -429,6 +454,7 @@ export function parseInstallments(
     error: column.error ?? 'Parcelas inválidas.',
     original,
     suggestions: [],
+    cashPurchase,
   };
 }
 
@@ -494,4 +520,13 @@ export function estimateFirstInstallmentDate(
   return `${shifted.year.toString().padStart(4, '0')}-${shifted.month
     .toString()
     .padStart(2, '0')}-${shifted.day.toString().padStart(2, '0')}`;
+}
+
+export function deriveDueDateFromPurchase(
+  purchaseDate: string,
+  installmentNumber: number | null | undefined,
+): string | null {
+  if (installmentNumber === null || installmentNumber === undefined) return null;
+  if (!Number.isInteger(installmentNumber) || installmentNumber < 1) return null;
+  return addMonthsIso(purchaseDate, installmentNumber - 1);
 }
