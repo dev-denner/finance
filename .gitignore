@@ -20,3 +20,4 @@ backups/
 !sample-finance.csv
 coverage/
 client/dist/
+client/.vite/
