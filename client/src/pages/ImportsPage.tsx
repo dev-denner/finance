@@ -42,9 +42,9 @@ import {
   buildCategoryDecisions,
   buildImportIdentity,
   canAutoAcceptSuggestion,
-  importIdentityKey,
   isMappingIdentityCompatible,
   isReviewableCategoryGroup,
+  previewIdentityKey,
   resolveIncludedDuplicateRows,
 } from '../lib/import-decisions';
 import {
@@ -1222,7 +1222,12 @@ export function ImportsPage() {
           options,
         );
         if (requestId !== previewRequest.current) return;
-        const identity = JSON.stringify(options);
+        // A chave gravada precisa ser exatamente a que o efeito de
+        // sincronização e `canImport` comparam. Serializar o mesmo payload de
+        // duas formas diferentes (aqui e em `importIdentityKey`) fazia a chave
+        // nunca coincidir: a prévia não estabilizava e o botão Importar
+        // permanecia desabilitado.
+        const identity = previewIdentityKey(options);
         previewIdentityRef.current = identity;
         setSyncedIdentity(identity);
         if (response.appliedTemplate) {
@@ -1290,7 +1295,7 @@ export function ImportsPage() {
       categoryDecisions,
       destinationPaymentMethodId,
     );
-    const desired = importIdentityKey(identity);
+    const desired = previewIdentityKey(identity);
     if (desired === previewIdentityRef.current) return;
     const timer = window.setTimeout(() => {
       void runPreview(
@@ -1892,7 +1897,7 @@ export function ImportsPage() {
   // A importação só é liberada quando a prévia exibida já usou a mesma
   // identidade (conta + decisões) que será enviada. Fecha a janela do debounce
   // em que o usuário poderia importar com a tabela desatualizada.
-  const desiredIdentity = importIdentityKey(
+  const desiredIdentity = previewIdentityKey(
     buildImportIdentity(
       preview?.categorySuggestions ?? [],
       categoryDecisions,

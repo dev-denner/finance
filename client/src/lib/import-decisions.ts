@@ -101,6 +101,22 @@ export function importIdentityKey(identity: ImportIdentity): string {
 }
 
 /**
+ * Chave canônica da prévia. Tanto a prévia quanto a importação precisam
+ * falar a mesma língua: a chave gravada depois de uma prévia e a chave
+ * comparada no efeito de sincronização têm que sair daqui, senão a prévia
+ * nunca estabiliza e o botão de importar nunca habilita.
+ */
+export function previewIdentityKey(options: {
+  destinationPaymentMethodId?: number | null;
+  categoryDecisions?: CategoryDecisionsPayload;
+}): string {
+  return importIdentityKey({
+    destinationPaymentMethodId: options.destinationPaymentMethodId ?? null,
+    categoryDecisions: options.categoryDecisions ?? {},
+  });
+}
+
+/**
  * Colunas que definem a identidade da importação. Quando o mapeamento muda
  * nessas colunas, a seleção anterior (conta de destino e decisões) deixa de
  * ser compatível e precisa ser refeita.

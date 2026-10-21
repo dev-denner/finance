@@ -6,6 +6,7 @@ import {
   importIdentityKey,
   isMappingIdentityCompatible,
   isReviewableCategoryGroup,
+  previewIdentityKey,
   resolveIncludedDuplicateRows,
 } from './import-decisions';
 import type { CategorySuggestionGroup, ColumnMapping } from './types';
@@ -168,5 +169,102 @@ describe('import-decisions - duplicatas intencionais', () => {
     expect(
       resolveIncludedDuplicateRows(rows, { skipDuplicates: false, duplicateIncludes: [3] }),
     ).toEqual([2]);
+  });
+});
+
+/**
+ * Regressão do loop de prévia: a chave gravada depois de uma prévia e a chave
+ * comparada no efeito de sincronização precisam sair da MESMA função. Antes
+ * da correção, a tela gravava `JSON.stringify(options)` e comparava com
+ * `importIdentityKey(...)`: as duas serializações nunca coincidiam (ordem das
+ * chaves e `undefined` x `null`), então o efeito reagendava a prévia sem
+ * parar e o botão Importar ficava desabilitado para sempre.
+ */
+describe('import-decisions - chave de identidade da prévia', () => {
+  const groups = [
+    group({ sourceNormalized: 'pagamento_recebido', sourceCategory: 'PAGAMENTO_RECEBIDO' }),
+    group(),
+  ];
+
+  it('a chave gravada e a chave comparada são idênticas', () => {
+    const decisions = buildCategoryDecisions(groups, {});
+    // o que a tela grava depois da prévia
+    const recorded = previewIdentityKey({
+      destinationPaymentMethodId: 7,
+      categoryDecisions: decisions,
+    });
+    // o que o efeito de sincronização compara
+    const desired = previewIdentityKey(
+      buildImportIdentity(groups, {}, 7),
+    );
+    expect(recorded).toBe(desired);
+  });
+
+  it('a forma das opções não altera a chave (undefined x null x ausente)', () => {
+    const decisions = buildCategoryDecisions(groups, {});
+    const base = previewIdentityKey({
+      destinationPaymentMethodId: 7,
+      categoryDecisions: decisions,
+    });
+    expect(
+      previewIdentityKey({ destinationPaymentMethodId: 7, categoryDecisions: decisions }),
+    ).toBe(base);
+    expect(
+      previewIdentityKey({ destinationPaymentMethodId: null, categoryDecisions: decisions }),
+    ).not.toBe(base);
+    expect(
+      previewIdentityKey({
+        destinationPaymentMethodId: undefined,
+        categoryDecisions: decisions,
+      }),
+    ).toBe(
+      previewIdentityKey({ destinationPaymentMethodId: null, categoryDecisions: decisions }),
+    );
+    expect(previewIdentityKey({})).toBe(
+      previewIdentityKey({ destinationPaymentMethodId: null, categoryDecisions: {} }),
+    );
+  });
+
+  it('a serialização legada (JSON.stringify) NÃO produz a mesma chave', () => {
+    const decisions = buildCategoryDecisions(groups, {});
+    const legacy = JSON.stringify({
+      destinationPaymentMethodId: 7,
+      categoryDecisions: decisions,
+    });
+    expect(legacy).not.toBe(
+      previewIdentityKey({ destinationPaymentMethodId: 7, categoryDecisions: decisions }),
+    );
+  });
+
+  it('a chave muda quando a conta ou a decisão muda', () => {
+    const decisions = buildCategoryDecisions(groups, {});
+    const base = previewIdentityKey({
+      destinationPaymentMethodId: 7,
+      categoryDecisions: decisions,
+    });
+    expect(
+      previewIdentityKey({ destinationPaymentMethodId: 8, categoryDecisions: decisions }),
+    ).not.toBe(base);
+    expect(
+      previewIdentityKey({
+        destinationPaymentMethodId: 7,
+        categoryDecisions: buildCategoryDecisions(groups, {
+          mercado: { action: 'use', targetCategoryId: 42 },
+        }),
+      }),
+    ).not.toBe(base);
+  });
+
+  it('a prévia estabiliza: repetir a mesma identidade não gera chave nova', () => {
+    const decisions = buildCategoryDecisions(groups, {});
+    const first = previewIdentityKey({
+      destinationPaymentMethodId: 7,
+      categoryDecisions: decisions,
+    });
+    // nova prévia devolve os mesmos grupos -> mesma identidade -> mesma chave
+    const second = previewIdentityKey(
+      buildImportIdentity(groups, {}, 7),
+    );
+    expect(second).toBe(first);
   });
 });
