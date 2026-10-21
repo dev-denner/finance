@@ -88,6 +88,8 @@ export const transactions = sqliteTable(
      * Nulo indica registro anterior ao campo (origem não registrada).
      */
     purchaseDateSource: text('purchase_date_source'),
+    /** Origem da data de vencimento: `file` ou derivada da data de compra. */
+    dueDateSource: text('due_date_source'),
     transfer: text('transfer'),
     importBatchId: integer('import_batch_id').references(() => importBatches.id, {
       onDelete: 'set null',
@@ -168,6 +170,19 @@ export const transferRejections = sqliteTable(
  * Contas a pagar agendadas (Módulo 1). Entidade própria, separada das
  * transações financeiras do Módulo 2 — não cria movimentação automaticamente.
  */
+export const categoryImportAliases = sqliteTable(
+  'category_import_aliases',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sourceNormalizedName: text('source_normalized_name').notNull(),
+    targetCategoryId: integer('target_category_id')
+      .notNull()
+      .references(() => categories.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [uniqueIndex('category_import_aliases_source_uq').on(table.sourceNormalizedName)],
+);
+
 export const scheduledBills = sqliteTable(
   'scheduled_bills',
   {
@@ -203,3 +218,4 @@ export type Transaction = typeof transactions.$inferSelect;
 export type Transfer = typeof transfers.$inferSelect;
 export type TransferRejection = typeof transferRejections.$inferSelect;
 export type ScheduledBill = typeof scheduledBills.$inferSelect;
+export type CategoryImportAlias = typeof categoryImportAliases.$inferSelect;

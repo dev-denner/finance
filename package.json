@@ -13,7 +13,7 @@
     "dev:client": "npm run dev -w client",
     "build": "npm run build -w server && npm run build -w client",
     "start": "npm run start -w server",
-    "test": "npm run test -w server",
+    "test": "npm run test -w server && npm run test -w client",
     "test:watch": "npm run test:watch -w server",
     "db:generate": "npm run db:generate -w server",
     "db:migrate": "npm run db:migrate -w server",

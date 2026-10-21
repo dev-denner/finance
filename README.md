@@ -119,17 +119,56 @@ npm.cmd run dev
 Formatos aceitos: `.csv`, `.txt`, `.xls`, `.xlsx` e `.xlsm` (primeira planilha do arquivo, até 20.000 linhas e 25 MB).
 
 1. Arraste o arquivo ou selecione em **Importações**.
-2. Confira o mapeamento das colunas obrigatórias: **Data Compra**, **Vencimento**, **Compra** e **Valor**.
-3. Revise a prévia. Linhas com erro podem ser corrigidas ou rejeitadas individualmente.
-4. Se houver pares candidatos de transferência, revise cada par lado a lado e escolha **Confirmar**, **Rejeitar** ou **Pendente**.
-5. Escolha o tratamento de duplicidades e confirme a importação.
+2. Confira o mapeamento das colunas. Obrigatórias: **Compra** (ou **Lançamento**) e **Valor**. **Data Compra** e **Vencimento** são opcionais, mas a linha precisa de pelo menos uma data válida.
+3. Se alguma linha ficar sem conta/pagamento (arquivo sem a coluna ou célula vazia), escolha a **conta de destino do lote** antes de confirmar.
+4. Revise a prévia. Linhas com erro podem ser corrigidas ou rejeitadas individualmente.
+5. Se houver pares candidatos de transferência, revise cada par lado a lado e escolha **Confirmar**, **Rejeitar** ou **Pendente**.
+6. Revise as **sugestões de categoria** agrupadas por categoria de origem.
+7. Escolha o tratamento de duplicidades e confirme a importação.
 
-Regras relevantes:
+### Datas: informadas e estimadas
 
 - Datas aceitas como `DD/MM/AAAA`, `AAAA-MM-DD` e datas nativas do Excel.
+- **Vencimento informado** no arquivo sempre tem prioridade e é preservado.
+- Sem vencimento, mas com **data de compra** e **parcela atual** válidas, o vencimento é calculado:
+  `vencimento_estimado = data_compra + (parcela_atual - 1) meses`.
+- Sem qualquer informação de parcelamento, o vencimento assumido é a própria data de compra, com origem própria `derived_from_purchase_fallback` (badge **sem parcela**). Não é apresentado como cálculo de parcela.
+- A aritmética usa calendário civil: `31/01 + 1 mês` vira `29/02` em ano bissexto e `28/02` nos demais; não há deslocamento de fuso horário.
+- `Compra à vista` é reconhecida como compra sem parcelamento e usa a própria data de compra como vencimento.
+- Se não houver nenhuma data válida, a linha fica bloqueada até a correção. Se houver data inválida, o erro é corrigível na prévia.
+- A prévia mostra **estimado**, **à vista** ou **sem parcela** ao lado do vencimento calculado. O lançamento guarda a origem da data (`file`, `estimated_from_installment`, `derived_from_cash_purchase` ou `derived_from_purchase_fallback`).
+- Quando o vencimento vem do arquivo, o Addendo 3 continua estimando a primeira parcela:
+  `primeira_parcela_estimada = vencimento - (parcela_atual - 1) meses`. Quando o vencimento foi derivado da compra, essa estimativa não é tratada como uma segunda evidência independente.
+- **Limitação:** a data calculada é uma convenção de importação definida pelo usuário. Ela não confirma o vencimento bancário real do cartão.
+
+### Parcelas
+
+- Formatos reconhecidos: `Parcela 1/10`, `Parcela 5/12`, `Parcela 01/06`, `1/10`, `01/10`, `Parcela 3 de 12` e variações de caixa, acento e espaço.
+- `Compra à vista` (e variações isoladas como `avista`/`vista`) significa compra sem parcelamento, não erro. A expressão precisa estar isolada na célula/descrição; nomes de estabelecimento como `Loja Vista` não são tratados como compra à vista.
+- O texto original da parcela é preservado para auditoria. Seriais de data do Excel não são interpretados como número de parcela.
+- Quando a coluna de parcelas não existe, a recuperação pela descrição continua disponível.
+
+### Conta de destino
+
+- Se o arquivo tiver coluna de conta/cartão/pagamento, os valores informados são preservados linha a linha e a conta de destino cobre apenas as linhas vazias.
+- Sem essa coluna, a conta escolhida para o lote é usada apenas nas linhas sem conta. A importação fica bloqueada enquanto não houver uma conta válida — nenhuma conta padrão é inventada.
+- Valores positivos e negativos são preservados exatamente como no arquivo; o importador não inverte sinais automaticamente.
+
+### Sugestões e aliases de categoria
+
+Antes de criar uma categoria, o importador procura uma existente em camadas: correspondência exata, normalização (caixa/acentos/espaços/pontuação), alias aprendido, similaridade textual e contexto (descrição + categoria de origem). A sugestão é local e determinística, sem serviços externos ou embeddings.
+
+- A prévia mostra a categoria de origem, a sugestão, o nível de confiança (**alta**, **média**, **baixa**) e o motivo.
+- Para cada grupo de origem é possível **usar a sugerida**, **escolher outra categoria existente** ou **criar uma nova**. A decisão vale para todas as linhas do grupo.
+- Sugestões ambíguas ou de baixa confiança nunca são aplicadas sozinhas.
+- Aliases permanentes só são criados após **confirmação explícita da equivalência** na revisão (escolher a sugerida ou outra categoria existente). Sugestões automáticas, inclusive as contextuais, não geram alias sem essa confirmação; sugestões rejeitadas ou de grupos ambíguos também não. Se a categoria de destino for excluída com reatribuição, o alias acompanha o novo destino.
+- **Pagamento de cartão:** uma linha como `Pagamento Fatura` com categoria `PAGAMENTO_RECEBIDO` pode receber a sugestão contextual `Pagamento de cartão`. O valor e o sinal não são alterados, a linha não vira receita operacional e a sugestão, sozinha, não concilia transferências nem remove o lançamento do consolidado.
+
+### Demais regras
+
 - Valores como `-R$ 500,00`, `R$ 1.250,50` e `-R$ 500.00` são aceitos conforme o formato detectado. Formatos ambíguos, como `1,250`, são rejeitados em vez de adivinhados.
 - Categorias e formas de pagamento inexistentes são criadas automaticamente, preservando o nome original de exibição e ignorando diferenças de caixa, acentos e espaços redundantes.
-- A duplicidade é detectada por uma impressão digital dos campos do lançamento. Por padrão, duplicidades são ignoradas; desmarque a opção para importá-las mesmo assim.
+- A duplicidade é detectada por uma impressão digital dos campos do lançamento, incluindo a conta de destino e a categoria resolvida. Assim, reimportar o mesmo arquivo com as mesmas decisões é idempotente. Por padrão, duplicidades são ignoradas; desmarque a opção para importá-las mesmo assim.
 - A importação inteira roda em uma transação do SQLite. O arquivo original não é armazenado nem alterado.
 - Cada importação gera um registro no histórico com total, importados e rejeitados.
 

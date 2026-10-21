@@ -91,6 +91,47 @@ export function parseIsoDate(input: unknown): ParseResult<string> {
   return parseDateValue(input);
 }
 
+export type DueDateSource =
+  | 'file'
+  | 'estimated_from_installment'
+  | 'derived_from_cash_purchase'
+  | 'derived_from_purchase_fallback';
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    return leap ? 29 : 28;
+  }
+  if (month === 4 || month === 6 || month === 9 || month === 11) return 30;
+  return 31;
+}
+
+export function addMonthsIso(date: string, months: number): string | null {
+  const match = String(date ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const base = new Date(Date.UTC(year, month - 1, day));
+  if (
+    base.getUTCFullYear() !== year ||
+    base.getUTCMonth() !== month - 1 ||
+    base.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  if (!Number.isFinite(months) || !Number.isInteger(months)) return null;
+  const totalMonths = year * 12 + (month - 1) + months;
+  const targetYear = Math.floor(totalMonths / 12);
+  const targetMonthIndex = (((totalMonths % 12) + 12) % 12);
+  const targetMonth = targetMonthIndex + 1;
+  if (targetYear < MIN_YEAR || targetYear > MAX_YEAR) return null;
+  const targetDay = Math.min(day, daysInMonth(targetYear, targetMonth));
+  return `${targetYear.toString().padStart(4, '0')}-${targetMonth
+    .toString()
+    .padStart(2, '0')}-${targetDay.toString().padStart(2, '0')}`;
+}
+
 export function todayIso(): string {
   const now = new Date();
   return iso(now.getFullYear(), now.getMonth() + 1, now.getDate()).ok

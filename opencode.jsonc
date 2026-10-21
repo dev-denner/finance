@@ -1,0 +1,52 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Shell explicito: os agents escrevem comandos POSIX (cat/sed/rg/find).
+  "shell": "/bin/bash",
+
+  // O watcher nao deve reagir a arvores de dependencias/artefatos: cada evento
+  // dispara o mecanismo de snapshot (git ls-files/diff-files) sobre a worktree
+  // inteira. Sem isso, um ciclo gera milhares de processos git.
+  "watcher": {
+    "ignore": [
+      "node_modules/**",
+      "dist/**",
+      "client/dist/**",
+      "coverage/**",
+      "server/data/**",
+      "backups/**",
+      "**/*.db",
+      "**/*.db-wal",
+      "**/*.db-shm",
+      "**/*.log"
+    ]
+  },
+
+  // O lead acumulou 5.7M tokens de entrada num ciclo. Limitar o contexto
+  // mantido reduz tempo e custo sem perder o plano (que vive no briefing).
+  "compaction": {
+    "auto": true,
+    "keep": { "tokens": 15000 },
+    "buffer": 20000
+  },
+
+  // Timeouts de provider. `timeout` (request inteiro) nao tem default: um
+  // request travado vivia indefinidamente. `headerTimeout`/`chunkTimeout`
+  // caem de 5 min para 2/3 min. Request expirado e retentado ate 3x.
+  "providers": {
+    "opencode": {
+      "settings": {
+        "timeout": 900000,
+        "headerTimeout": 120000,
+        "chunkTimeout": 180000
+      }
+    }
+  },
+
+  // Proibe subagent de abrir subagent (default 1) e evita unload/reboot
+  // frecuente da location do projeto.
+  "experimental": {
+    "subagent_depth": 1,
+    "location_idle_timeout": "2 hours"
+  }
+}
