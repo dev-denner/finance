@@ -225,13 +225,15 @@ describe('CLI de lembretes — simulação não consome o marco', () => {
     expect(batches[0].state).toBe('sent');
   });
 
-  it('deve avisar que a CLI não deve rodar junto com o backend', async () => {
+  it('deve permitir rodar a CLI junto com o backend (claim atômico no banco)', async () => {
     seedDatabase();
     const { deps, out } = makeDeps({ createTransport: () => new FakeTransport() });
 
     await runCli([], deps);
 
-    expect(out.join('')).toContain('não rode a CLI com o backend no ar');
+    // O aviso obsoleto saiu: a reserva do lote no banco impede o reenvio do
+    // mesmo marco enquanto o outro processo está no envio.
+    expect(out.join('')).not.toContain('não rode a CLI com o backend no ar');
   });
 });
 

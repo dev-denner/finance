@@ -26,6 +26,10 @@ export function createDatabase(filename: string): DatabaseHandle {
     value === null || value === undefined ? null : normalizeName(String(value)),
   );
   sqlite.pragma('foreign_keys = ON');
+  // CLI e backend podem abrir o mesmo arquivo ao mesmo tempo: espera até 5 s
+  // por um write lock em vez de falhar com SQLITE_BUSY. (O better-sqlite3 já
+  // usa 5 s por padrão; explícito para não depender do default do driver.)
+  sqlite.pragma('busy_timeout = 5000');
   if (filename !== ':memory:') {
     sqlite.pragma('journal_mode = WAL');
     sqlite.pragma('synchronous = NORMAL');

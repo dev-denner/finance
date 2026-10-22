@@ -50,6 +50,19 @@ import type { ReminderMessage, ReminderTransport } from './bill-reminder-transpo
  *     No caminho normal (sem falha) continua valendo **1 e-mail por item por
  *     dia**;
  * - **1 e-mail por (marco, data-alvo)** — consolida os itens do marco;
+ * - **coordenação entre processos**: o lote é o *claim* atômico. Criar o lote
+ *   (`INSERT`, protegido pelo índice único) ou reativar um lote `failed`
+ *   (`UPDATE ... WHERE state = 'failed'`) autoriza **um único** processo a
+ *   enviar aquele marco. Lote `pending` recente é envio em voo: os demais
+ *   processos pulam sem tocar nas notificações. Lote `pending` abandonado
+ *   (processo interrompido) só é retomado após
+ *   `STALE_BATCH_CLAIM_MINUTES`, por compare-and-swap em `updated_at`;
+ * - **garantia de entrega**: *at-least-once*. Em processos saudáveis, no
+ *   máximo um envio por lote. Pode haver duplicata se o processo cair/pausar
+ *   **depois** de o servidor SMTP aceitar a mensagem e **antes** do commit de
+ *   `sent`, ou se o envio exceder a janela de abandono. Não é "exactly once":
+ *   o SMTP não participa da transação do banco. O `Message-ID` determinístico
+ *   (`buildReminderMessageId`) ajuda o cliente a deduplicar;
  * - marca `sent` **só depois** do transporte resolver; falha ⇒ `failed`,
  *   `attempts + 1` e `last_error` truncado e sanitizado;
  * - **transporte que não confirma entrega** (`persists === false`, o `dry-run`)
@@ -135,6 +148,20 @@ const ERROR_MAX_LENGTH = 200;
 export const MAX_DELIVERY_ATTEMPTS = 5;
 
 /**
+ * Tempo (minutos) após o qual um lote `pending` é considerado **abandonado**.
+ *
+ * `pending` é o *claim* de envio: enquanto está recente, pertence ao processo
+ * que o criou/reativou e nenhum outro processo pode enviar o mesmo marco. Se
+ * o processo morrer no meio do envio, o lote fica `pending`; passada esta
+ * janela, outro processo pode retomá-lo (compare-and-swap em `updated_at`).
+ *
+ * O valor precisa ser maior que o timeout máximo do transporte (o nodemailer
+ * usa 10 min de `socketTimeout` por padrão), e é deliberadamente folgado para
+ * não retomar um envio apenas lento.
+ */
+export const STALE_BATCH_CLAIM_MINUTES = 30;
+
+/**
  * Motivos registrados em `last_error` quando um marco perdido é coberto por
  * outro aviso do mesmo item (o `sent` de um marco perdido nunca acontece:
  * ele é descartado antes do envio).
@@ -148,8 +175,6 @@ const SKIP_REASON_OUT_OF_WINDOW = 'data-alvo fora da janela';
 /** O e-mail do marco já saiu (para outros itens): a notificação continua pendente. */
 const SKIP_REASON_BATCH_ALREADY_SENT =
   'marco ja enviado para outro item; aguardando o proximo ciclo';
-/** Outro processo gravou o lote do marco primeiro. */
-const SKIP_REASON_CONCURRENT_SEND = 'outro processo ja enviou este marco';
 /** Limite de tentativas de entrega estourado. */
 const SKIP_REASON_MAX_ATTEMPTS = 'falha persistente: limite de tentativas';
 
@@ -624,25 +649,10 @@ export async function runBillReminders(
     }
 
     let batchId = -1;
-    if (existingBatch) {
-      // Novo envio de um lote que ainda não saiu (retry de uma falha).
-      batchId = existingBatch.id;
-      if (!simulate) {
-        db.update(billReminderBatches)
-          .set({
-            state: 'pending',
-            attempts: existingBatch.attempts + 1,
-            itemCount,
-            recipient,
-            updatedAt: timestamp,
-          })
-          .where(eq(billReminderBatches.id, existingBatch.id))
-          .run();
-      }
-    } else if (simulate) {
-      // Simulação: o lote só existiria — nada é gravado.
+    if (simulate) {
+      // Simulação: o lote só existiria — nada é gravado e nada é reservado.
       batchId = -1;
-    } else {
+    } else if (!existingBatch) {
       try {
         batchId = db
           .insert(billReminderBatches)
@@ -660,19 +670,94 @@ export async function runBillReminders(
           .get().id;
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
-        // Outro processo gravou o lote do marco primeiro: o aviso já saiu.
-        db.update(billReminderNotifications)
-          .set({ state: 'skipped', lastError: SKIP_REASON_CONCURRENT_SEND, updatedAt: timestamp })
-          .where(inArray(billReminderNotifications.id, notificationIds))
-          .run();
-        summary.notificationsSkipped += itemCount;
+        // Outro processo reservou o lote primeiro (envio em voo ou já
+        // concluído). O vencedor é o dono do ciclo: o perdedor **não** toca
+        // nas notificações para não sobrescrever um `sent` com `skipped`.
         summary.batches.push({ milestone, sendDate, itemCount, state: 'skipped' });
         logger.warn(
           { milestone, sendDate },
-          'Outro processo já enviou o lembrete deste marco; ciclo ignorado.',
+          'Outro processo já reservou o lembrete deste marco; ciclo ignorado.',
         );
         continue;
       }
+    } else if (existingBatch.state === 'failed') {
+      // Retentativa: `failed` → `pending` é o claim. Só um processo consegue
+      // trocar o estado; o outro vê `changes === 0` e desiste.
+      const claim = db
+        .update(billReminderBatches)
+        .set({
+          state: 'pending',
+          attempts: sql`${billReminderBatches.attempts} + 1`,
+          itemCount,
+          recipient,
+          updatedAt: timestamp,
+        })
+        .where(
+          and(
+            eq(billReminderBatches.id, existingBatch.id),
+            eq(billReminderBatches.state, 'failed'),
+          ),
+        )
+        .run();
+      if (claim.changes === 0) {
+        summary.batches.push({ milestone, sendDate, itemCount, state: 'skipped' });
+        logger.warn(
+          { milestone, sendDate },
+          'Outro processo assumiu o reenvio deste marco; ciclo ignorado.',
+        );
+        continue;
+      }
+      batchId = existingBatch.id;
+    } else if (existingBatch.state === 'pending') {
+      // `pending` recente é envio em voo: ninguém mais envia. Só um lote
+      // abandonado (processo interrompido) pode ser retomado, e a retomada é
+      // um compare-and-swap: o `updated_at` lido precisa ser o mesmo na hora
+      // do UPDATE — dois processos nunca retomam o mesmo lote.
+      const claimedAt = Date.parse(existingBatch.updatedAt);
+      const abandoned =
+        Number.isFinite(claimedAt) &&
+        now.getTime() - claimedAt >= STALE_BATCH_CLAIM_MINUTES * 60_000;
+      if (!abandoned) {
+        summary.batches.push({ milestone, sendDate, itemCount, state: 'skipped' });
+        logger.warn(
+          { milestone, sendDate },
+          'Outro processo está enviando o lembrete deste marco; ciclo ignorado.',
+        );
+        continue;
+      }
+      const takeover = db
+        .update(billReminderBatches)
+        .set({
+          attempts: sql`${billReminderBatches.attempts} + 1`,
+          itemCount,
+          recipient,
+          updatedAt: timestamp,
+        })
+        .where(
+          and(
+            eq(billReminderBatches.id, existingBatch.id),
+            eq(billReminderBatches.state, 'pending'),
+            eq(billReminderBatches.updatedAt, existingBatch.updatedAt),
+          ),
+        )
+        .run();
+      if (takeover.changes === 0) {
+        summary.batches.push({ milestone, sendDate, itemCount, state: 'skipped' });
+        logger.warn(
+          { milestone, sendDate },
+          'Outro processo retomou o lembrete deste marco; ciclo ignorado.',
+        );
+        continue;
+      }
+      batchId = existingBatch.id;
+    } else {
+      // Estado terminal/desconhecido (`skipped`): não há envio a fazer.
+      summary.batches.push({ milestone, sendDate, itemCount, state: 'skipped' });
+      logger.warn(
+        { milestone, sendDate, state: existingBatch.state },
+        'Lote de lembrete em estado não elegível; ciclo ignorado.',
+      );
+      continue;
     }
 
     const items: ReminderItemView[] = group.map((row) => ({
@@ -713,34 +798,38 @@ export async function runBillReminders(
       }
 
       if (!simulate) {
-        db.update(billReminderBatches)
-          .set({ state: 'failed', lastError: reason, updatedAt: timestamp })
-          .where(eq(billReminderBatches.id, batchId))
-          .run();
-        if (failedIds.length > 0) {
-          db.update(billReminderNotifications)
-            .set({
-              state: 'failed',
-              attempts: sql`${billReminderNotifications.attempts} + 1`,
-              lastError: reason,
-              batchId,
-              updatedAt: timestamp,
-            })
-            .where(inArray(billReminderNotifications.id, failedIds))
+        // Lote + notificações no mesmo commit: um crash no meio não deixa o
+        // lote `failed` com notificação ainda `pending` (ou vice-versa).
+        db.transaction((tx) => {
+          tx.update(billReminderBatches)
+            .set({ state: 'failed', lastError: reason, updatedAt: timestamp })
+            .where(eq(billReminderBatches.id, batchId))
             .run();
-        }
-        if (exhaustedIds.length > 0) {
-          db.update(billReminderNotifications)
-            .set({
-              state: 'skipped',
-              attempts: sql`${billReminderNotifications.attempts} + 1`,
-              lastError: SKIP_REASON_MAX_ATTEMPTS,
-              batchId,
-              updatedAt: timestamp,
-            })
-            .where(inArray(billReminderNotifications.id, exhaustedIds))
-            .run();
-        }
+          if (failedIds.length > 0) {
+            tx.update(billReminderNotifications)
+              .set({
+                state: 'failed',
+                attempts: sql`${billReminderNotifications.attempts} + 1`,
+                lastError: reason,
+                batchId,
+                updatedAt: timestamp,
+              })
+              .where(inArray(billReminderNotifications.id, failedIds))
+              .run();
+          }
+          if (exhaustedIds.length > 0) {
+            tx.update(billReminderNotifications)
+              .set({
+                state: 'skipped',
+                attempts: sql`${billReminderNotifications.attempts} + 1`,
+                lastError: SKIP_REASON_MAX_ATTEMPTS,
+                batchId,
+                updatedAt: timestamp,
+              })
+              .where(inArray(billReminderNotifications.id, exhaustedIds))
+              .run();
+          }
+        });
       }
       summary.emailsFailed += 1;
       summary.notificationsFailed += failedIds.length;
@@ -751,21 +840,25 @@ export async function runBillReminders(
     }
 
     if (!simulate) {
-      db.update(billReminderBatches)
-        .set({ state: 'sent', sentAt: timestamp, lastError: null, updatedAt: timestamp })
-        .where(eq(billReminderBatches.id, batchId))
-        .run();
-      db.update(billReminderNotifications)
-        .set({
-          state: 'sent',
-          attempts: sql`${billReminderNotifications.attempts} + 1`,
-          lastError: null,
-          sentAt: timestamp,
-          batchId,
-          updatedAt: timestamp,
-        })
-        .where(inArray(billReminderNotifications.id, notificationIds))
-        .run();
+      // Lote + notificações no mesmo commit: o estado de envio é consistente
+      // mesmo se o processo cair logo depois do `send` resolver.
+      db.transaction((tx) => {
+        tx.update(billReminderBatches)
+          .set({ state: 'sent', sentAt: timestamp, lastError: null, updatedAt: timestamp })
+          .where(eq(billReminderBatches.id, batchId))
+          .run();
+        tx.update(billReminderNotifications)
+          .set({
+            state: 'sent',
+            attempts: sql`${billReminderNotifications.attempts} + 1`,
+            lastError: null,
+            sentAt: timestamp,
+            batchId,
+            updatedAt: timestamp,
+          })
+          .where(inArray(billReminderNotifications.id, notificationIds))
+          .run();
+      });
     }
     summary.emailsSent += 1;
     summary.notificationsSent += itemCount;

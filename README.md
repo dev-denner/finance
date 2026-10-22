@@ -198,8 +198,8 @@ antes do vencimento.
 ### Execução
 
 O agendador interno roda junto com o backend (a cada 30 minutos por padrão) e
-faz um *catch-up* na subida, recuperando marcos perdidos depois de o servidor
-ficar dias fora do ar. "Hoje" é recalculado em São Paulo a cada ciclo.
+faz um *catch-up* **em segundo plano** na subida — o envio de e-mail nunca
+atrasa a API. "Hoje" é recalculado em São Paulo a cada ciclo.
 
 **O agendador só sobe com transporte que entrega de verdade** (`smtp`). Com
 `BILL_REMINDER_TRANSPORT=dry-run` o servidor **não** agenda nada: os lembretes
@@ -219,8 +219,13 @@ npm.cmd run reminders:run -- --dry-run
   **não grava nada no banco** (nenhum lote, nenhuma notificação). Por isso o
   `--dry-run` **não consome o aviso** — o marco continua elegível e sai no
   ciclo seguinte com o transporte que envia.
-- **Não rode a CLI com o backend no ar**: os dois processos podem enviar o
-  mesmo aviso. A CLI avisa sobre isso; pare o backend antes de usá-la.
+- **A CLI pode rodar junto com o backend**: o lote de cada marco é reservado
+  de forma atômica no banco, então só um processo envia aquele e-mail. Em
+  condições normais não há aviso duplicado. A garantia é **at-least-once**: se
+  um processo cair **depois** de o servidor SMTP aceitar a mensagem e **antes**
+  de gravar o estado `sent`, o marco pode ser reenviado no ciclo seguinte — não
+  é "exactly once". O `Message-ID` determinístico ajuda o cliente de e-mail a
+  deduplicar.
 
 O mesmo núcleo (`runBillReminders`) atende o agendador e a linha de comando, e o
 `Message-ID` evita duplicidade quando o aviso é reenviado.
@@ -507,7 +512,7 @@ A suíte cobre:
 - Marcos cujo vencimento ficou para trás além da janela de catch-up são descartados, e não há reenvio manual de um marco já perdido.
 - Cada aviso é tentado no máximo **5 vezes**; depois disso é descartado e fica registrado no histórico (`falha persistente: limite de tentativas`).
 - Com `BILL_REMINDER_TRANSPORT=dry-run` nada é enviado e o agendador nem sobe — o aviso do dia não é consumido.
-- A CLI (`npm.cmd run reminders:run`) não deve rodar com o backend no ar: os dois processos podem enviar o mesmo aviso.
+- A CLI (`npm.cmd run reminders:run`) **pode** rodar com o backend no ar: a reserva atômica do lote no banco garante um único envio por marco em condições normais. A garantia é *at-least-once* (pode haver reenvio se o processo cair entre a aceitação pelo SMTP e a gravação de `sent`).
 - Não há confirmação de leitura, assinatura digital, configuração pela interface nem canal além de e-mail (WhatsApp e afins ficaram fora do escopo).
 
 ## Solução de problemas

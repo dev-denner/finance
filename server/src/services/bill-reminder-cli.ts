@@ -175,12 +175,6 @@ export async function runCli(argv: string[], deps: CliDependencies): Promise<num
     ? new DryRunTransport()
     : (deps.createTransport ?? ((cfg: BillReminderConfig) => createSmtpTransport(cfg)))(config);
 
-  if (!useDryRun) {
-    deps.write(
-      'Aviso: não rode a CLI com o backend no ar — os dois processos podem enviar o mesmo aviso.\n',
-    );
-  }
-
   const handle = openMigratedDatabase(deps.databasePath);
   try {
     const result = await runBillReminders({

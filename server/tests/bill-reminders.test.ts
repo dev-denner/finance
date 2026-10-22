@@ -1078,12 +1078,46 @@ describe('agendador de lembretes', () => {
     });
 
     await scheduler.start();
+    await scheduler.whenIdle();
 
     expect(transport.sent).toHaveLength(1);
     expect(milestoneOf(transport.sent[0])).toBe('D-3');
     expect(scheduler.started).toBe(true);
 
     scheduler.stop();
+  });
+
+  it('deve liberar a subida da API antes de o primeiro envio terminar', async () => {
+    const scenario = createScenario();
+    seedBill(scenario, { description: 'Luz', dueDate: shiftDays(TODAY, 1) });
+    const transport = new ControllableTransport();
+    transport.block = true;
+    const scheduler = createReminderScheduler({
+      db: scenario.db,
+      transport,
+      config: makeConfig(),
+      clock,
+    });
+
+    try {
+      const started = scheduler.start().then(() => 'started' as const);
+      const outcome = await Promise.race([
+        started,
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 100)),
+      ]);
+
+      // A subida da API não pode ficar refém de um SMTP lento ou caído.
+      expect(outcome).toBe('started');
+      expect(transport.sent).toHaveLength(1);
+      expect(scheduler.running).toBe(true);
+
+      transport.release();
+      await scheduler.whenIdle();
+      expect(scheduler.running).toBe(false);
+    } finally {
+      transport.release();
+      scheduler.stop();
+    }
   });
 
   it('deve encerrar de forma idempotente', async () => {
@@ -1137,6 +1171,7 @@ describe('agendador de lembretes', () => {
       });
 
       await scheduler.start();
+      await scheduler.whenIdle();
       expect(transport.sent).toHaveLength(1);
       expect(milestoneOf(transport.sent[0])).toBe('D-1');
 
@@ -1432,11 +1467,20 @@ describe('lembretes por e-mail — concorrência entre processos (INFO)', () => 
     expect(result.emailsFailed).toBe(0);
     expect(result.batches).toHaveLength(1);
     expect(result.batches[0].state).toBe('skipped');
+    expect(result.notificationsSkipped).toBe(0);
 
-    // A notificação fica registrada como `skipped`, com o motivo.
+    // O perdedor da corrida não consome o aviso do vencedor: a notificação
+    // permanece `pending` (nada de `skipped`/`sent` indevido).
     const row = ledgerFor(scenario.db, bill.id)[0];
-    expect(row.state).toBe('skipped');
-    expect(row.lastError).toBe('outro processo ja enviou este marco');
+    expect(row.state).toBe('pending');
+    expect(row.lastError).toBeNull();
+
+    // Um novo ciclo também não envia nem consome o aviso enquanto o lote
+    // estiver reservado por outro processo.
+    const next = await runCycle(scenario.db, transport, makeConfig(), TODAY);
+    expect(next.emailsSent).toBe(0);
+    expect(transport.sent).toHaveLength(0);
+    expect(ledgerFor(scenario.db, bill.id)[0].state).toBe('pending');
   });
 });
 
