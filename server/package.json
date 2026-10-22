@@ -4,9 +4,9 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --env-file-if-exists=../.env --import tsx --watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "start": "node --env-file-if-exists=../.env dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
@@ -16,7 +16,7 @@
     "db:reset:all": "tsx src/db/reset-cli.ts all",
     "db:restore": "tsx src/db/restore-cli.ts",
     "db:studio": "drizzle-kit studio",
-    "reminders:run": "tsx src/services/bill-reminder-cli.ts"
+    "reminders:run": "node --env-file-if-exists=../.env --import tsx src/services/bill-reminder-cli.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^9.2.1",

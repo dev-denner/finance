@@ -122,6 +122,12 @@ funciona normalmente. O transporte padrão é `dry-run` — nenhum e-mail real s
 da máquina, **o agendador nem sobe** e o aviso do dia **não é consumido**
 (os lembretes ficam em modo de pré-visualização).
 
+Os comandos do servidor carregam automaticamente o arquivo local `.env` na raiz
+do projeto, quando ele existir. Esse arquivo é ignorado pelo Git e deve guardar
+apenas configurações locais, como destinatário e credenciais SMTP; nunca o
+commite. Para ativar a pré-visualização dos lembretes, crie `.env` com
+`BILL_REMINDER_TO=seu-email@exemplo.com`.
+
 | Variável                        | Padrão             | Quando é obrigatória                                                                             | Descrição                                              |
 | ------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
 | `BILL_REMINDER_TRANSPORT`       | `dry-run`          | —                                                                                                | `dry-run` (não envia) ou `smtp` (envia de verdade)      |
