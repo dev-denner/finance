@@ -40,7 +40,6 @@
 5. nenhuma variável de ambiente nova sem entrada no README
 6. sem segredo, token ou PII em código, log ou teste
 7. docs atualizadas se o comportamento público mudou
-8. o plano do módulo (`qa/evidence/<tema>.md`) entra no **mesmo commit** da feature que ele descreve
 
 ## Convenções
 
@@ -58,6 +57,12 @@
 - Commit atômico após os gates de qualidade. Um commit local **não** conclui a entrega remota.
 - Depois de commitar, informe branch, upstream, commits à frente/atrás e peça autorização explícita para publicar. Sem essa autorização, não execute `git push`.
 - Com autorização explícita do usuário para a branch atual, publique somente essa branch e confirme o resultado no remoto. PR, merge, force push, `--no-verify` e rebase em branch compartilhada continuam exigindo autorização explícita e separada.
+
+## Agentes
+
+- O agente principal planeja, implementa e testa por padrão. Subagentes são usados apenas quando o trabalho for independente ou o risco justificar uma segunda análise.
+- Revisão é necessária antes de commit somente para banco, dinheiro, concorrência, autenticação, integração externa ou quando solicitada.
+- Não criar relatórios extensos, arquivos de evidência ou repetir suítes de teste sem mudança no diff. Teste focado durante a implementação; build e suíte completa uma vez antes de commit de código.
 
 ## Proibições
 
