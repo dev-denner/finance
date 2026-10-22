@@ -21,7 +21,8 @@
     "db:reset:data": "npm run db:reset:data -w server",
     "db:reset:all": "npm run db:reset:all -w server",
     "db:restore": "npm run db:restore -w server",
-    "db:studio": "npm run db:studio -w server"
+    "db:studio": "npm run db:studio -w server",
+    "reminders:run": "npm run reminders:run -w server --"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

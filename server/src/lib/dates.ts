@@ -140,3 +140,95 @@ export function todayIso(): string {
         .padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`
     : '1970-01-01';
 }
+
+/**
+ * "Hoje" no fuso informado, sem depender do fuso da máquina que executa.
+ * Usa `Intl.DateTimeFormat` com `formatToParts` para obter as partes da data
+ * de forma estável (o locale `en-US` garante dígitos de 2 lugares).
+ */
+export function todayIsoInTimeZone(
+  timeZone = 'America/Sao_Paulo',
+  at: Date = new Date(),
+): string {
+  if (!(at instanceof Date) || Number.isNaN(at.getTime())) {
+    throw new Error('Data inválida para o cálculo de "hoje".');
+  }
+
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(at);
+  } catch (error) {
+    throw new Error(`Fuso horário inválido: ${timeZone}.`, { cause: error });
+  }
+
+  const values = new Map<string, string>();
+  for (const part of parts) {
+    values.set(part.type, part.value);
+  }
+
+  const year = values.get('year');
+  const month = values.get('month');
+  const day = values.get('day');
+  if (!year || !month || !day) {
+    throw new Error(`Não foi possível determinar a data no fuso ${timeZone}.`);
+  }
+
+  return `${year}-${month}-${day}`;
+}
+
+/** Converte uma data ISO em dias do calendário (epoch-day), imune a DST. */
+function epochDay(date: string): number | null {
+  const parsed = parseIsoDate(date);
+  if (!parsed.ok) return null;
+  const match = parsed.value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const stamp = Date.UTC(year, month - 1, day);
+  if (Number.isNaN(stamp)) return null;
+  return Math.floor(stamp / 86_400_000);
+}
+
+/**
+ * Soma (ou subtrai) dias de calendário a uma data ISO.
+ * A aritmética é feita em `Date.UTC`, então transições de horário de verão
+ * não deslocam o resultado. Retorna `null` para datas ou quantidades inválidas.
+ */
+export function addDaysIso(date: string, days: number): string | null {
+  const parsed = parseIsoDate(date);
+  if (!parsed.ok) return null;
+  if (!Number.isInteger(days)) return null;
+
+  const match = parsed.value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  if (Number.isNaN(shifted.getTime())) return null;
+
+  const targetYear = shifted.getUTCFullYear();
+  if (targetYear < MIN_YEAR || targetYear > MAX_YEAR) return null;
+
+  return `${targetYear.toString().padStart(4, '0')}-${(shifted.getUTCMonth() + 1)
+    .toString()
+    .padStart(2, '0')}-${shifted.getUTCDate().toString().padStart(2, '0')}`;
+}
+
+/**
+ * Diferença em dias de calendário entre duas datas ISO: `b - a`.
+ * Positivo quando `b` é posterior a `a`. Retorna `null` para datas inválidas.
+ */
+export function daysBetweenIso(a: string, b: string): number | null {
+  const from = epochDay(a);
+  const to = epochDay(b);
+  if (from === null || to === null) return null;
+  return to - from;
+}

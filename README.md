@@ -12,6 +12,7 @@ Tudo roda na sua máquina. Não há login, cloud, integração bancária, Docker
 - **Edição em massa** de categoria, forma de pagamento e exclusão, mantendo a seleção entre páginas e filtros.
 - **Consolidado anual** por categoria, com 12 colunas mensais, total, média e totais gerais, além da cor de cada categoria. Clique em uma célula para ver os lançamentos que a compõem.
 - **Cadastros auxiliares** de categorias e formas de pagamento, com renomeação, **cor opcional por categoria** e exclusão com reatribuição.
+- **Lembretes por e-mail** das contas a pagar que ainda não foram agendadas, com avisos nos marcos D-3, D-2, D-1 e D0.
 - **Tema claro/escuro**, valores em BRL, datas `DD/MM/AAAA` e layout desktop-first.
 - **SQLite persistente** com migrações versionadas e backup por linha de comando.
 
@@ -113,6 +114,116 @@ $env:DATABASE_PATH = "D:\financeiro\meu-finance.db"
 $env:PORT = "4000"
 npm.cmd run dev
 ```
+
+### Variáveis dos lembretes por e-mail
+
+Recurso opcional: **sem `BILL_REMINDER_TO` nada é enviado** e o aplicativo
+funciona normalmente. O transporte padrão é `dry-run` — nenhum e-mail real sai
+da máquina, **o agendador nem sobe** e o aviso do dia **não é consumido**
+(os lembretes ficam em modo de pré-visualização).
+
+| Variável                        | Padrão             | Quando é obrigatória                                                                             | Descrição                                              |
+| ------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| `BILL_REMINDER_TRANSPORT`       | `dry-run`          | —                                                                                                | `dry-run` (não envia) ou `smtp` (envia de verdade)      |
+| `BILL_REMINDER_TO`              | —                  | **Sempre** para o recurso existir                                                                | Destinatário dos avisos                                |
+| `BILL_REMINDER_FROM`            | `finance@localhost`| —                                                                                                | Remetente dos avisos                                    |
+| `BILL_REMINDER_SMTP_HOST`       | —                  | Com `BILL_REMINDER_TRANSPORT=smtp`                                                               | Servidor SMTP                                           |
+| `BILL_REMINDER_SMTP_PORT`       | `587`              | —                                                                                                | Porta do servidor SMTP (587 = STARTTLS, 465 = TLS implícito) |
+| `BILL_REMINDER_SMTP_SECURE`     | `false`            | —                                                                                                | TLS direto na conexão (`true/false`, `1/0`, `yes/no`)   |
+| `BILL_REMINDER_SMTP_USER`       | —                  | Com `BILL_REMINDER_TRANSPORT=smtp`                                                               | Usuário do SMTP                                         |
+| `BILL_REMINDER_SMTP_PASSWORD`   | —                  | Com `BILL_REMINDER_TRANSPORT=smtp`                                                               | Senha do SMTP                                           |
+| `BILL_REMINDER_CATCH_UP_DAYS`   | `3`                | —                                                                                                | Janela de recuperação de marcos perdidos (dias)         |
+| `BILL_REMINDER_INTERVAL_MINUTES`| `30`               | —                                                                                                | Intervalo do agendador interno (minutos)                |
+
+O fuso usado para calcular "hoje" é **America/Sao_Paulo** e está fixo no código —
+não é variável de ambiente. Nenhuma dessas variáveis é lida em outro lugar do
+aplicativo.
+
+**TLS é obrigatório.** Com o transporte `smtp`:
+
+- na porta **587** (padrão) o `STARTTLS` é **exigido**: se o servidor não
+  anunciar TLS, a conexão é abortada e nada é enviado em texto claro;
+- na porta **465** o TLS é **implícito** (a porta sozinha já ativa a conexão
+  criptografada, mesmo com `BILL_REMINDER_SMTP_SECURE` ausente);
+- a versão mínima aceita é **TLS 1.2**.
+
+Exemplo (PowerShell) para ligar o envio real:
+
+```powershell
+$env:BILL_REMINDER_TRANSPORT = "smtp"
+$env:BILL_REMINDER_TO = "voce@exemplo.com"
+$env:BILL_REMINDER_SMTP_HOST = "smtp.exemplo.com"
+$env:BILL_REMINDER_SMTP_PORT = "587"
+$env:BILL_REMINDER_SMTP_USER = "finance"
+$env:BILL_REMINDER_SMTP_PASSWORD = "segredo"
+npm.cmd start
+```
+
+## Lembretes por e-mail
+
+Contas a pagar com situação **pendente** (ainda não agendadas) recebem um
+aviso por e-mail nos marcos **D-3, D-2, D-1 e D0** — isto é, 3, 2, 1 e 0 dias
+antes do vencimento.
+
+- **Um aviso por marco e dia**: todos os itens elegíveis do mesmo marco são
+  consolidados em **um único e-mail**.
+- **No máximo 4 avisos por conta e vencimento**: cada marco dispara uma vez
+  só. **Corrigir o vencimento** da conta cria um **conjunto novo de marcos** —
+  o histórico do vencimento anterior não é reaproveitado e um marco já
+  avisado pode ser avisado de novo (até 4 avisos por conta **e vencimento**).
+- **Marcar como agendado (`AG`) ou pagar (`PG`) interrompe** os avisos
+  restantes da conta.
+- **Sem valor no e-mail**: o aviso traz apenas descrição, vencimento
+  (`DD/MM/AAAA`), prazo restante (`faltam 3 dias`), categoria, quantidade de
+  itens e o marco. Nenhum valor monetário, total ou soma é enviado — a
+  garantia é estrutural, o tipo usado pelo renderizador nem possui o campo de
+  valor.
+- **A descrição da conta vai no e-mail**: ela é texto livre e pode conter dado
+  pessoal. Evite colocar nome de pessoa, documento ou qualquer outra
+  informação sensível na descrição da conta a pagar.
+- O e-mail deixa explícito que **os itens precisam ser agendados** e lembra que
+  o aviso acontece no máximo uma vez por marco.
+- `Message-ID` determinístico por marco e data (`<bill-reminder-D-3-2026-10-22@finance.local>`),
+  para o cliente de e-mail deduplicar avisos repetidos.
+- **Falha persistente tem limite**: cada aviso é tentado no máximo **5 vezes**.
+  Depois disso ele é descartado (`skipped`, motivo `falha persistente: limite
+  de tentativas`) e o registro fica no histórico — a falha não vira retentativa
+  eterna.
+- **Motivos no histórico**: todo descarte fica auditável em `last_error`
+  (`marco perdido: coberto pelo aviso de hoje`, `conta não está mais pendente`,
+  `vencimento alterado`, `data-alvo fora da janela`, entre outros). As mensagens
+  de erro do servidor de e-mail são sanitizadas: e-mail, host, usuário, senha,
+  valor e texto da conta **não** são gravados.
+
+### Execução
+
+O agendador interno roda junto com o backend (a cada 30 minutos por padrão) e
+faz um *catch-up* na subida, recuperando marcos perdidos depois de o servidor
+ficar dias fora do ar. "Hoje" é recalculado em São Paulo a cada ciclo.
+
+**O agendador só sobe com transporte que entrega de verdade** (`smtp`). Com
+`BILL_REMINDER_TRANSPORT=dry-run` o servidor **não** agenda nada: os lembretes
+ficam em modo de pré-visualização e nenhum aviso é consumido.
+
+Para rodar um ciclo sob demanda, sem depender do agendador:
+
+```powershell
+npm.cmd run reminders:run
+npm.cmd run reminders:run -- --today=2026-10-21
+npm.cmd run reminders:run -- --today=21/10/2026
+npm.cmd run reminders:run -- --dry-run
+```
+
+- `--today=AAAA-MM-DD` (ou `DD/MM/AAAA`) fixa a data de referência do ciclo.
+- `--dry-run` **simula** o ciclo: imprime o e-mail em vez de enviá-lo e
+  **não grava nada no banco** (nenhum lote, nenhuma notificação). Por isso o
+  `--dry-run` **não consome o aviso** — o marco continua elegível e sai no
+  ciclo seguinte com o transporte que envia.
+- **Não rode a CLI com o backend no ar**: os dois processos podem enviar o
+  mesmo aviso. A CLI avisa sobre isso; pare o backend antes de usá-la.
+
+O mesmo núcleo (`runBillReminders`) atende o agendador e a linha de comando, e o
+`Message-ID` evita duplicidade quando o aviso é reenviado.
 
 ## Importação
 
@@ -244,6 +355,7 @@ Transferências internas movimentam dinheiro entre contas próprias e **não** s
 | `npm.cmd run db:reset:all`  | Reset completo (inclui categorias e pagamentos)           |
 | `npm.cmd run db:restore`    | Restaura um backup interativamente                        |
 | `npm.cmd run db:studio`  | Abre o Drizzle Studio para inspecionar o banco            |
+| `npm.cmd run reminders:run` | Executa um ciclo de lembretes por e-mail (use `-- --dry-run` para simular sem enviar e sem gravar) |
 
 ## Banco de dados e migrações
 
@@ -264,6 +376,8 @@ Tabelas:
 - `transactions`: lançamentos com FKs para categoria, pagamento e lote de importação. A coluna `transfer` preserva a marcação original do arquivo.
 - `import_batches`: histórico das importações.
 - `transfers`: vínculo entre uma saída e uma entrada (`outgoing_transaction_id`, `incoming_transaction_id`), com confiança e origem. Índices únicos e gatilhos impedem que um lançamento participe de duas transferências ou que o par tenha contas/valores inválidos.
+- `bill_reminder_batches`: um registro por e-mail de lembrete, com chave única `(milestone, send_date)` — no máximo um e-mail por marco e dia.
+- `bill_reminder_notifications`: histórico por conta e marco, com chave única `(bill_id, milestone, due_date)`. Apagar a conta apaga o histórico dela (`ON DELETE CASCADE`).
 
 Antes de aplicar uma migração que altere dados, gere um backup com `npm.cmd run db:backup`. As migrações nunca apagam lançamentos existentes.
 
@@ -290,13 +404,20 @@ Para testes repetidos de importação, duplicidades, parcelas, transferências e
 
 ```powershell
 # Reset de movimentações: apaga lançamentos, lotes de importação,
-# vínculos de transferência e rejeições de conciliação.
+# vínculos de transferência, rejeições de conciliação e o histórico
+# dos lembretes por e-mail.
 # Preserva categorias e formas de pagamento cadastradas.
 npm.cmd run db:reset:data
 
 # Reset completo: também apaga categorias e formas de pagamento.
 npm.cmd run db:reset:all
 ```
+
+O escopo do reset inclui `bill_reminder_notifications` e
+`bill_reminder_batches` (o destinatário e o histórico por conta dos avisos) —
+as notificações são apagadas antes dos lotes, por causa da chave estrangeira.
+Assim o reset não deixa rastro de lembretes nem um lote antigo `sent`
+suprimindo o aviso de uma data.
 
 Seguranças do procedimento:
 
@@ -359,7 +480,8 @@ A suíte cobre:
 - detecção de transferências: sinais opostos, descrições diferentes, datas próximas, tolerância, casos ambíguos e vínculo entre lotes distintos;
 - transferências: vínculo/desvínculo, prevenção de vínculos duplicados, validação de valor/sinal/conta, bloqueios de edição/exclusão, preservação da marcação original e exclusão dos totais de receita/despesa;
 - cores das categorias: persistência, atualização, limpeza, validação de formato e integridade após reaplicar migrações;
-- consolidado anual: agrupamento, sinais, transferências, médias e totais.
+- consolidado anual: agrupamento, sinais, transferências, médias e totais;
+- lembretes por e-mail: marcos, consolidação por marco, idempotência, retentativa e limite de tentativas, privacidade do e-mail (sem valor), sanitização de erro (host, usuário, senha e valor redigidos), TLS obrigatório, pré-visualização (`dry-run`) que não consome o aviso, CLI e escopo do reset.
 
 ## Decisões de arquitetura
 
@@ -379,6 +501,14 @@ A suíte cobre:
 - A detecção de transferências é heurística. O vínculo manual valida valor, sinal e contas, mas não exige proximidade de datas nem palavras-chave na descrição.
 - Transferências não cruzam dados de terceiros nem validam titularidade real das contas; a decisão final é sempre do usuário.
 - Uma reimportação de arquivo pode criar uma transferência duplicada se o par já existir e os lançamentos não tiverem sido vinculados antes.
+- O e-mail de lembrete **não informa valores**: apenas descrição, vencimento, prazo restante, categoria, quantidade de itens e marco. Quem quiser os valores precisa abrir o aplicativo.
+- A **descrição da conta vai no e-mail**: é texto livre e pode conter dado pessoal — evite nome de pessoa, documento ou outra informação sensível nela.
+- Os lembretes avisam apenas contas **pendentes** (`AG` e `PG` nunca são avisadas) e dependem do backend no ar: sem servidor rodando, não há aviso — os marcos só são recuperados depois, dentro da janela de catch-up.
+- Marcos cujo vencimento ficou para trás além da janela de catch-up são descartados, e não há reenvio manual de um marco já perdido.
+- Cada aviso é tentado no máximo **5 vezes**; depois disso é descartado e fica registrado no histórico (`falha persistente: limite de tentativas`).
+- Com `BILL_REMINDER_TRANSPORT=dry-run` nada é enviado e o agendador nem sobe — o aviso do dia não é consumido.
+- A CLI (`npm.cmd run reminders:run`) não deve rodar com o backend no ar: os dois processos podem enviar o mesmo aviso.
+- Não há confirmação de leitura, assinatura digital, configuração pela interface nem canal além de e-mail (WhatsApp e afins ficaram fora do escopo).
 
 ## Solução de problemas
 
