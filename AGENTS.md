@@ -29,16 +29,18 @@
 | db:reset:data | `npm run db:reset:data` |
 | db:reset:all | `npm run db:reset:all` |
 | db:restore | `npm run db:restore` |
+| reminders:run | `npm run reminders:run` |
 
 ## Gate de qualidade
 
 1. `npm run build` sem erro (server + client)
 2. `npm test` verde (Vitest)
-3. nenhuma regressão vs baseline (224 testes)
+3. nenhuma regressão vs baseline (362 testes: 336 no server + 26 no client)
 4. sem `console.log`, `debugger`, `.only`, `.skip`
 5. nenhuma variável de ambiente nova sem entrada no README
 6. sem segredo, token ou PII em código, log ou teste
 7. docs atualizadas se o comportamento público mudou
+8. o plano do módulo (`qa/evidence/<tema>.md`) entra no **mesmo commit** da feature que ele descreve
 
 ## Convenções
 

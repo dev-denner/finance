@@ -211,6 +211,89 @@ export const scheduledBills = sqliteTable(
   ],
 );
 
+/**
+ * Lote de lembrete por e-mail: um e-mail por (marco, data-alvo).
+ * `state` acompanha o resultado do envio (`pending|sent|failed|skipped`).
+ */
+export const billReminderBatches = sqliteTable(
+  'bill_reminder_batches',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Marco do lembrete (D-3, D-2, D-1 ou D0). */
+    milestone: text('milestone').notNull(),
+    /** Data-alvo do envio (AAAA-MM-DD). */
+    sendDate: text('send_date').notNull(),
+    state: text('state').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    sentAt: text('sent_at'),
+    /** Quantidade de itens consolidados no e-mail. */
+    itemCount: integer('item_count').notNull().default(0),
+    /** Destinatário do lote (endereço de e-mail, sem outros dados pessoais). */
+    recipient: text('recipient').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('bill_reminder_batches_milestone_send_date_uq').on(
+      table.milestone,
+      table.sendDate,
+    ),
+    check(
+      'bill_reminder_batches_state_check',
+      sql`${table.state} in ('pending', 'sent', 'failed', 'skipped')`,
+    ),
+    check('bill_reminder_batches_attempts_check', sql`${table.attempts} >= 0`),
+    check('bill_reminder_batches_item_count_check', sql`${table.itemCount} >= 0`),
+    index('bill_reminder_batches_state_idx').on(table.state),
+    index('bill_reminder_batches_send_date_idx').on(table.sendDate),
+  ],
+);
+
+/**
+ * Ledger de lembretes por item: uma linha por (conta, marco, vencimento).
+ * `bill_id` apaga o histórico do item quando a conta é excluída.
+ */
+export const billReminderNotifications = sqliteTable(
+  'bill_reminder_notifications',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    billId: integer('bill_id')
+      .notNull()
+      .references(() => scheduledBills.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    milestone: text('milestone').notNull(),
+    /** Vencimento registrado no momento da criação (AAAA-MM-DD). */
+    dueDate: text('due_date').notNull(),
+    /** Data-alvo do envio (AAAA-MM-DD). */
+    sendDate: text('send_date').notNull(),
+    state: text('state').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    sentAt: text('sent_at'),
+    batchId: integer('batch_id').references(() => billReminderBatches.id, {
+      onDelete: 'set null',
+      onUpdate: 'cascade',
+    }),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('bill_reminder_notifications_bill_milestone_due_date_uq').on(
+      table.billId,
+      table.milestone,
+      table.dueDate,
+    ),
+    check(
+      'bill_reminder_notifications_state_check',
+      sql`${table.state} in ('pending', 'sent', 'failed', 'skipped')`,
+    ),
+    check('bill_reminder_notifications_attempts_check', sql`${table.attempts} >= 0`),
+    index('bill_reminder_notifications_bill_id_idx').on(table.billId),
+    index('bill_reminder_notifications_state_idx').on(table.state),
+    index('bill_reminder_notifications_batch_id_idx').on(table.batchId),
+  ],
+);
+
 export type Category = typeof categories.$inferSelect;
 export type PaymentMethod = typeof paymentMethods.$inferSelect;
 export type ImportBatch = typeof importBatches.$inferSelect;
@@ -219,3 +302,5 @@ export type Transfer = typeof transfers.$inferSelect;
 export type TransferRejection = typeof transferRejections.$inferSelect;
 export type ScheduledBill = typeof scheduledBills.$inferSelect;
 export type CategoryImportAlias = typeof categoryImportAliases.$inferSelect;
+export type BillReminderBatch = typeof billReminderBatches.$inferSelect;
+export type BillReminderNotification = typeof billReminderNotifications.$inferSelect;
