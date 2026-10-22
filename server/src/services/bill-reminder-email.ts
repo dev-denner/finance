@@ -6,11 +6,9 @@
  * **não possui** `amountCents` — o compilador impede que um valor monetário
  * chegue ao corpo do e-mail por engano.
  *
- * O texto usa **a data real do envio** (`today`), nunca a data-alvo do marco:
- * num aviso de recuperação o marco já passou, e dizer "Aviso gerado em
- * 18/10/2026" num e-mail entregue em 21/10/2026 seria falso. Quando o marco é
- * atrasado (`sendDate < today`), o e-mail diz que é um aviso de recuperação e
- * informa a data prevista do marco.
+ * O texto usa **a data real do envio** (`today`), nunca a data-alvo do marco.
+ * Quando há itens vencidos, o e-mail orienta a agir logo, sem expor detalhes
+ * internos de agendamento, como marcos ou recuperação.
  *
  * Cada item mostra também **quantos dias faltam** para o vencimento
  * (calculado a partir de `today` e do `dueDate` do item) — é a informação
@@ -102,100 +100,122 @@ function dueDateLabel(today: string, dueDate: string): string {
 
 /**
  * Monta o assunto, o texto e o HTML do aviso.
- * O conteúdo deixa explícito que os itens **precisam ser agendados** (AC-11)
- * e que o aviso acontece no máximo uma vez por marco.
+ * O conteúdo deixa explícito que os itens **precisam ser agendados** (AC-11),
+ * priorizando a ação do usuário em vez de detalhes técnicos do mecanismo.
  *
- * O texto sempre informa **a data real do envio**. Quando o marco já passou
- * (`sendDate < today`), o assunto ganha o sufixo `— recuperação` e o corpo
- * diz que o marco previsto já havia passado — a data de vencimento de cada
- * item continua na lista, porque é a referência real do prazo.
+ * O texto sempre informa **a data real do envio**. Quando há atraso, o corpo
+ * destaca que existem contas vencidas — a data de vencimento de cada item
+ * continua na lista, porque é a referência real do prazo.
  */
 export function buildReminderEmail(input: ReminderEmailInput): ReminderEmailContent {
-  const { milestone, sendDate, today, items } = input;
+  const { sendDate, today, items } = input;
   const count = items.length;
   const itemLabel = pluralize(count, 'conta a pagar', 'contas a pagar');
   const verbLabel = pluralize(count, 'precisa', 'precisam');
   const schedule = `${count} ${itemLabel} ${verbLabel} ser agendada${count === 1 ? '' : 's'}`;
 
-  /** Marco atrasado: o aviso é enviado depois da data prevista. */
+  /** Marco atrasado: há itens vencidos que merecem prioridade. */
   const late = sendDate < today;
-  const suffix = late ? ' — recuperação' : '';
-
-  const subject = `Finance: ${schedule} (${milestone}${suffix})`;
+  const pendingLabel = pluralize(count, 'conta pendente', 'contas pendentes');
+  const subject = `Finance: ${count} ${pendingLabel} para agendar`;
 
   const lines: string[] = [];
-  lines.push(`Finance — lembrete de contas a pagar (marco ${milestone}${suffix})`);
+  lines.push('Finance — contas pendentes para agendar');
   lines.push('');
-  lines.push(`Aviso enviado em ${formatBr(today)}: ${schedule}.`);
+  lines.push(`Hoje, ${formatBr(today)}, ${schedule}.`);
   if (late) {
     lines.push('');
-    lines.push(
-      `Este aviso é de recuperação: o marco ${milestone} (previsto para ${formatBr(
-        sendDate,
-      )}) já havia passado.`,
-    );
+    lines.push('Atenção: há contas vencidas nesta lista. Agende-as assim que possível.');
   }
   lines.push('');
-  lines.push('Itens que precisam ser agendados:');
+  lines.push('Contas para agendar');
   items.forEach((item, index) => {
     lines.push(`${index + 1}. ${item.description}`);
     lines.push(`   Vencimento: ${dueDateLabel(today, item.dueDate)}`);
     lines.push(`   Categoria: ${item.categoryName}`);
   });
   lines.push('');
-  lines.push('Observações:');
-  lines.push(
-    '- Estes itens ainda não estão agendados. Abra o Finance e marque cada conta como agendada.',
-  );
-  lines.push(
-    `- Cada marco (${REMINDER_MILESTONES.join(', ')}) gera no máximo um aviso por conta.`,
-  );
-  lines.push(
-    '- Marcar uma conta como agendada interrompe os avisos restantes dessa conta.',
-  );
-  lines.push(
-    '- Por segurança, este e-mail não informa valores. Consulte o aplicativo Finance para ver os detalhes.',
-  );
+  lines.push('Próximo passo');
+  lines.push('Abra o Finance e marque cada conta como agendada.');
+  lines.push('');
+  lines.push('Este e-mail não inclui valores.');
 
   const text = lines.join('\n');
 
   const htmlItems = items
     .map(
-      (item) => `      <li>
-        <strong>${escapeHtml(item.description)}</strong><br />
-        Vencimento: ${escapeHtml(dueDateLabel(today, item.dueDate))}<br />
-        Categoria: ${escapeHtml(item.categoryName)}
-      </li>`,
+      (item) => `
+                    <tr>
+                      <td style="padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;">
+                        <p style="margin: 0 0 8px; font-size: 16px; font-weight: 700; color: #172554;">${escapeHtml(
+                          item.description,
+                        )}</p>
+                        <p style="margin: 0; color: #475569; line-height: 1.5;">
+                          <strong style="color: #334155;">Vencimento:</strong> ${escapeHtml(
+                            dueDateLabel(today, item.dueDate),
+                          )}<br />
+                          <strong style="color: #334155;">Categoria:</strong> ${escapeHtml(item.categoryName)}
+                        </p>
+                      </td>
+                    </tr>
+                    <tr><td style="height: 12px;"></td></tr>`,
     )
     .join('\n');
 
   const htmlLate = late
     ? `
-    <p>Este aviso é de recuperação: o marco ${escapeHtml(
-        milestone,
-      )} (previsto para ${escapeHtml(
-        formatBr(sendDate),
-      )}) já havia passado.</p>`
+                    <tr>
+                      <td style="padding: 12px 16px; border-left: 4px solid #d97706; background: #fffbeb; color: #92400e; font-size: 14px; line-height: 1.5;">
+                        <strong>Atenção:</strong> há contas vencidas nesta lista. Agende-as assim que possível.
+                      </td>
+                    </tr>
+                    <tr><td style="height: 20px;"></td></tr>`
     : '';
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
-  <body style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1f2933;">
-    <h2 style="font-size: 18px; margin: 0 0 12px;">Finance &mdash; lembrete de contas a pagar (marco ${escapeHtml(
-      milestone,
-    )}${escapeHtml(suffix)})</h2>
-    <p>Aviso enviado em ${escapeHtml(formatBr(today))}: <strong>${escapeHtml(schedule)}</strong>.</p>${htmlLate}
-    <p>Itens que precisam ser agendados:</p>
-    <ol>
+  <body style="margin: 0; padding: 24px 12px; background: #f1f5f9; font-family: Arial, Helvetica, sans-serif; color: #1e293b;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width: 100%; max-width: 600px; overflow: hidden; border-radius: 12px; background: #ffffff;">
+            <tr>
+              <td style="padding: 28px 32px; background: #172554; color: #ffffff;">
+                <p style="margin: 0 0 8px; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #bfdbfe;">Finance</p>
+                <h1 style="margin: 0; font-size: 24px; line-height: 1.25;">Contas pendentes para agendar</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 28px 32px 12px;">
+                <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #334155;">Hoje, ${escapeHtml(
+                  formatBr(today),
+                )}, <strong>${escapeHtml(schedule)}</strong>.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 32px 0;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">${htmlLate}
 ${htmlItems}
-    </ol>
-    <p>Observações:</p>
-    <ul>
-      <li>Estes itens ainda não estão agendados. Abra o Finance e marque cada conta como agendada.</li>
-      <li>Cada marco (${escapeHtml(REMINDER_MILESTONES.join(', '))}) gera no máximo um aviso por conta.</li>
-      <li>Marcar uma conta como agendada interrompe os avisos restantes dessa conta.</li>
-      <li>Por segurança, este e-mail não informa valores. Consulte o aplicativo Finance para ver os detalhes.</li>
-    </ul>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 32px 28px;">
+                <div style="padding: 16px; border-radius: 8px; background: #eff6ff; color: #1e3a8a; line-height: 1.5;">
+                  <strong>Próximo passo</strong><br />
+                  Abra o Finance e marque cada conta como agendada.
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 18px 32px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 12px; line-height: 1.5;">
+                Este e-mail não inclui valores. Você receberá lembretes enquanto houver contas pendentes.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>`;
 

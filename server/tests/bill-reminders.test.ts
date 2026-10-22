@@ -144,12 +144,9 @@ function batchRows(db: AppDatabase) {
   return db.select().from(billReminderBatches).all();
 }
 
-/**
- * Marco do e-mail a partir do assunto.
- * Aceita o formato nominal `(D-3)` e o de recuperação `(D-3 — recuperação)`.
- */
+/** Marco interno do e-mail, preservado no Message-ID e não exposto no assunto. */
 function milestoneOf(message: ReminderMessage): string | null {
-  const match = message.subject.match(/\((D-3|D-2|D-1|D0)(?:\s+—\s+recuperação)?\)$/);
+  const match = message.messageId.match(/<bill-reminder-(D-3|D-2|D-1|D0)-\d{4}-\d{2}-\d{2}@finance\.local>/);
   return match ? match[1] : null;
 }
 
@@ -806,10 +803,10 @@ describe('lembretes por e-mail — conteúdo e privacidade (AC-10 e AC-11)', () 
     await runCycle(scenario.db, transport, makeConfig(), TODAY);
 
     const message = transport.sent[0];
-    expect(message.text).toContain('precisam ser agendados');
-    expect(message.text).toContain('ainda não estão agendados');
-    expect(message.html).toContain('precisam ser agendados');
-    expect(message.subject).toContain('ser agendada');
+    expect(message.text).toContain('precisa ser agendada');
+    expect(message.text).toContain('Próximo passo');
+    expect(message.html).toContain('Contas pendentes para agendar');
+    expect(message.subject).toContain('conta pendente para agendar');
   });
 
   it('deve listar somente as contas esperadas no e-mail', async () => {
@@ -1016,8 +1013,8 @@ describe('lembretes por e-mail — corretiva: a falha não pode ser perdida (AC-
   });
 });
 
-describe('lembretes por e-mail — corretiva: texto do aviso de recuperação (AC-9)', () => {
-  it('deve informar a data real do envio e dizer que o marco já havia passado', async () => {
+describe('lembretes por e-mail — mensagem acionável (AC-9)', () => {
+  it('deve informar a data real do envio e priorizar contas vencidas sem jargão técnico', async () => {
     const scenario = createScenario();
     // Venceu ontem: nenhum marco nominal hoje — o aviso é de recuperação.
     seedBill(scenario, { description: 'Luz', dueDate: shiftDays(TODAY, -1) });
@@ -1028,27 +1025,23 @@ describe('lembretes por e-mail — corretiva: texto do aviso de recuperação (A
     expect(transport.sent).toHaveLength(1);
     const message = transport.sent[0];
 
-    // A data mostrada é a data real do envio, não a data antiga do marco.
-    expect(message.text).toContain('Aviso enviado em 10/03/2026');
-    expect(message.text).not.toContain('Aviso gerado em');
-    expect(message.html).toContain('Aviso enviado em 10/03/2026');
-    expect(message.html).not.toContain('Aviso gerado em');
-
-    // O aviso deixa explícito que o marco previsto já havia passado.
-    expect(message.text).toContain('Este aviso é de recuperação');
-    expect(message.text).toContain('marco D-2 (previsto para 07/03/2026) já havia passado');
-    expect(message.html).toContain('Este aviso é de recuperação');
-    expect(message.html).toContain('já havia passado');
-    expect(message.subject).toBe(
-      'Finance: 1 conta a pagar precisa ser agendada (D-2 — recuperação)',
-    );
+    expect(message.text).toContain('Hoje, 10/03/2026');
+    expect(message.html).toContain('Hoje, 10/03/2026');
+    expect(message.text).toContain('Atenção: há contas vencidas nesta lista');
+    expect(message.html).toContain('Atenção:</strong> há contas vencidas nesta lista');
+    expect(message.subject).toBe('Finance: 1 conta pendente para agendar');
+    for (const content of [message.subject, message.text, message.html]) {
+      expect(content).not.toContain('D-2');
+      expect(content).not.toContain('recuperação');
+      expect(content).not.toContain('marco');
+    }
 
     // A data de vencimento continua na lista: é a referência do prazo.
     expect(message.text).toContain('Vencimento: 09/03/2026');
-    expect(message.html).toContain('Vencimento: 09/03/2026');
+    expect(message.html).toContain('>Vencimento:</strong> 09/03/2026');
   });
 
-  it('deve manter o assunto nominal quando o marco é do dia', async () => {
+  it('deve usar um assunto simples quando o aviso é do dia', async () => {
     const scenario = createScenario();
     seedBill(scenario, { description: 'Aluguel', dueDate: shiftDays(TODAY, 3) });
     const transport = new FakeTransport();
@@ -1057,9 +1050,9 @@ describe('lembretes por e-mail — corretiva: texto do aviso de recuperação (A
 
     expect(transport.sent).toHaveLength(1);
     const message = transport.sent[0];
-    expect(message.subject).toBe('Finance: 1 conta a pagar precisa ser agendada (D-3)');
-    expect(message.text).toContain('Aviso enviado em 10/03/2026');
-    expect(message.text).not.toContain('recuperação');
+    expect(message.subject).toBe('Finance: 1 conta pendente para agendar');
+    expect(message.text).toContain('Hoje, 10/03/2026');
+    expect(message.text).not.toContain('Atenção: há contas vencidas');
   });
 });
 
@@ -1513,7 +1506,7 @@ describe('lembretes por e-mail — prazo restante no aviso (NIT)', () => {
 
     const message = transport.sent[0];
     expect(message.text).toContain('Vencimento: 13/03/2026 (faltam 3 dias)');
-    expect(message.html).toContain('Vencimento: 13/03/2026 (faltam 3 dias)');
+    expect(message.html).toContain('>Vencimento:</strong> 13/03/2026 (faltam 3 dias)');
   });
 
   it('deve informar quando o item vence hoje', async () => {
