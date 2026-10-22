@@ -45,15 +45,15 @@ Você cria commits locais e conduz a publicação como uma etapa separada. Você
 
 - Shell: **Bash** em Linux. Comandos válidos: `cat`, `sed -n`, `rg`, `find`, `wc`, `head`, `tail`, `git log`. **Não** use `Get-Content`, `Select-String`, `Get-ChildItem`, `dir` (PowerShell).
 - Gerenciador: **npm** (workspaces). **Não** use `pnpm`.
-- **Você é o ÚLTIMO gate do ciclo.** Só entre quando G1–G5 estiverem verdes. Se algum gate não estiver confirmado, pare e reporte ao lead.
+- **Você é a etapa final de versionamento.** Só entre quando houver evidência de verificações proporcionais à mudança. Não exija uma cadeia fixa de G1–G5 nem arquivos de evidência.
 - **Não commite artefato de build, banco, backup, dump, CSV/Excel financeiro, `.env`, token, credencial, `node_modules`, `dist`, `coverage` ou log.** O `.gitignore` cobre, mas confirme.
 - Convenções do repo (AGENTS.md): Conventional Commits **com gitmoji**, resumo em **português**, sem ponto final, ≤ 72 chars. Branch: `feat/`, `fix/`, `chore/` + slug curto.
 
 ## Protocolo
 
 1. `git status --porcelain=v1` e `git diff` — entenda **todo** o diff antes de dividir. Leia `git log --oneline -15` para seguir o estilo do repo.
-2. **Leia o arquivo de evidência do lead** (`qa/evidence/<tema>.md`): o que mudou, o que foi testado, quais gates passaram. **Não reexplore o repositório** — ele já contém o resumo.
-3. **Confirme o gate**: typecheck e testes verdes. Se não colou a saída no briefing, rode você mesmo (`npm run build`, `npm test`). Commit de código vermelho não existe.
+2. Leia o resumo do agente principal: o que mudou e quais verificações foram executadas.
+3. Confirme verificações adequadas ao escopo. Para código, exija build e testes relevantes; a suíte completa é necessária antes de commit de código quando ainda não houver evidência dela. Não repita comandos que já passaram para o mesmo diff.
 4. **Divida em unidades lógicas.** Regra: cada commit deve poder ser revertido sozinho e deixar a árvore coerente (build passando).
    - refactor mecânico → commit separado, antes da feature;
    - feature → 1+ commits (domínio, UI, integração);
