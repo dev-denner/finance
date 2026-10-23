@@ -50,6 +50,13 @@
       "when": 1792623371895,
       "tag": "0006_slimy_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792706951394,
+      "tag": "0007_noisy_nighthawk",
+      "breakpoints": true
     }
   ]
 }

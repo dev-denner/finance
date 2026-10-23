@@ -250,6 +250,48 @@ export const billReminderBatches = sqliteTable(
   ],
 );
 
+/** Compras importadas de documentos fiscais; independentes das movimentações. */
+export const purchases = sqliteTable(
+  'purchases',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    accessKey: text('access_key').notNull(),
+    supplierName: text('supplier_name').notNull(),
+    supplierCnpj: text('supplier_cnpj').notNull(),
+    invoiceNumber: text('invoice_number').notNull(),
+    series: text('series').notNull(),
+    issuedAt: text('issued_at').notNull(),
+    totalCents: integer('total_cents').notNull(),
+    paymentMethod: text('payment_method'),
+    importedAt: text('imported_at').notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('purchases_access_key_uq').on(table.accessKey),
+    index('purchases_issued_at_idx').on(table.issuedAt),
+  ],
+);
+
+export const purchaseItems = sqliteTable(
+  'purchase_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    purchaseId: integer('purchase_id')
+      .notNull()
+      .references(() => purchases.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    position: integer('position').notNull(),
+    description: text('description').notNull(),
+    quantity: text('quantity').notNull(),
+    unit: text('unit').notNull(),
+    unitPriceCents: integer('unit_price_cents').notNull(),
+    discountCents: integer('discount_cents'),
+    totalCents: integer('total_cents').notNull(),
+  },
+  (table) => [
+    uniqueIndex('purchase_items_purchase_position_uq').on(table.purchaseId, table.position),
+    index('purchase_items_purchase_id_idx').on(table.purchaseId),
+  ],
+);
+
 /**
  * Ledger de lembretes por item: uma linha por (conta, marco, vencimento).
  * `bill_id` apaga o histórico do item quando a conta é excluída.

@@ -15,6 +15,32 @@ export interface Lookup {
   createdAt: string;
 }
 
+export interface PurchaseItem {
+  id?: number;
+  position?: number;
+  description: string;
+  quantity: string;
+  unit: string;
+  unitPriceCents: number;
+  discountCents: number | null;
+  totalCents: number;
+}
+
+export interface Purchase {
+  id?: number;
+  accessKey?: string;
+  supplierName: string;
+  supplierCnpj: string;
+  invoiceNumber: string;
+  series: string;
+  issuedAt: string;
+  totalCents: number;
+  paymentMethod: string | null;
+  importedAt?: string;
+  itemCount?: number;
+  items?: PurchaseItem[];
+}
+
 export interface Meta {
   categories: Lookup[];
   paymentMethods: Lookup[];

@@ -17,6 +17,7 @@ import type {
   Meta,
   ReconciliationResult,
   RejectedTransferRecord,
+  Purchase,
   Transaction,
   TransactionFilters,
   TransactionInput,
@@ -91,6 +92,19 @@ function queryString(params: Record<string, string | number | undefined | null>)
 
 export const api = {
   getMeta: () => request<Meta>('/meta'),
+
+  listPurchases: () => request<Purchase[]>('/purchases'),
+  getPurchase: (id: number) => request<Purchase>(`/purchases/${id}`),
+  previewPurchase: (url: string) =>
+    request<{ purchase: Purchase; alreadyImported: boolean }>('/purchases/preview', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
+  importPurchase: (url: string) =>
+    request<{ id: number; duplicate: boolean }>('/purchases/import', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
 
   listTransactions: (filters: TransactionFilters) =>
     request<TransactionListResponse>(

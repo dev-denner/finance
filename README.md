@@ -7,12 +7,14 @@ Tudo roda na sua máquina. Não há login, cloud, integração bancária, Docker
 ## Recursos
 
 - **Importação** de CSV, XLS e XLSX com prévia, mapeamento manual de colunas, correção/rejeição de linhas, criação automática de categorias e formas de pagamento e detecção de duplicidades.
+- **Importações**: área central com os fluxos **Importar movimentações** e **Importar NFC-e/compras**, além do histórico unificado por tipo, data, quantidade processada e resultado.
 - **Transferências entre contas** detectadas na importação (valor de mesmo módulo, sinais opostos, contas diferentes e datas próximas), com revisão lado a lado antes de confirmar, vínculo persistente, desvínculo manual e indicador visual na listagem.
 - **Lançamentos** em formato de planilha: filtros por ano/mês, categoria, pagamento e texto; ordenação (inclusive por **Categoria** e **Pagamento**, A–Z/Z–A); paginação; criação, edição inline e exclusão.
 - **Edição em massa** de categoria, forma de pagamento e exclusão, mantendo a seleção entre páginas e filtros.
 - **Consolidado anual** por categoria, com 12 colunas mensais, total, média e totais gerais, além da cor de cada categoria. Clique em uma célula para ver os lançamentos que a compõem.
 - **Cadastros auxiliares** de categorias e formas de pagamento, com renomeação, **cor opcional por categoria** e exclusão com reatribuição.
 - **Lembretes por e-mail** das contas a pagar que ainda não foram agendadas, com avisos nos marcos D-3, D-2, D-1 e D0.
+- **Compras**: lista com busca por fornecedor/nota, detalhes dos itens e atalho para importar uma nova NFC-e pela área de Importações; separada das movimentações financeiras.
 - **Tema claro/escuro**, valores em BRL, datas `DD/MM/AAAA` e layout desktop-first.
 - **SQLite persistente** com migrações versionadas e backup por linha de comando.
 
@@ -35,7 +37,7 @@ finance/
 │   │   ├── components/      # Layout, sidebar e componentes de UI
 │   │   ├── context/         # Tema, avisos, cadastros e seleção
 │   │   ├── lib/             # Cliente HTTP, tipos e formatadores
-│   │   └── pages/           # Lançamentos, Consolidado, Importações, Cadastros
+│   │   └── pages/           # Movimentações, Consolidado, Importações, Compras, Cadastros
 │   └── dist/                # Build servido pelo backend em produção
 ├── server/
 │   ├── drizzle/             # Migrações SQL geradas e journal
@@ -220,6 +222,8 @@ npm.cmd run reminders:run -- --today=21/10/2026
 npm.cmd run reminders:run -- --dry-run
 ```
 
+
+
 - `--today=AAAA-MM-DD` (ou `DD/MM/AAAA`) fixa a data de referência do ciclo.
 - `--dry-run` **simula** o ciclo: imprime o e-mail em vez de enviá-lo e
   **não grava nada no banco** (nenhum lote, nenhuma notificação). Por isso o
@@ -236,11 +240,43 @@ npm.cmd run reminders:run -- --dry-run
 O mesmo núcleo (`runBillReminders`) atende o agendador e a linha de comando, e o
 `Message-ID` evita duplicidade quando o aviso é reenviado.
 
+## Compras e NFC-e do RJ
+
+A tela **Importações** concentra os dois fluxos: **Importar movimentações** (planilhas
+CSV/Excel) e **Importar NFC-e/compras**. Ao importar uma NFC-e, a tela consulta o
+portal da SEFAZ-RJ a partir da URL oficial do QR Code, mostra uma prévia e só
+persiste depois da confirmação. A tela **Compras** apenas lista, filtra e abre os
+detalhes das compras importadas, com um atalho **Importar NFC-e** que leva ao
+fluxo central sem duplicar o formulário. Compras e itens ficam em tabelas
+próprias, com deduplicação pela chave de acesso; nenhuma movimentação financeira
+é criada ou alterada. A conciliação será implementada em uma etapa posterior.
+
+O backend usa Playwright para abrir uma janela normal do Google Chrome ou
+Chromium instalado no computador. A consulta tem limite de tempo e tamanho; são
+permitidos o host da consulta da SEFAZ-RJ e somente o script
+`https://code.jquery.com/jquery-1.9.1.js`, necessário para renderizar os painéis
+da nota. A requisição desse script não envia o cabeçalho `Referer`; analytics e
+qualquer outro host ou recurso externo são bloqueados, incluindo destinos de
+redirecionamento. Não há uso de stealth, proxy, rotação de IP ou resolução de
+CAPTCHA. O navegador fecha após obter a prévia.
+
+São armazenados fornecedor, CNPJ do fornecedor, identificação/data da NFC-e,
+chave de acesso, total, forma de pagamento quando disponível e os itens. CPF do
+consumidor, dados de cartão, autorização, URL completa do QR Code e HTML bruto
+nunca são armazenados. O layout RJ pode mudar; se os campos esperados não forem
+encontrados ou os itens não fecharem com o total, a importação é recusada para
+revisão, sem salvar parcialmente.
+
+**Limitação desta primeira versão:** o parser depende do layout atual do portal
+RJ e recusa a importação quando os campos esperados ou a soma dos itens não
+conferem. A allowlist do navegador permite somente o arquivo jQuery acima no
+CDN, sem `Referer`; analytics e outros recursos externos continuam bloqueados.
+
 ## Importação
 
 Formatos aceitos: `.csv`, `.txt`, `.xls`, `.xlsx` e `.xlsm` (primeira planilha do arquivo, até 20.000 linhas e 25 MB).
 
-1. Arraste o arquivo ou selecione em **Importações**.
+1. Em **Importações**, escolha **Importar movimentações** e arraste o arquivo ou clique para selecionar.
 2. Confira o mapeamento das colunas. Obrigatórias: **Compra** (ou **Lançamento**) e **Valor**. **Data Compra** e **Vencimento** são opcionais, mas a linha precisa de pelo menos uma data válida.
 3. Se alguma linha ficar sem conta/pagamento (arquivo sem a coluna ou célula vazia), escolha a **conta de destino do lote** antes de confirmar.
 4. Revise a prévia. Linhas com erro podem ser corrigidas ou rejeitadas individualmente.
@@ -292,9 +328,9 @@ Antes de criar uma categoria, o importador procura uma existente em camadas: cor
 - Categorias e formas de pagamento inexistentes são criadas automaticamente, preservando o nome original de exibição e ignorando diferenças de caixa, acentos e espaços redundantes.
 - A duplicidade é detectada por uma impressão digital dos campos do lançamento, incluindo a conta de destino e a categoria resolvida. Assim, reimportar o mesmo arquivo com as mesmas decisões é idempotente. Por padrão, duplicidades são ignoradas; desmarque a opção para importá-las mesmo assim.
 - A importação inteira roda em uma transação do SQLite. O arquivo original não é armazenado nem alterado.
-- Cada importação gera um registro no histórico com total, importados e rejeitados.
+- Cada importação de movimentações gera um registro com total, importados e rejeitados. O histórico central de **Importações** combina esses lotes com cada compra importada, identificando tipo, data, quantidade processada e resultado. Não há tabela nova de histórico de compras: cada compra persistida já é o próprio registro da importação.
 
-Também é possível criar lançamentos manualmente em **Lançamentos**.
+Também é possível criar lançamentos manualmente em **Movimentações**.
 
 ## Transferências entre contas
 
