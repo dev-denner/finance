@@ -10,6 +10,8 @@ import {
 import { ApiError, api } from '../lib/api';
 import { formatBRL, formatDateTimeBR } from '../lib/format';
 import type { Purchase } from '../lib/types';
+import { NfceCopiedTextImport } from '../components/NfceCopiedTextImport';
+import { NfceBatchImport } from '../components/NfceBatchImport';
 import { Button } from '../components/ui/Button';
 import { PageHeader } from '../components/ui/Page';
 
@@ -20,8 +22,11 @@ function errorText(error: unknown): string {
 export function NfceImportPage() {
   const [url, setUrl] = useState('');
   const [previewedUrl, setPreviewedUrl] = useState('');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [previewedPdfFile, setPreviewedPdfFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Purchase | null>(null);
   const [alreadyImported, setAlreadyImported] = useState(false);
+  const [state, setState] = useState<'RJ' | 'SP' | 'TO' | 'MG' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -36,10 +41,23 @@ export function NfceImportPage() {
     setImportedId(null);
     setPreview(null);
     setPreviewedUrl('');
+    setPreviewedPdfFile(null);
+    setState(null);
+    setAlreadyImported(false);
     try {
       const result = await api.previewPurchase(trimmed);
+      setState(result.state);
+      if (result.alreadyImported && result.existingPurchaseId !== null) {
+        setAlreadyImported(true);
+        setImportedId(result.existingPurchaseId);
+        setNotice('Esta NFC-e já foi importada. A consulta ao portal foi evitada.');
+        return;
+      }
+      if (!result.purchase) {
+        setError('O Finance não recebeu uma prévia válida da NFC-e.');
+        return;
+      }
       setPreview(result.purchase);
-      setAlreadyImported(result.alreadyImported);
       setPreviewedUrl(trimmed);
     } catch (reason) {
       setError(errorText(reason));
@@ -48,13 +66,44 @@ export function NfceImportPage() {
     }
   }
 
+  async function previewPdf(event: React.FormEvent) {
+    event.preventDefault();
+    if (!pdfFile) return;
+    setLoading(true);
+    setError('');
+    setNotice('');
+    setImportedId(null);
+    setPreview(null);
+    setPreviewedUrl('');
+    setPreviewedPdfFile(null);
+    setState(null);
+    setAlreadyImported(false);
+    try {
+      const result = await api.previewNfcePdf(pdfFile);
+      setState(result.state);
+      if (result.alreadyImported && result.existingPurchaseId !== null) {
+        setAlreadyImported(true);
+        setImportedId(result.existingPurchaseId);
+        setNotice('Esta NFC-e já foi importada. O arquivo não será processado novamente.');
+        return;
+      }
+      if (!result.purchase) { setError('O Finance não conseguiu montar a prévia do PDF.'); return; }
+      setPreview(result.purchase);
+      setPreviewedPdfFile(pdfFile);
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function importCurrent() {
-    if (!previewedUrl) return;
+    if (!previewedUrl && !previewedPdfFile) return;
     setLoading(true);
     setError('');
     setNotice('');
     try {
-      const result = await api.importPurchase(previewedUrl);
+      const result = previewedPdfFile ? await api.importNfcePdf(previewedPdfFile) : await api.importPurchase(previewedUrl);
       setNotice(
         result.duplicate
           ? 'Esta NFC-e já estava na lista de compras.'
@@ -64,6 +113,8 @@ export function NfceImportPage() {
       setPreview(null);
       setUrl('');
       setPreviewedUrl('');
+      setPreviewedPdfFile(null);
+      setPdfFile(null);
       setAlreadyImported(false);
     } catch (reason) {
       setError(errorText(reason));
@@ -76,7 +127,7 @@ export function NfceImportPage() {
     <div>
       <PageHeader
         title="Importar NFC-e"
-        subtitle="Consulte a NFC-e do RJ pelo QR Code, revise os itens e confirme a compra."
+        subtitle="Importe NFC-e por QR Code, PDF ou arquivo CSV/TXT."
         actions={
           <>
             <Link to="/compras" className="btn-secondary">
@@ -91,6 +142,7 @@ export function NfceImportPage() {
         }
       />
 
+      <h2 className="mb-3 text-base font-semibold">Importar uma NFC-e</h2>
       <form onSubmit={previewUrl} className="card mb-2 flex flex-col gap-3 p-4 sm:flex-row">
         <label className="sr-only" htmlFor="nfce-url">
           URL do QR Code da NFC-e
@@ -102,7 +154,7 @@ export function NfceImportPage() {
           maxLength={2048}
           value={url}
           onChange={(event) => setUrl(event.target.value)}
-          placeholder="Cole a URL do QR Code da NFC-e do RJ"
+          placeholder="Cole a URL do QR Code da NFC-e do RJ, de SP ou de TO"
           className="input min-w-0 flex-1"
         />
         <Button type="submit" variant="primary" loading={loading}>
@@ -111,9 +163,22 @@ export function NfceImportPage() {
         </Button>
       </form>
       <p className="mb-5 text-xs text-ink-400">
-        A consulta usa o portal oficial da SEFAZ-RJ. Nenhuma movimentação financeira é criada
+        A consulta usa o portal oficial do estado detectado pela URL (RJ, SP ou TO). Nenhuma movimentação financeira é criada
         ou alterada.
       </p>
+
+      <section className="card mb-5 p-4" aria-labelledby="nfce-pdf-title">
+        <h2 id="nfce-pdf-title" className="mb-1 text-base font-semibold">Importar uma NFC-e em PDF</h2>
+        <p className="mb-3 text-sm text-ink-500">Envie o PDF textual da consulta fiscal. Em MG, a seção “Chave de acesso” precisa estar expandida ao salvar.</p>
+        <form onSubmit={previewPdf} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="flex-1 text-sm">
+            Arquivo PDF
+            <input type="file" accept="application/pdf,.pdf" onChange={(event) => { setPdfFile(event.target.files?.[0] ?? null); setPreviewedPdfFile(null); setPreview(null); setState(null); setAlreadyImported(false); }} className="input mt-1 w-full" />
+          </label>
+          <Button type="submit" variant="primary" loading={loading} disabled={!pdfFile}>Conferir PDF</Button>
+        </form>
+        <p className="mt-2 text-xs text-ink-400">Limite de 5 MB. A importação não cria nem altera movimentações.</p>
+      </section>
 
       {error && (
         <p
@@ -147,7 +212,7 @@ export function NfceImportPage() {
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 id="nfce-preview-title" className="text-base font-semibold">
-                Prévia da compra
+                Prévia da compra · SEFAZ-{state ?? '—'}
               </h2>
               <p className="mt-1 text-sm text-ink-500">
                 {preview.supplierName} · NFC-e {preview.invoiceNumber} ·{' '}
@@ -165,8 +230,11 @@ export function NfceImportPage() {
           </div>
           <div className="mb-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
             <span>CNPJ: {preview.supplierCnpj}</span>
+            {preview.invoiceDiscountCents > 0 && (
+              <span>Desconto na nota: <strong>{formatBRL(preview.invoiceDiscountCents)}</strong></span>
+            )}
             <span>
-              Total: <strong>{formatBRL(preview.totalCents)}</strong>
+              Total a pagar: <strong>{formatBRL(preview.totalCents)}</strong>
             </span>
             <span>Pagamento: {preview.paymentMethod ?? 'Não informado'}</span>
             <span>{preview.items?.length ?? 0} itens</span>
@@ -209,6 +277,9 @@ export function NfceImportPage() {
           )}
         </section>
       )}
+
+      <NfceCopiedTextImport />
+      <NfceBatchImport />
     </div>
   );
 }

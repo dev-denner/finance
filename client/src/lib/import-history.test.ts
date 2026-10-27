@@ -24,6 +24,7 @@ function purchase(overrides: Partial<Purchase> = {}): Purchase {
     series: '7',
     issuedAt: '2026-03-02T10:20:30-03:00',
     totalCents: 3000,
+    invoiceDiscountCents: 0,
     paymentMethod: 'Cartão de Crédito',
     importedAt: '2026-03-02T13:30:00.000Z',
     itemCount: 3,

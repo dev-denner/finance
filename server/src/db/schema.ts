@@ -23,9 +23,37 @@ export const paymentMethods = sqliteTable(
     id: integer('id').primaryKey({ autoIncrement: true }),
     name: text('name').notNull(),
     normalizedName: text('normalized_name').notNull(),
+    /** Explicit balance behavior: credit may owe; debit and wallet require available balance. */
+    balanceType: text('balance_type').$type<'credit' | 'debit' | 'wallet' | 'unclassified'>().notNull().default('unclassified'),
     createdAt: text('created_at').notNull().default(now),
   },
-  (table) => [uniqueIndex('payment_methods_normalized_name_uq').on(table.normalizedName)],
+  (table) => [
+    uniqueIndex('payment_methods_normalized_name_uq').on(table.normalizedName),
+    check('payment_methods_balance_type_check', sql`${table.balanceType} in ('credit', 'debit', 'wallet', 'unclassified')`),
+  ],
+);
+
+export const paymentBalanceAdjustments = sqliteTable(
+  'payment_balance_adjustments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    paymentMethodId: integer('payment_method_id')
+      .notNull()
+      .references(() => paymentMethods.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    effectiveDate: text('effective_date').notNull(),
+    amountCents: integer('amount_cents').notNull(),
+    reason: text('reason').notNull(),
+    description: text('description').notNull(),
+    purchaseId: integer('purchase_id').references(() => purchases.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    reversedAt: text('reversed_at'),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    index('payment_balance_adjustments_purchase_idx').on(table.purchaseId),
+    index('payment_balance_adjustments_account_date_idx').on(table.paymentMethodId, table.effectiveDate),
+    check('payment_balance_adjustments_amount_check', sql`${table.amountCents} > 0`),
+    check('payment_balance_adjustments_reason_check', sql`${table.reason} in ('opening_balance', 'cashback', 'bonus', 'other')`),
+  ],
 );
 
 /**
@@ -262,12 +290,50 @@ export const purchases = sqliteTable(
     series: text('series').notNull(),
     issuedAt: text('issued_at').notNull(),
     totalCents: integer('total_cents').notNull(),
+    invoiceDiscountCents: integer('invoice_discount_cents').notNull().default(0),
     paymentMethod: text('payment_method'),
+    categoryId: integer('category_id').references(() => categories.id, { onDelete: 'set null', onUpdate: 'cascade' }),
+    transactionId: integer('transaction_id').references(() => transactions.id, { onDelete: 'set null', onUpdate: 'cascade' }),
+    reconciledAt: text('reconciled_at'),
+    reconciliationPreviousCategoryId: integer('reconciliation_previous_category_id'),
     importedAt: text('imported_at').notNull().default(now),
   },
   (table) => [
     uniqueIndex('purchases_access_key_uq').on(table.accessKey),
+    uniqueIndex('purchases_transaction_id_uq').on(table.transactionId),
     index('purchases_issued_at_idx').on(table.issuedAt),
+  ],
+);
+
+export const purchaseSettlements = sqliteTable(
+  'purchase_settlements',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    purchaseId: integer('purchase_id')
+      .notNull()
+      .references(() => purchases.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    transactionId: integer('transaction_id')
+      .references(() => transactions.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    paymentMethodId: integer('payment_method_id')
+      .notNull()
+      .references(() => paymentMethods.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    amountCents: integer('amount_cents').notNull(),
+    settlementType: text('settlement_type').$type<'movement' | 'wallet'>().notNull(),
+    effectiveDate: text('effective_date').notNull(),
+    reversedAt: text('reversed_at'),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('purchase_settlements_transaction_active_uq')
+      .on(table.transactionId)
+      .where(sql`${table.transactionId} is not null and ${table.reversedAt} is null`),
+    index('purchase_settlements_purchase_idx').on(table.purchaseId),
+    index('purchase_settlements_payment_date_idx').on(table.paymentMethodId, table.effectiveDate),
+    check('purchase_settlements_amount_check', sql`${table.amountCents} > 0`),
+    check(
+      'purchase_settlements_type_check',
+      sql`(${table.settlementType} = 'movement' and ${table.transactionId} is not null) or (${table.settlementType} = 'wallet' and ${table.transactionId} is null)`,
+    ),
   ],
 );
 
@@ -285,6 +351,8 @@ export const purchaseItems = sqliteTable(
     unitPriceCents: integer('unit_price_cents').notNull(),
     discountCents: integer('discount_cents'),
     totalCents: integer('total_cents').notNull(),
+    categoryId: integer('category_id').references(() => categories.id, { onDelete: 'set null', onUpdate: 'cascade' }),
+    reconciliationPreviousCategoryId: integer('reconciliation_previous_category_id'),
   },
   (table) => [
     uniqueIndex('purchase_items_purchase_position_uq').on(table.purchaseId, table.position),

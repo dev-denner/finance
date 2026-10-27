@@ -8,6 +8,11 @@ import type {
   ConsolidationResponse,
   DateField,
   ImportBatch,
+  CopiedNfceImportResult,
+  CopiedNfcePreview,
+  NfceBatchImportResult,
+  NfceBatchInspection,
+  NfceBatchPreview,
   ImportMappingTemplate,
   ImportOverrides,
   ImportPreview,
@@ -18,6 +23,9 @@ import type {
   ReconciliationResult,
   RejectedTransferRecord,
   Purchase,
+  PurchaseReconciliationCandidates,
+  PurchaseReconciliationInput,
+  PaymentBalanceHistory,
   Transaction,
   TransactionFilters,
   TransactionInput,
@@ -94,9 +102,28 @@ export const api = {
   getMeta: () => request<Meta>('/meta'),
 
   listPurchases: () => request<Purchase[]>('/purchases'),
+  getPurchaseReconciliationCandidates: (id: number) => request<PurchaseReconciliationCandidates>(`/purchases/${id}/reconciliation/candidates`),
+  reconcilePurchase: (id: number, input: PurchaseReconciliationInput) => request<Purchase>(`/purchases/${id}/reconciliation`, { method: 'POST', body: JSON.stringify(input) }),
+  getPaymentBalanceHistory: (id: number) => request<PaymentBalanceHistory>(`/payment-methods/${id}/balance-history`),
+  undoPurchaseReconciliation: (id: number) => request<Purchase>(`/purchases/${id}/reconciliation`, { method: 'DELETE' }),
+  updatePurchaseItemsCategory: (purchaseId: number, itemIds: number[], categoryId: number | null) =>
+    request<{ updated: number }>(`/purchases/${purchaseId}/items/category`, {
+      method: 'PATCH',
+      body: JSON.stringify({ itemIds, categoryId }),
+    }),
+  updatePurchaseCategory: (id: number, categoryId: number | null) =>
+    request<Purchase>(`/purchases/${id}/category`, {
+      method: 'PATCH',
+      body: JSON.stringify({ categoryId }),
+    }),
   getPurchase: (id: number) => request<Purchase>(`/purchases/${id}`),
   previewPurchase: (url: string) =>
-    request<{ purchase: Purchase; alreadyImported: boolean }>('/purchases/preview', {
+    request<{
+      state: 'RJ' | 'SP' | 'TO';
+      purchase: Purchase | null;
+      alreadyImported: boolean;
+      existingPurchaseId: number | null;
+    }>('/purchases/preview', {
       method: 'POST',
       body: JSON.stringify({ url }),
     }),
@@ -104,6 +131,54 @@ export const api = {
     request<{ id: number; duplicate: boolean }>('/purchases/import', {
       method: 'POST',
       body: JSON.stringify({ url }),
+    }),
+  previewNfcePdf: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ state: "RJ" | "MG"; purchase: Purchase | null; alreadyImported: boolean; existingPurchaseId: number | null }>("/purchases/pdf/preview", { method: "POST", body: form });
+  },
+  importNfcePdf: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ id: number; duplicate: boolean }>("/purchases/pdf/import", { method: "POST", body: form });
+  },
+  inspectNfceBatch: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ inspection: NfceBatchInspection }>('/purchases/batch/inspect', {
+      method: 'POST',
+      body: form,
+    });
+  },
+  previewNfceBatch: (file: File, column: number | null) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (column !== null) form.append('column', String(column));
+    return request<NfceBatchPreview>('/purchases/batch/preview', {
+      method: 'POST',
+      body: form,
+    });
+  },
+  importNfceBatch: (file: File, column: number | null, lines: number[]) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (column !== null) form.append('column', String(column));
+    form.append('lines', JSON.stringify(lines));
+    return request<NfceBatchImportResult>('/purchases/batch/import', {
+      method: 'POST',
+      body: form,
+    });
+  },
+
+  previewCopiedNfceText: (text: string) =>
+    request<CopiedNfcePreview>('/purchases/copied-text/preview', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  importCopiedNfceText: (text: string, blocks: number[]) =>
+    request<CopiedNfceImportResult>('/purchases/copied-text/import', {
+      method: 'POST',
+      body: JSON.stringify({ text, blocks }),
     }),
 
   listTransactions: (filters: TransactionFilters) =>
@@ -160,10 +235,11 @@ export const api = {
     name: string,
     color?: string | null,
     classification?: CategoryClassification | null,
+    balanceType?: 'credit' | 'debit' | 'wallet' | 'unclassified',
   ) =>
     request<Lookup>(kind === 'category' ? '/categories' : '/payment-methods', {
       method: 'POST',
-      body: JSON.stringify({ name, color, classification }),
+      body: JSON.stringify({ name, color, classification, balanceType }),
     }),
 
   renameLookup: (
@@ -172,10 +248,11 @@ export const api = {
     name: string,
     color?: string | null,
     classification?: CategoryClassification | null,
+    balanceType?: 'credit' | 'debit' | 'wallet' | 'unclassified',
   ) =>
     request<Lookup>(`${kind === 'category' ? '/categories' : '/payment-methods'}/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name, color, classification }),
+      body: JSON.stringify({ name, color, classification, balanceType }),
     }),
 
   deleteLookup: (kind: 'category' | 'payment', id: number, reassignTo?: number) =>

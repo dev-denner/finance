@@ -41,6 +41,7 @@ const purchase: Purchase = {
   series: '2',
   issuedAt: '2026-03-02T10:20:30-03:00',
   totalCents: 4500,
+  invoiceDiscountCents: 0,
   paymentMethod: 'Pix',
   importedAt: '2026-03-02T13:30:00.000Z',
   itemCount: 3,

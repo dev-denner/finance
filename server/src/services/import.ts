@@ -285,7 +285,7 @@ export interface ImportSummary {
   errors: { rowNumber: number; errors: string[] }[];
 }
 
-function decodeCsv(buffer: Buffer): string {
+export function decodeCsv(buffer: Buffer): string {
   if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
     return buffer.subarray(3).toString('utf8');
   }

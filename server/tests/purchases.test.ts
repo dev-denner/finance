@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTestDatabase } from './helpers';
-import { importPurchase, getPurchase, listPurchases } from '../src/services/purchases';
+import { ensureLookup } from '../src/services/lookups';
+import { importPurchase, getPurchase, listPurchases, updatePurchaseCategory, updatePurchaseItemsCategory } from '../src/services/purchases';
 import { isAllowedBrowserRequest, parseRjNfceSnapshot, validateRjQrUrl, withoutReferer, type PurchaseInput } from '../src/services/rj-nfce';
 
 const syntheticSnapshot = {
@@ -8,6 +9,8 @@ const syntheticSnapshot = {
   supplierCnpjText: 'CNPJ: 12.345.678/0001-95',
   generalInfo: 'EMISSÃO NORMAL Número: 12345 Série: 7 Emissão: 02/03/2026 10:20:30-03:00 - Via Consumidor 2',
   accessKeyText: '1234 5678 9012 3456 7890 1234 5678 9012 3456 7890 1234',
+  grossTotalText: 'R$ 30,00',
+  discountText: 'R$ 0,00',
   totalText: 'R$ 30,00',
   paymentMethod: 'Cartão de Crédito',
   items: [
@@ -20,12 +23,18 @@ describe('RJ NFC-e parser and purchases', () => {
   it('accepts only the official QR URL shape', () => {
     expect(validateRjQrUrl('https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C3%7C1').hostname)
       .toBe('consultadfe.fazenda.rj.gov.br');
+    const currentV2Url = `https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C2%7C2%7C123456%7C${'a'.repeat(40)}`;
+    expect(validateRjQrUrl(currentV2Url).hostname).toBe('consultadfe.fazenda.rj.gov.br');
     const legacyUrl = 'http://www4.fazenda.rj.gov.br/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C2%7C1%7C3%7Caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     expect(validateRjQrUrl(legacyUrl).hostname).toBe('www4.fazenda.rj.gov.br');
     for (const url of [
       'http://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C3%7C1',
       'https://127.0.0.1/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C3%7C1',
       'https://consultadfe.fazenda.rj.gov.br.evil.test/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C3%7C1',
+      `https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C2%7C3%7C1%7C${'a'.repeat(40)}`,
+      `https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C2%7C1%7C1234567%7C${'a'.repeat(40)}`,
+      `https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C2%7C1%7C1%7C${'a'.repeat(39)}`,
+      `https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode?p=12345678901234567890123456789012345678901234%7C2%7C1%7C1%7C${'g'.repeat(40)}`,
     ]) expect(() => validateRjQrUrl(url)).toThrow();
     expect(() => validateRjQrUrl(legacyUrl.replace('www4.fazenda.rj.gov.br', 'www4.fazenda.rj.gov.br.evil.test'))).toThrow();
     expect(() => validateRjQrUrl(legacyUrl.replace('http:', 'https:'))).toThrow();
@@ -55,6 +64,23 @@ describe('RJ NFC-e parser and purchases', () => {
       .toEqual({ accept: '*/*' });
   });
 
+  it('allows the RJ result page only after the same-host redirect is upgraded to HTTPS', () => {
+    const resultPage = {
+      method: 'GET',
+      resourceType: 'document',
+      url: 'https://consultadfe.fazenda.rj.gov.br/consultaNFCe/paginas/resultadoQRCode2.faces?cid=1',
+    };
+    expect(isAllowedBrowserRequest(resultPage)).toBe(true);
+    expect(isAllowedBrowserRequest({
+      ...resultPage,
+      url: resultPage.url.replace('https:', 'http:'),
+    })).toBe(false);
+    expect(isAllowedBrowserRequest({
+      ...resultPage,
+      url: 'https://example.com/consultaNFCe/paginas/resultadoQRCode2.faces?cid=1',
+    })).toBe(false);
+  });
+
   it('parses unit prices rendered with one decimal place by the RJ portal', () => {
     const snapshot = { ...syntheticSnapshot, items: syntheticSnapshot.items.map((item, index) =>
       index === 0 ? { ...item, unitPriceText: 'R$ 10,0' } : item) };
@@ -71,22 +97,89 @@ describe('RJ NFC-e parser and purchases', () => {
     expect('consumerCpf' in parsed).toBe(false);
   });
 
-  it('rejects a synthetic page when item totals disagree with the note total', () => {
-    expect(() => parseRjNfceSnapshot({ ...syntheticSnapshot, totalText: 'R$ 31,00' })).toThrow(/soma dos itens/i);
+  it('keeps the invoice-wide discount separate from item values and net total', () => {
+    const parsed = parseRjNfceSnapshot({
+      ...syntheticSnapshot,
+      discountText: 'R$ 5,00',
+      totalText: 'R$ 25,00',
+    });
+    expect(parsed).toMatchObject({ totalCents: 2500, invoiceDiscountCents: 500 });
+    expect(parsed.items.reduce((sum, item) => sum + item.totalCents, 0)).toBe(3000);
+  });
+
+  it('rejects a synthetic page when the invoice total arithmetic is inconsistent', () => {
+    expect(() => parseRjNfceSnapshot({ ...syntheticSnapshot, totalText: 'R$ 31,00' }))
+      .toThrow(/itens, descontos e total a pagar/i);
   });
 
   it('stores purchase and items atomically and deduplicates by access key', () => {
     const handle = createTestDatabase();
     try {
-      const purchase = parseRjNfceSnapshot(syntheticSnapshot);
+      const purchase = parseRjNfceSnapshot({
+        ...syntheticSnapshot,
+        discountText: 'R$ 5,00',
+        totalText: 'R$ 25,00',
+      });
       const first = importPurchase(handle.db, purchase);
       const second = importPurchase(handle.db, purchase);
       expect(first.duplicate).toBe(false);
       expect(second).toEqual({ id: first.id, duplicate: true });
+      expect(getPurchase(handle.db, first.id)).toMatchObject({
+        totalCents: 2500,
+        invoiceDiscountCents: 500,
+      });
       expect(getPurchase(handle.db, first.id).items).toHaveLength(2);
-      expect(listPurchases(handle.db)).toHaveLength(1);
+      expect(listPurchases(handle.db)).toMatchObject([{ totalCents: 2500, invoiceDiscountCents: 500 }]);
       expect(handle.sqlite.prepare('SELECT count(*) AS count FROM transactions').get()).toMatchObject({ count: 0 });
       expect(handle.sqlite.prepare('SELECT count(*) AS count FROM import_batches').get()).toMatchObject({ count: 0 });
+    } finally { handle.sqlite.close(); }
+  });
+
+  it('salva e remove a categoria local sem alterar os itens fiscais', () => {
+    const handle = createTestDatabase();
+    try {
+      const purchase = parseRjNfceSnapshot(syntheticSnapshot);
+      const id = importPurchase(handle.db, purchase).id;
+      const category = ensureLookup(handle.db, 'category', 'Mercado');
+      expect(updatePurchaseCategory(handle.db, id, category.id)).toMatchObject({ categoryId: category.id, categoryName: 'Mercado' });
+      expect(getPurchase(handle.db, id).items).toHaveLength(2);
+      expect(updatePurchaseCategory(handle.db, id, null)).toMatchObject({ categoryId: null, categoryName: null });
+      expect(() => updatePurchaseCategory(handle.db, id, 9999)).toThrow(/categoria selecionada/i);
+    } finally { handle.sqlite.close(); }
+  });
+
+  it('classifica itens selecionados em lote sem alterar os dados fiscais ou movimentações', () => {
+    const handle = createTestDatabase();
+    try {
+      const purchase = parseRjNfceSnapshot(syntheticSnapshot);
+      const id = importPurchase(handle.db, purchase).id;
+      const items = getPurchase(handle.db, id).items;
+      const category = ensureLookup(handle.db, 'category', 'Eletrônicos');
+      expect(updatePurchaseItemsCategory(handle.db, id, items.map((item) => item.id), category.id))
+        .toEqual({ updated: 2 });
+      expect(getPurchase(handle.db, id).items).toMatchObject([
+        { id: items[0]?.id, categoryId: category.id, categoryName: 'Eletrônicos', description: 'Produto sintético A', totalCents: 2000 },
+        { id: items[1]?.id, categoryId: category.id, categoryName: 'Eletrônicos', description: 'Produto sintético B', totalCents: 1000 },
+      ]);
+      expect(handle.sqlite.prepare('SELECT count(*) AS count FROM transactions').get()).toMatchObject({ count: 0 });
+      expect(updatePurchaseItemsCategory(handle.db, id, [items[0]!.id], null)).toEqual({ updated: 1 });
+      expect(getPurchase(handle.db, id).items[0]).toMatchObject({ categoryId: null, description: 'Produto sintético A', totalCents: 2000 });
+    } finally { handle.sqlite.close(); }
+  });
+
+  it('rejeita atomicamente item pertencente a outra compra', () => {
+    const handle = createTestDatabase();
+    try {
+      const purchase = parseRjNfceSnapshot(syntheticSnapshot);
+      const first = importPurchase(handle.db, purchase).id;
+      const second = importPurchase(handle.db, { ...purchase, accessKey: `${purchase.accessKey.slice(0, -1)}0`, invoiceNumber: '54321' }).id;
+      const firstItemId = getPurchase(handle.db, first).items[0]!.id;
+      const secondItemId = getPurchase(handle.db, second).items[0]!.id;
+      const category = ensureLookup(handle.db, 'category', 'Eletrônicos');
+      expect(() => updatePurchaseItemsCategory(handle.db, first, [firstItemId, secondItemId], category.id))
+        .toThrow(/não pertencem/i);
+      expect(getPurchase(handle.db, first).items[0]?.categoryId).toBeNull();
+      expect(getPurchase(handle.db, second).items[0]?.categoryId).toBeNull();
     } finally { handle.sqlite.close(); }
   });
 
