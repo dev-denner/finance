@@ -9,6 +9,7 @@ import {
   Menu,
   Moon,
   ReceiptText,
+  ShoppingCart,
   Sun,
   Tags,
   Wallet,
@@ -18,10 +19,11 @@ import { useTheme } from '../context/ThemeContext';
 import { useSelection } from '../context/SelectionContext';
 
 const NAV_ITEMS = [
-  { to: '/lancamentos', label: 'Lançamentos', icon: ReceiptText },
+  { to: '/lancamentos', label: 'Movimentações', icon: ReceiptText },
   { to: '/contas', label: 'Contas a pagar', icon: CalendarClock },
   { to: '/consolidado', label: 'Consolidado', icon: LayoutGrid },
   { to: '/importacoes', label: 'Importações', icon: FileUp },
+  { to: '/compras', label: 'Compras', icon: ShoppingCart },
   { to: '/conciliacao', label: 'Conciliação', icon: ArrowRightLeft },
   { to: '/cadastros', label: 'Cadastros', icon: Tags },
 ];

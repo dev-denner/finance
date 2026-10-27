@@ -93,6 +93,7 @@ export const lookupWriteSchema = z.object({
     .enum(['expense', 'income', 'transfer', 'card_settlement', 'mixed'])
     .nullable()
     .optional(),
+  balanceType: z.enum(['credit', 'debit', 'wallet', 'unclassified']).optional(),
 });
 
 export const transferLinkSchema = z.object({

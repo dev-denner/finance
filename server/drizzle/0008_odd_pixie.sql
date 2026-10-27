@@ -1,0 +1,1 @@
+ALTER TABLE `purchases` ADD `invoice_discount_cents` integer DEFAULT 0 NOT NULL;
