@@ -123,14 +123,15 @@ export const api = {
       purchase: Purchase | null;
       alreadyImported: boolean;
       existingPurchaseId: number | null;
+      previewToken: string | null;
     }>('/purchases/preview', {
       method: 'POST',
       body: JSON.stringify({ url }),
     }),
-  importPurchase: (url: string) =>
+  importPurchase: (previewToken: string) =>
     request<{ id: number; duplicate: boolean }>('/purchases/import', {
       method: 'POST',
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ previewToken }),
     }),
   previewNfcePdf: (file: File) => {
     const form = new FormData();

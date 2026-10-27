@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { badRequest } from '../lib/errors';
 import type { NfceState } from './nfce-browser';
 import type { PurchaseInput } from './purchase-input';
@@ -23,12 +24,29 @@ export interface NfceQueryDependencies {
 
 export interface NfcePurchasePreview {
   state: NfceState;
+  previewToken: string | null;
   purchase: PurchaseInput | null;
   alreadyImported: boolean;
   existingPurchaseId: number | null;
 }
 
 const queryGuard = new NfceQueryGuard();
+const PREVIEW_TOKEN_TTL_MS = 10 * 60 * 1000;
+const MAX_PREVIEW_TOKENS = 100;
+const pendingPreviews = new Map<string, { purchase: PurchaseInput; expiresAt: number }>();
+
+function issuePreviewToken(purchase: PurchaseInput): string {
+  const now = Date.now();
+  for (const [token, entry] of pendingPreviews) if (entry.expiresAt <= now) pendingPreviews.delete(token);
+  while (pendingPreviews.size >= MAX_PREVIEW_TOKENS) {
+    const oldest = pendingPreviews.keys().next().value as string | undefined;
+    if (!oldest) break;
+    pendingPreviews.delete(oldest);
+  }
+  const token = randomUUID();
+  pendingPreviews.set(token, { purchase, expiresAt: now + PREVIEW_TOKEN_TTL_MS });
+  return token;
+}
 
 export function accessKeyFromNfceQrUrl(url: URL): string {
   return (url.searchParams.get('p') ?? '').slice(0, 44);
@@ -90,16 +108,23 @@ export async function previewNfceForPurchase(
   const accessKey = accessKeyFromNfceQrUrl(validated.url);
   const existingBeforeQuery = findPurchaseByAccessKey(db, accessKey);
   if (existingBeforeQuery !== null) {
-    return { state: validated.state, purchase: null, alreadyImported: true, existingPurchaseId: existingBeforeQuery };
+    return { state: validated.state, previewToken: null, purchase: null, alreadyImported: true, existingPurchaseId: existingBeforeQuery };
   }
 
   const purchase = await queryValidatedNfce(validated, deps);
   if (purchase.accessKey !== accessKey) throw badRequest('A chave retornada pela consulta NFC-e não confere com o QR Code.');
   const existingAfterQuery = findPurchaseByAccessKey(db, accessKey);
   if (existingAfterQuery !== null) {
-    return { state: validated.state, purchase: null, alreadyImported: true, existingPurchaseId: existingAfterQuery };
+    return { state: validated.state, previewToken: null, purchase: null, alreadyImported: true, existingPurchaseId: existingAfterQuery };
   }
-  return { state: validated.state, purchase, alreadyImported: false, existingPurchaseId: null };
+  return { state: validated.state, previewToken: issuePreviewToken(purchase), purchase, alreadyImported: false, existingPurchaseId: null };
+}
+
+export function importPreviewedNfceForPurchase(db: AppDatabase, token: string): { id: number; duplicate: boolean } {
+  const entry = pendingPreviews.get(token);
+  pendingPreviews.delete(token);
+  if (!entry || entry.expiresAt <= Date.now()) throw badRequest('A prévia expirou. Consulte o QR Code novamente.');
+  return importPurchase(db, entry.purchase);
 }
 
 export async function importNfceForPurchase(

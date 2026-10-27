@@ -4,13 +4,14 @@ import { z } from 'zod';
 import type { AppDatabase } from '../db/client';
 import { badRequest } from '../lib/errors';
 import { importNfceBatch, inspectNfceBatch, MAX_BATCH_FILE_BYTES, previewNfceBatch } from '../services/nfce-batch';
-import { importNfceForPurchase, previewNfceForPurchase } from '../services/nfce-adapters';
+import { importPreviewedNfceForPurchase, previewNfceForPurchase } from '../services/nfce-adapters';
 import { importCopiedNfceText, MAX_COPIED_NFCE_BLOCKS, MAX_COPIED_NFCE_TEXT_BYTES, previewCopiedNfceText } from '../services/nfce-copied-text';
 import { extractNfcePdf, MAX_NFCE_PDF_BYTES } from '../services/nfce-pdf';
 import { getPaymentBalanceHistory, getPurchaseReconciliationCandidates, reconcilePurchase, undoPurchaseReconciliation } from '../services/purchase-reconciliation';
 import { findPurchaseByAccessKey, getPurchase, importPurchase, listPurchases, updatePurchaseCategory, updatePurchaseItemsCategory } from '../services/purchases';
 
 const qrBody = z.object({ url: z.string().trim().min(1).max(2048) }).strict();
+const qrImportBody = z.object({ previewToken: z.string().uuid() }).strict();
 const copiedNfceTextBody = z.object({
   text: z.string().min(1).max(MAX_COPIED_NFCE_TEXT_BYTES),
 }).strict();
@@ -177,9 +178,9 @@ export function registerPurchaseRoutes(app: FastifyInstance, db: AppDatabase) {
   });
 
   app.post('/api/purchases/import', async (request, reply) => {
-    const parsed = qrBody.safeParse(request.body);
-    if (!parsed.success) throw badRequest('Informe a URL do QR Code da NFC-e.');
-    const result = await importNfceForPurchase(db, parsed.data.url);
+    const parsed = qrImportBody.safeParse(request.body);
+    if (!parsed.success) throw badRequest('Faça uma nova prévia antes de importar a NFC-e.');
+    const result = importPreviewedNfceForPurchase(db, parsed.data.previewToken);
     return reply.status(result.duplicate ? 200 : 201).send(result);
   });
 

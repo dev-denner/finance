@@ -1,3 +1,4 @@
+import { bulkUpdateTransactions, deleteTransaction, updateTransaction } from "../src/services/transactions";
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -211,4 +212,38 @@ describe('conciliação manual de compras', () => {
       expect(getPurchase(handle.db, second).transactionId).toBeNull();
     } finally { handle.sqlite.close(); }
   });
+  it("blocks transaction edits while a purchase settlement is active, then permits deletion after undo", () => {
+    const handle = createTestDatabase();
+    try {
+      const purchaseId = importPurchase(handle.db, purchaseInput("8")).id;
+      const movement = seedTransaction(handle.db, { purchaseDate: "2026-10-20", dueDate: "2026-10-20", amount: "-R$ 45,98", description: "Movimento protegido" });
+      reconcilePurchaseWithTransaction(handle.db, purchaseId, movement.id);
+      expect(() => updateTransaction(handle.db, movement.id, { purchaseDate: movement.purchaseDate, dueDate: movement.dueDate, description: "Alterado", amount: "-R$ 45,98", paymentMethodId: movement.paymentMethodId, categoryId: movement.categoryId, transfer: "Não" })).toThrow(/desfaça a conciliação/i);
+      expect(() => bulkUpdateTransactions(handle.db, [movement.id], { categoryId: ensureLookup(handle.db, "category", "Outra categoria").id })).toThrow(/desfaça a conciliação/i);
+      expect(() => deleteTransaction(handle.db, movement.id)).toThrow(/desfaça a conciliação/i);
+      undoPurchaseReconciliation(handle.db, purchaseId);
+      expect(handle.sqlite.prepare("SELECT transaction_id FROM purchase_settlements WHERE purchase_id = ?").get(purchaseId)).toMatchObject({ transaction_id: null });
+      expect(() => deleteTransaction(handle.db, movement.id)).not.toThrow();
+    } finally { handle.sqlite.close(); }
+  });
+
+  it("preserves category changes through undo when the purchase is settled only by wallet", () => {
+    const handle = createTestDatabase();
+    try {
+      const purchaseId = importPurchase(handle.db, purchaseInput("9")).id;
+      const wallet = ensureLookup(handle.db, "payment", "Carteira de teste");
+      handle.sqlite.prepare("UPDATE payment_methods SET balance_type = 'wallet' WHERE id = ?").run(wallet.id);
+      const initial = ensureLookup(handle.db, "category", "Categoria inicial da carteira");
+      const revised = ensureLookup(handle.db, "category", "Categoria revisada da carteira");
+      updatePurchaseCategory(handle.db, purchaseId, initial.id);
+      const items = getPurchase(handle.db, purchaseId).items;
+      reconcilePurchase(handle.db, purchaseId, { transactionIds: [], walletPayments: [{ paymentMethodId: wallet.id, amountCents: 4598, adjustment: { amountCents: 4598, effectiveDate: "2026-10-20", reason: "opening_balance", description: "Saldo inicial sintético" } }], categoryId: initial.id });
+      updatePurchaseCategory(handle.db, purchaseId, revised.id);
+      updatePurchaseItemsCategory(handle.db, purchaseId, [items[0]!.id], revised.id);
+      const undone = undoPurchaseReconciliation(handle.db, purchaseId);
+      expect(undone.categoryId).toBe(revised.id);
+      expect(undone.items[0]?.categoryId).toBe(revised.id);
+    } finally { handle.sqlite.close(); }
+  });
+
 });

@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, not, or, sql, type SQL } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
 import { estimateFirstInstallmentDate } from '../lib/installments';
-import { categories, paymentMethods, transactions, type Transaction } from '../db/schema';
+import { categories, paymentMethods, purchaseSettlements, transactions, type Transaction } from '../db/schema';
 import { parseDateValue } from '../lib/dates';
 import { badRequest, conflict, HttpError, notFound, nowIso } from '../lib/errors';
 import { normalizeTransfer } from '../lib/installments';
@@ -14,6 +14,12 @@ import {
   getTransferContext,
   type TransferLinkDto,
 } from './transfers';
+
+function ensureNoActivePurchaseSettlement(db: AppDatabase, ids: number[]): void {
+  const active = db.select({ id: purchaseSettlements.id }).from(purchaseSettlements)
+    .where(and(inArray(purchaseSettlements.transactionId, ids), isNull(purchaseSettlements.reversedAt))).get();
+  if (active) throw conflict('Esta movimentação está conciliada com uma compra. Desfaça a conciliação antes de editar ou excluir.');
+}
 
 export type TransactionKind = 'all' | 'expenses' | 'income' | 'transfers';
 export type DateField = 'due' | 'purchase';
@@ -413,6 +419,7 @@ export function updateTransaction(
 ): TransactionDto {
   const existing = db.select().from(transactions).where(eq(transactions.id, id)).get();
   if (!existing) throw notFound('Lançamento não encontrado.');
+  ensureNoActivePurchaseSettlement(db, [id]);
 
   const parsed = parseWrite(db, input, existing);
   try {
@@ -440,6 +447,7 @@ export function updateTransaction(
 }
 
 export function deleteTransaction(db: AppDatabase, id: number): void {
+  ensureNoActivePurchaseSettlement(db, [id]);
   ensureTransactionCanBeRemoved(db, [id]);
   const result = db.delete(transactions).where(eq(transactions.id, id)).run();
   if (result.changes === 0) throw notFound('Lançamento não encontrado.');
@@ -465,6 +473,7 @@ export function bulkUpdateTransactions(
   changes: { categoryId?: unknown; paymentMethodId?: unknown },
 ): number {
   const ids = normalizeIds(idsInput);
+  ensureNoActivePurchaseSettlement(db, ids);
   const values: { categoryId?: number; paymentMethodId?: number; updatedAt: string } = {
     updatedAt: nowIso(),
   };
@@ -506,6 +515,7 @@ export function bulkUpdateTransactions(
 
 export function bulkDeleteTransactions(db: AppDatabase, idsInput: unknown): number {
   const ids = normalizeIds(idsInput);
+  ensureNoActivePurchaseSettlement(db, ids);
   ensureTransactionCanBeRemoved(db, ids);
   return db.delete(transactions).where(inArray(transactions.id, ids)).run().changes;
 }

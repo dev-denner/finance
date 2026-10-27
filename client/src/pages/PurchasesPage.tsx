@@ -227,6 +227,7 @@ function PurchaseDetail({ rawId }: { rawId: string }) {
   const missingBalanceConfirmation = Boolean(reconciliation?.candidates.some((candidate) => selectedTransactionIds.has(candidate.transactionId) && (candidate.balanceShortfallCents ?? 0) > 0 && candidate.paymentMethodId && !debitAdjustmentsConfirmed.has(candidate.paymentMethodId)));
   const missingWalletConfirmation = Boolean(reconciliation?.wallets.some((wallet) => {
     const amountCents = Math.round(Number(walletAmounts[wallet.id] ?? 0) * 100);
+    if (amountCents <= 0) return false;
     const shortfall = Math.max(0, amountCents - Math.max(0, wallet.balanceCents), -wallet.minimumBalanceCents);
     return shortfall > 0 && !walletAdjustments[wallet.id];
   }));

@@ -73,7 +73,7 @@ export function updatePurchaseItemsCategory(
   const itemIds = [...new Set(rawItemIds)];
   if (itemIds.length === 0) throw badRequest('Selecione ao menos um item.');
   return db.transaction((tx) => {
-    const purchase = tx.select({ id: purchases.id, transactionId: purchases.transactionId }).from(purchases).where(eq(purchases.id, purchaseId)).get();
+    const purchase = tx.select({ id: purchases.id, reconciledAt: purchases.reconciledAt }).from(purchases).where(eq(purchases.id, purchaseId)).get();
     if (!purchase) throw notFound('Compra não encontrada.');
     if (categoryId !== null && !tx.select({ id: categories.id }).from(categories).where(eq(categories.id, categoryId)).get()) {
       throw badRequest('A categoria selecionada não existe.');
@@ -81,19 +81,19 @@ export function updatePurchaseItemsCategory(
     const owned = tx.select({ id: purchaseItems.id }).from(purchaseItems)
       .where(and(eq(purchaseItems.purchaseId, purchaseId), inArray(purchaseItems.id, itemIds))).all();
     if (owned.length !== itemIds.length) throw badRequest('Um ou mais itens não pertencem a esta compra.');
-    const result = tx.update(purchaseItems).set({ categoryId, ...(purchase.transactionId !== null ? { reconciliationPreviousCategoryId: categoryId } : {}) })
+    const result = tx.update(purchaseItems).set({ categoryId, ...(purchase.reconciledAt !== null ? { reconciliationPreviousCategoryId: categoryId } : {}) })
       .where(and(eq(purchaseItems.purchaseId, purchaseId), inArray(purchaseItems.id, itemIds))).run();
     return { updated: result.changes };
   });
 }
 
 export function updatePurchaseCategory(db: AppDatabase, id: number, categoryId: number | null) {
-  const purchase = db.select({ id: purchases.id, transactionId: purchases.transactionId }).from(purchases).where(eq(purchases.id, id)).get();
+  const purchase = db.select({ id: purchases.id, reconciledAt: purchases.reconciledAt }).from(purchases).where(eq(purchases.id, id)).get();
   if (!purchase) throw notFound('Compra não encontrada.');
   if (categoryId !== null && !db.select({ id: categories.id }).from(categories).where(eq(categories.id, categoryId)).get()) {
     throw badRequest('A categoria selecionada não existe.');
   }
-  db.update(purchases).set({ categoryId, ...(purchase.transactionId !== null ? { reconciliationPreviousCategoryId: categoryId } : {}) }).where(eq(purchases.id, id)).run();
+  db.update(purchases).set({ categoryId, ...(purchase.reconciledAt !== null ? { reconciliationPreviousCategoryId: categoryId } : {}) }).where(eq(purchases.id, id)).run();
   return listPurchases(db).find((row) => row.id === id);
 }
 

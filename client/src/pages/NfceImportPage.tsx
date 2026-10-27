@@ -22,6 +22,7 @@ function errorText(error: unknown): string {
 export function NfceImportPage() {
   const [url, setUrl] = useState('');
   const [previewedUrl, setPreviewedUrl] = useState('');
+  const [previewToken, setPreviewToken] = useState<string | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [previewedPdfFile, setPreviewedPdfFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Purchase | null>(null);
@@ -43,6 +44,7 @@ export function NfceImportPage() {
     setPreviewedUrl('');
     setPreviewedPdfFile(null);
     setState(null);
+    setPreviewToken(null);
     setAlreadyImported(false);
     try {
       const result = await api.previewPurchase(trimmed);
@@ -58,6 +60,7 @@ export function NfceImportPage() {
         return;
       }
       setPreview(result.purchase);
+      setPreviewToken(result.previewToken);
       setPreviewedUrl(trimmed);
     } catch (reason) {
       setError(errorText(reason));
@@ -98,12 +101,12 @@ export function NfceImportPage() {
   }
 
   async function importCurrent() {
-    if (!previewedUrl && !previewedPdfFile) return;
+    if ((!previewedUrl || !previewToken) && !previewedPdfFile) return;
     setLoading(true);
     setError('');
     setNotice('');
     try {
-      const result = previewedPdfFile ? await api.importNfcePdf(previewedPdfFile) : await api.importPurchase(previewedUrl);
+      const result = previewedPdfFile ? await api.importNfcePdf(previewedPdfFile) : await api.importPurchase(previewToken!);
       setNotice(
         result.duplicate
           ? 'Esta NFC-e já estava na lista de compras.'
@@ -111,6 +114,7 @@ export function NfceImportPage() {
       );
       setImportedId(result.id);
       setPreview(null);
+      setPreviewToken(null);
       setUrl('');
       setPreviewedUrl('');
       setPreviewedPdfFile(null);
@@ -153,7 +157,7 @@ export function NfceImportPage() {
           required
           maxLength={2048}
           value={url}
-          onChange={(event) => setUrl(event.target.value)}
+          onChange={(event) => { setUrl(event.target.value); setPreview(null); setPreviewToken(null); setPreviewedUrl(''); }}
           placeholder="Cole a URL do QR Code da NFC-e do RJ, de SP ou de TO"
           className="input min-w-0 flex-1"
         />

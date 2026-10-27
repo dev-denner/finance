@@ -16,6 +16,10 @@ export const RESTORE_CONFIRMATION_PHRASE = 'RESTAURAR';
  * `bill_reminder_batches`.
  */
 export const DATA_RESET_TABLES = [
+  'purchase_settlements',
+  'payment_balance_adjustments',
+  'purchase_items',
+  'purchases',
   'transfer_rejections',
   'transfers',
   'transactions',

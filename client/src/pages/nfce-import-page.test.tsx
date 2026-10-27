@@ -105,7 +105,7 @@ function buttonByText(text: string): HTMLButtonElement {
 describe('NfceImportPage', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    vi.mocked(api.previewPurchase).mockResolvedValue({ state: 'RJ', purchase, alreadyImported: false, existingPurchaseId: null });
+    vi.mocked(api.previewPurchase).mockResolvedValue({ state: 'RJ', purchase, alreadyImported: false, existingPurchaseId: null, previewToken: "123e4567-e89b-42d3-a456-426614174000" });
     vi.mocked(api.importPurchase).mockResolvedValue({ id: 42, duplicate: false });
     vi.mocked(api.previewNfcePdf).mockResolvedValue({ state: "RJ", purchase, alreadyImported: false, existingPurchaseId: null });
     vi.mocked(api.importNfcePdf).mockResolvedValue({ id: 42, duplicate: false });
@@ -137,7 +137,7 @@ describe('NfceImportPage', () => {
     });
     await flush();
 
-    expect(api.importPurchase).toHaveBeenCalledWith(URL_QR);
+    expect(api.importPurchase).toHaveBeenCalledWith("123e4567-e89b-42d3-a456-426614174000");
     expect(container.textContent).toContain('Compra importada com sucesso');
     expect(container.querySelector('a[href="/compras/42"]')).toBeTruthy();
     expect(container.textContent).not.toContain('Prévia da compra');
@@ -161,7 +161,7 @@ describe('NfceImportPage', () => {
   });
 
   it('mostra a compra existente sem prévia fiscal ou nova consulta ao portal', async () => {
-    vi.mocked(api.previewPurchase).mockResolvedValue({ state: 'SP', purchase: null, alreadyImported: true, existingPurchaseId: 73 });
+    vi.mocked(api.previewPurchase).mockResolvedValue({ state: 'SP', purchase: null, alreadyImported: true, existingPurchaseId: 73, previewToken: null });
 
     await mount();
     await submitUrl();

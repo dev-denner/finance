@@ -313,7 +313,7 @@ export const purchaseSettlements = sqliteTable(
       .notNull()
       .references(() => purchases.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
     transactionId: integer('transaction_id')
-      .references(() => transactions.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+      .references(() => transactions.id, { onDelete: 'set null', onUpdate: 'cascade' }),
     paymentMethodId: integer('payment_method_id')
       .notNull()
       .references(() => paymentMethods.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
@@ -332,7 +332,7 @@ export const purchaseSettlements = sqliteTable(
     check('purchase_settlements_amount_check', sql`${table.amountCents} > 0`),
     check(
       'purchase_settlements_type_check',
-      sql`(${table.settlementType} = 'movement' and ${table.transactionId} is not null) or (${table.settlementType} = 'wallet' and ${table.transactionId} is null)`,
+      sql`(${table.settlementType} = 'movement' and (${table.transactionId} is not null or (${table.transactionId} is null and ${table.reversedAt} is not null))) or (${table.settlementType} = 'wallet' and ${table.transactionId} is null)`,
     ),
   ],
 );

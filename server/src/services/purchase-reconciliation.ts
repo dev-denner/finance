@@ -237,7 +237,7 @@ export function undoPurchaseReconciliation(db: AppDatabase, purchaseId: number) 
     if (!purchase) throw notFound('Compra não encontrada.');
     if (!isSettled(tx as unknown as AppDatabase, purchaseId)) throw conflict('Esta compra ainda não está conciliada.');
     const reversedAt = nowIso();
-    tx.update(purchaseSettlements).set({ reversedAt }).where(and(eq(purchaseSettlements.purchaseId, purchaseId), isNull(purchaseSettlements.reversedAt))).run();
+    tx.update(purchaseSettlements).set({ reversedAt, transactionId: null }).where(and(eq(purchaseSettlements.purchaseId, purchaseId), isNull(purchaseSettlements.reversedAt))).run();
     tx.update(purchases).set({ transactionId: null, reconciledAt: null, categoryId: purchase.reconciliationPreviousCategoryId,
       reconciliationPreviousCategoryId: null }).where(eq(purchases.id, purchaseId)).run();
     tx.update(purchaseItems).set({ categoryId: purchaseItems.reconciliationPreviousCategoryId, reconciliationPreviousCategoryId: null })

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { previewNfceForPurchase, importNfceForPurchase } from '../src/services/nfce-adapters';
+import { previewNfceForPurchase, importNfceForPurchase, importPreviewedNfceForPurchase } from '../src/services/nfce-adapters';
 import type { PurchaseInput } from '../src/services/purchase-input';
 import { findPurchaseByAccessKey, importPurchase } from '../src/services/purchases';
 import { createTestDatabase } from './helpers';
@@ -42,6 +42,7 @@ describe('deduplicação da importação individual de NFC-e', () => {
       });
       expect(result).toEqual({
         state: 'RJ',
+        previewToken: null,
         purchase: null,
         alreadyImported: true,
         existingPurchaseId: existing.id,
@@ -71,4 +72,17 @@ describe('deduplicação da importação individual de NFC-e', () => {
       handle.sqlite.close();
     }
   });
+  it("imports the exact preview without a second portal attempt", async () => {
+    const handle = createTestDatabase();
+    const beginAttempt = vi.fn();
+    try {
+      const result = await previewNfceForPurchase(handle.db, qrUrl, { guard: { beginAttempt, pauseRjAfterPortalBlock: vi.fn() }, preview: vi.fn(async () => purchase()) });
+      expect(result.previewToken).toBeTruthy();
+      const imported = importPreviewedNfceForPurchase(handle.db, result.previewToken!);
+      expect(imported.duplicate).toBe(false);
+      expect(beginAttempt).toHaveBeenCalledTimes(1);
+      expect(() => importPreviewedNfceForPurchase(handle.db, result.previewToken!)).toThrow(/prévia expirou/i);
+    } finally { handle.sqlite.close(); }
+  });
+
 });
