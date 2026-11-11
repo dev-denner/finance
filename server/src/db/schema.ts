@@ -194,10 +194,6 @@ export const transferRejections = sqliteTable(
   ],
 );
 
-/**
- * Contas a pagar agendadas (Módulo 1). Entidade própria, separada das
- * transações financeiras do Módulo 2 — não cria movimentação automaticamente.
- */
 export const categoryImportAliases = sqliteTable(
   'category_import_aliases',
   {
@@ -211,18 +207,104 @@ export const categoryImportAliases = sqliteTable(
   (table) => [uniqueIndex('category_import_aliases_source_uq').on(table.sourceNormalizedName)],
 );
 
+/**
+ * Regra de recorrência de uma conta a pagar (Módulo 1). Gera ocorrências em
+ * `scheduled_bills`; nunca cria lançamento sozinha.
+ */
+export const billTemplates = sqliteTable(
+  'bill_templates',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    description: text('description').notNull(),
+    /** Valor previsto de cada ocorrência. */
+    amountCents: integer('amount_cents').notNull(),
+    /** Faixa opcional para contas de valor variável (água, luz). */
+    amountMinCents: integer('amount_min_cents'),
+    amountMaxCents: integer('amount_max_cents'),
+    categoryId: integer('category_id')
+      .notNull()
+      .references(() => categories.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    /** Conta padrão para pagar; quando presente, "Pagar" sugere registrar lançamento. */
+    paymentMethodId: integer('payment_method_id').references(() => paymentMethods.id, {
+      onDelete: 'set null',
+      onUpdate: 'cascade',
+    }),
+    /** monthly | weekly | yearly */
+    frequency: text('frequency').notNull(),
+    interval: integer('interval').notNull().default(1),
+    dayOfMonth: integer('day_of_month'),
+    weekday: integer('weekday'),
+    monthOfYear: integer('month_of_year'),
+    startDate: text('start_date').notNull(),
+    /** Término por data; vale o que terminar primeiro entre end_date e occurrence_count. */
+    endDate: text('end_date'),
+    /** Término por contagem ("repetir N vezes"). */
+    occurrenceCount: integer('occurrence_count'),
+    active: integer('active').notNull().default(1),
+    notes: text('notes'),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    check('bill_templates_amount_check', sql`${table.amountCents} > 0`),
+    check(
+      'bill_templates_frequency_check',
+      sql`${table.frequency} IN ('monthly', 'weekly', 'yearly')`,
+    ),
+    check('bill_templates_interval_check', sql`${table.interval} >= 1`),
+    check(
+      'bill_templates_occurrence_count_check',
+      sql`${table.occurrenceCount} IS NULL OR ${table.occurrenceCount} >= 1`,
+    ),
+    check(
+      'bill_templates_amount_range_check',
+      sql`(${table.amountMinCents} IS NULL OR ${table.amountMinCents} > 0)
+        AND (${table.amountMaxCents} IS NULL OR ${table.amountMaxCents} > 0)
+        AND (${table.amountMinCents} IS NULL OR ${table.amountMaxCents} IS NULL
+          OR ${table.amountMinCents} <= ${table.amountMaxCents})`,
+    ),
+    index('bill_templates_category_idx').on(table.categoryId),
+    index('bill_templates_active_idx').on(table.active),
+  ],
+);
+
+/**
+ * Ocorrência de conta a pagar (Módulo 1): uma conta de um mês, avulsa ou
+ * gerada por `bill_templates`. O estado exibido (atrasada, hoje, agendada,
+ * futura) é derivado de `state` + datas; só `open`, `paid` e `skipped` são
+ * gravados. Não cria movimentação automaticamente.
+ */
 export const scheduledBills = sqliteTable(
   'scheduled_bills',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+    templateId: integer('template_id').references(() => billTemplates.id, {
+      onDelete: 'set null',
+      onUpdate: 'cascade',
+    }),
+    /** Posição na recorrência (1..N); nulo para conta avulsa. */
+    sequence: integer('sequence'),
     description: text('description').notNull(),
     amountCents: integer('amount_cents').notNull(),
     dueDate: text('due_date').notNull(),
-    status: text('status').notNull().default(''),
+    /** open | paid | skipped */
+    state: text('state').notNull().default('open'),
+    /** Data em que o pagamento foi agendado no banco (antigo "AG"). */
+    scheduledFor: text('scheduled_for'),
+    paidAt: text('paid_at'),
+    paidCents: integer('paid_cents'),
     categoryId: integer('category_id')
       .notNull()
       .references(() => categories.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
-    /** Conta de origem quando esta foi gerada por repetição (mês seguinte). */
+    paymentMethodId: integer('payment_method_id').references(() => paymentMethods.id, {
+      onDelete: 'set null',
+      onUpdate: 'cascade',
+    }),
+    notes: text('notes'),
+    /** 1 quando o "pago" veio da migração do status PG, sem lançamento vinculado. */
+    migratedPayment: integer('migrated_payment').notNull().default(0),
+    /** Conta de origem quando esta foi gerada por repetição manual (legado). */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- auto-referência exige any no Drizzle
     repeatedFromId: integer('repeated_from_id').references((): any => scheduledBills.id, {
       onDelete: 'set null',
       onUpdate: 'cascade',
@@ -231,11 +313,51 @@ export const scheduledBills = sqliteTable(
     updatedAt: text('updated_at').notNull().default(now),
   },
   (table) => [
-    check('scheduled_bills_status_check', sql`${table.status} IN ('', 'AG', 'PG')`),
+    check('scheduled_bills_state_check', sql`${table.state} IN ('open', 'paid', 'skipped')`),
     check('scheduled_bills_amount_check', sql`${table.amountCents} > 0`),
+    check(
+      'scheduled_bills_paid_check',
+      sql`(${table.state} <> 'paid') OR (${table.paidAt} IS NOT NULL AND ${table.paidCents} IS NOT NULL AND ${table.paidCents} > 0)`,
+    ),
+    check('scheduled_bills_sequence_check', sql`${table.sequence} IS NULL OR ${table.sequence} >= 1`),
+    uniqueIndex('scheduled_bills_template_sequence_uq').on(table.templateId, table.sequence),
     index('scheduled_bills_due_date_idx').on(table.dueDate),
+    index('scheduled_bills_state_due_date_idx').on(table.state, table.dueDate),
     index('scheduled_bills_category_idx').on(table.categoryId),
     index('scheduled_bills_repeated_from_idx').on(table.repeatedFromId),
+  ],
+);
+
+/**
+ * Vínculo entre uma ocorrência e o lançamento do Módulo 2 que a pagou.
+ * Opcional: pagamento "externo" marca a ocorrência sem criar vínculo.
+ */
+export const billPayments = sqliteTable(
+  'bill_payments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    billId: integer('bill_id')
+      .notNull()
+      .references(() => scheduledBills.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    transactionId: integer('transaction_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
+    amountCents: integer('amount_cents').notNull(),
+    paidAt: text('paid_at').notNull(),
+    /** manual | import_match | migration */
+    origin: text('origin').notNull(),
+    /** 1 quando o lançamento foi criado pelo próprio pagamento (desfazer apaga). */
+    createdTransaction: integer('created_transaction').notNull().default(0),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('bill_payments_transaction_uq').on(table.transactionId),
+    index('bill_payments_bill_idx').on(table.billId),
+    check('bill_payments_amount_check', sql`${table.amountCents} > 0`),
+    check(
+      'bill_payments_origin_check',
+      sql`${table.origin} IN ('manual', 'import_match', 'migration')`,
+    ),
   ],
 );
 
@@ -411,6 +533,8 @@ export type Transaction = typeof transactions.$inferSelect;
 export type Transfer = typeof transfers.$inferSelect;
 export type TransferRejection = typeof transferRejections.$inferSelect;
 export type ScheduledBill = typeof scheduledBills.$inferSelect;
+export type BillTemplate = typeof billTemplates.$inferSelect;
+export type BillPayment = typeof billPayments.$inferSelect;
 export type CategoryImportAlias = typeof categoryImportAliases.$inferSelect;
 export type BillReminderBatch = typeof billReminderBatches.$inferSelect;
 export type BillReminderNotification = typeof billReminderNotifications.$inferSelect;

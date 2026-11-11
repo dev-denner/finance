@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
 import {
   billReminderBatches,
@@ -23,7 +23,8 @@ import type { ReminderMessage, ReminderTransport } from './bill-reminder-transpo
  * Núcleo dos lembretes por e-mail.
  *
  * Regras que não podem ser furadas:
- * - só envia para conta com `status = ''` **e** `due_date` igual à registrada
+ * - só envia para conta em aberto e sem agendamento (`state = 'open'` e
+ *   `scheduled_for` nulo) **e** `due_date` igual à registrada
  *   na notificação;
  * - **por item e por execução: no máximo 1 aviso novo e 1 retentativa**:
  *   - **aviso novo** (vem de `pending`):
@@ -326,7 +327,8 @@ export async function runBillReminders(
     .from(scheduledBills)
     .where(
       and(
-        eq(scheduledBills.status, ''),
+        eq(scheduledBills.state, 'open'),
+        isNull(scheduledBills.scheduledFor),
         gte(scheduledBills.dueDate, windowStart),
         lte(scheduledBills.dueDate, maxDueDate),
       ),
@@ -394,7 +396,8 @@ export async function runBillReminders(
     .select({
       notification: billReminderNotifications,
       billDueDate: scheduledBills.dueDate,
-      billStatus: scheduledBills.status,
+      billState: scheduledBills.state,
+      billScheduledFor: scheduledBills.scheduledFor,
     })
     .from(billReminderNotifications)
     .leftJoin(scheduledBills, eq(billReminderNotifications.billId, scheduledBills.id))
@@ -414,7 +417,7 @@ export async function runBillReminders(
       addSkip(SKIP_REASON_NOT_PENDING, notification.id);
       continue;
     }
-    if (row.billStatus !== '') {
+    if (row.billState !== 'open' || row.billScheduledFor !== null) {
       addSkip(SKIP_REASON_NOT_PENDING, notification.id);
       continue;
     }
@@ -474,7 +477,8 @@ export async function runBillReminders(
     .where(
       and(
         inArray(billReminderNotifications.state, ['pending', 'failed']),
-        eq(scheduledBills.status, ''),
+        eq(scheduledBills.state, 'open'),
+        isNull(scheduledBills.scheduledFor),
         eq(scheduledBills.dueDate, billReminderNotifications.dueDate),
         lte(billReminderNotifications.sendDate, today),
       ),

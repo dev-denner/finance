@@ -874,7 +874,8 @@ describe('lembretes por e-mail — coerência com o banco (AC-7)', () => {
       .get();
     expect(stored?.dueDate).toBe(shiftDays(TODAY, 3));
     expect(stored?.amountCents).toBe(SENTINEL_AMOUNT);
-    expect(stored?.status).toBe('');
+    expect(stored?.state).toBe('open');
+    expect(stored?.scheduledFor).toBeNull();
   });
 
   it('deve marcar como skipped o aviso do vencimento antigo quando o vencimento muda', async () => {
