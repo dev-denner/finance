@@ -35,7 +35,7 @@
 
 1. `npm run build` sem erro (server + client)
 2. `npm test` verde (Vitest)
-3. nenhuma regressão vs baseline (362 testes: 336 no server + 26 no client)
+3. nenhuma regressão vs baseline (409 testes: 383 no server + 26 no client)
 4. sem `console.log`, `debugger`, `.only`, `.skip`
 5. nenhuma variável de ambiente nova sem entrada no README
 6. sem segredo, token ou PII em código, log ou teste
@@ -84,5 +84,6 @@ server/
     routes/     endpoints Fastify
     services/   regras de negócio
   tests/        Vitest
+docs/           análise, planos e referências visuais
 package.json    scripts do monorepo (npm workspaces)
 ```
