@@ -128,3 +128,43 @@ export function getAgenda(
     summary: summarize([...overdue, ...dueToday, ...upcoming]),
   };
 }
+
+export interface BillForecastMonth {
+  year: number;
+  month: number;
+  /** Primeiro e último dia do mês (AAAA-MM-DD). */
+  from: string;
+  to: string;
+  summary: BillSummary;
+}
+
+export interface BillForecast {
+  today: string;
+  months: BillForecastMonth[];
+}
+
+/**
+ * Previsão do mês corrente e dos próximos `months - 1` meses: totais em
+ * aberto, pagos e atrasados por mês, já com as ocorrências das recorrências.
+ */
+export function getForecast(
+  db: AppDatabase,
+  options: { months?: number; today?: string } = {},
+): BillForecast {
+  const months = options.months ?? 3;
+  if (!Number.isInteger(months) || months < 1 || months > 12) {
+    throw badRequest('Informe entre 1 e 12 meses.');
+  }
+  const today = options.today ?? todayIso();
+  const firstOfMonth = `${today.slice(0, 7)}-01`;
+  const result: BillForecastMonth[] = [];
+  for (let index = 0; index < months; index += 1) {
+    const from = addMonthsIso(firstOfMonth, index);
+    const next = addMonthsIso(firstOfMonth, index + 1);
+    if (!from || !next) throw badRequest('Data de referência inválida.');
+    const to = addDays(next, -1);
+    const { summary } = listBillsBetween(db, from, to, { today });
+    result.push({ year: Number(from.slice(0, 4)), month: Number(from.slice(5, 7)), from, to, summary });
+  }
+  return { today, months: result };
+}

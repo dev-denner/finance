@@ -1,7 +1,14 @@
 import type {
   AccountCashFlowResult,
   Bill,
+  BillAgenda,
+  BillForecast,
+  BillListFilters,
   BillListResponse,
+  BillTemplate,
+  BillTemplateInput,
+  BillTemplateUpdate,
+  PayBillInput,
   CategoryClassification,
   CategoryDecisionsPayload,
   ColumnMapping,
@@ -335,8 +342,58 @@ export const api = {
 
   getImports: () => request<{ batches: ImportBatch[] }>('/imports'),
 
-  getBills: (year: number, month: number) =>
-    request<BillListResponse>(`/bills?${new URLSearchParams({ year: String(year), month: String(month) }).toString()}`),
+  getBills: (year: number, month: number, filters: BillListFilters = {}) =>
+    request<BillListResponse>(
+      `/bills${queryString({ year, month, state: filters.state, q: filters.q, categoryId: filters.categoryId })}`,
+    ),
+
+  getBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}`),
+
+  getBillAgenda: (days = 7) => request<BillAgenda>(`/bills/agenda${queryString({ days })}`),
+
+  getBillForecast: (months = 3) => request<BillForecast>(`/bills/forecast${queryString({ months })}`),
+
+  payBill: (id: number, input: PayBillInput) =>
+    request<{ bill: Bill }>(`/bills/${id}/pay`, { method: 'POST', body: JSON.stringify(input) }),
+
+  unpayBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/unpay`, { method: 'POST' }),
+
+  skipBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/skip`, { method: 'POST' }),
+
+  unskipBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/unskip`, { method: 'POST' }),
+
+  scheduleBill: (id: number, scheduledFor: string | null) =>
+    request<{ bill: Bill }>(`/bills/${id}/schedule`, {
+      method: 'POST',
+      body: JSON.stringify({ scheduledFor }),
+    }),
+
+  listBillTemplates: (includeInactive = false) =>
+    request<{ templates: BillTemplate[] }>(`/bill-templates${queryString({ includeInactive: includeInactive ? 'true' : undefined })}`),
+
+  getBillTemplate: (id: number) => request<{ template: BillTemplate }>(`/bill-templates/${id}`),
+
+  previewBillTemplate: (input: BillTemplateInput) =>
+    request<{ dates: { sequence: number; dueDate: string }[] }>('/bill-templates/preview', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  createBillTemplate: (input: BillTemplateInput) =>
+    request<{ template: BillTemplate }>('/bill-templates', { method: 'POST', body: JSON.stringify(input) }),
+
+  updateBillTemplate: (
+    id: number,
+    input: BillTemplateUpdate,
+    options: { scope?: 'all' | 'future'; from?: string } = {},
+  ) =>
+    request<{ template: BillTemplate }>(
+      `/bill-templates/${id}${queryString({ scope: options.scope, from: options.from })}`,
+      { method: 'PUT', body: JSON.stringify(input) },
+    ),
+
+  deleteBillTemplate: (id: number) =>
+    request<{ removed: true; deletedOccurrences: number }>(`/bill-templates/${id}`, { method: 'DELETE' }),
 
   createBill: (input: {
     description: string;
@@ -358,14 +415,18 @@ export const api = {
     },
   ) => request<{ bill: Bill }>(`/bills/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
 
-  deleteBill: (id: number) => request<{ removed: true }>(`/bills/${id}`, { method: 'DELETE' }),
+  /** Conta avulsa é apagada; ocorrência de recorrência vira pulada. */
+  deleteBill: (id: number) =>
+    request<{ removed: boolean; skipped: boolean }>(`/bills/${id}`, { method: 'DELETE' }),
 
+  /** @deprecated use payBill/unpayBill/scheduleBill; sai com a tela nova. */
   setBillStatus: (id: number, status: '' | 'AG' | 'PG') =>
     request<{ bill: Bill; promptRepeat: boolean; existingRepeatId: number | null }>(
       `/bills/${id}/status`,
       { method: 'POST', body: JSON.stringify({ status }) },
     ),
 
+  /** @deprecated use recorrências (createBillTemplate); sai com a tela nova. */
   repeatBill: (id: number) => request<{ bill: Bill; created: boolean }>(`/bills/${id}/repeat`, { method: 'POST' }),
 
   listMappingTemplates: () =>
