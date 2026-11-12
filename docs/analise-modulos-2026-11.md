@@ -57,17 +57,17 @@ Modelo `scheduled_bills`: descrição, valor, vencimento, status (`''`/`AG`/`PG`
 
 ### 2.2 Problemas encontrados
 
-| # | Problema | Onde | Impacto |
-|---|---|---|---|
-| M1-01 | Não existe **recorrência**: "repetir" é um clone manual de uma ocorrência, sem regra (mensal/semanal/anual, dia fixo, fim, valor variável) nem projeção futura | `services/bills.ts` `repeatBill` | O usuário precisa marcar PG para a próxima conta nascer; não há visão de "próximos meses" |
-| M1-02 | Conta não tem **conta/forma de pagamento** nem **vínculo com o lançamento** que a pagou | schema `scheduled_bills` | Impossível conciliar com o Módulo 2; "PG" é só uma flag |
-| M1-03 | Status é um código opaco (`''`, `AG`, `PG`) sem data de pagamento, valor pago, "pulada" ou "parcial" | schema + UI | Relatórios e histórico ficam pobres; "AG" (agendado) não diz quando |
-| M1-04 | Listagem carrega **todas** as contas e filtra `startsWith(mês)` em JS | `listBills` | Funciona hoje; vira gargalo com histórico de anos. Deve ser `where due_date between` |
-| M1-05 | Rotas sem Zod, `request: any`, multipart duplicado | `routes/bills.ts` | Fora do padrão do projeto |
-| M1-06 | Duplicidade de importação calculada duas vezes (preview e import) com a mesma lógica copiada | `bills-import.ts` | Risco de divergir |
-| M1-07 | Tela sempre volta ao mês atual ao montar; sem filtros, busca, ações em massa ou atalhos | `BillsPage.tsx` | Perde contexto ao navegar entre páginas |
-| M1-08 | "Vencida" calculada no cliente com `new Date()` local; nenhuma visão "vence hoje" / "próximos 7 dias" / "atrasadas" | `isPastDue` | O principal job do usuário (não atrasar) não tem uma tela própria |
-| M1-09 | Sem lembretes/notificações, sem anexos (boleto/PDF), sem linha digitável, sem observações | — | Funcionalidades básicas dos apps de referência |
+| # | Problema | Onde | Impacto | Status (2026-11-12) |
+|---|---|---|---|---|
+| M1-01 | Não existe **recorrência**: "repetir" é um clone manual de uma ocorrência, sem regra (mensal/semanal/anual, dia fixo, fim, valor variável) nem projeção futura | `services/bills.ts` `repeatBill` | O usuário precisa marcar PG para a próxima conta nascer; não há visão de "próximos meses" | **Resolvido** (#6, #9): recorrência mensal/semanal/anual com término por data ou quantidade, geração automática e edição "desta em diante" |
+| M1-02 | Conta não tem **conta/forma de pagamento** nem **vínculo com o lançamento** que a pagou | schema `scheduled_bills` | Impossível conciliar com o Módulo 2; "PG" é só uma flag | **Resolvido** (#6, #7): conta padrão e vínculo opcional com o lançamento (`bill_payments`) |
+| M1-03 | Status é um código opaco (`''`, `AG`, `PG`) sem data de pagamento, valor pago, "pulada" ou "parcial" | schema + UI | Relatórios e histórico ficam pobres; "AG" (agendado) não diz quando | **Resolvido** (#6): `state` aberta/paga/pulada, `paid_at`, `paid_cents`, `scheduled_for`; parcial só no modelo |
+| M1-04 | Listagem carrega **todas** as contas e filtra `startsWith(mês)` em JS | `listBills` | Funciona hoje; vira gargalo com histórico de anos. Deve ser `where due_date between` | **Resolvido** (#6): consulta por intervalo no SQL |
+| M1-05 | Rotas sem Zod, `request: any`, multipart duplicado | `routes/bills.ts` | Fora do padrão do projeto | **Resolvido** (#8): Zod em todas as rotas, multipart compartilhado, sem `any` |
+| M1-06 | Duplicidade de importação calculada duas vezes (preview e import) com a mesma lógica copiada | `bills-import.ts` | Risco de divergir | Pendente: a importação de contas por planilha (`bills-import.ts`) não foi tocada |
+| M1-07 | Tela sempre volta ao mês atual ao montar; sem filtros, busca, ações em massa ou atalhos | `BillsPage.tsx` | Perde contexto ao navegar entre páginas | **Resolvido em parte** (#9): mês e filtros na URL, busca, filtro por situação e categoria; ações em massa e atalhos pendentes |
+| M1-08 | "Vencida" calculada no cliente com `new Date()` local; nenhuma visão "vence hoje" / "próximos 7 dias" / "atrasadas" | `isPastDue` | O principal job do usuário (não atrasar) não tem uma tela própria | **Resolvido** (#6, #9): situação derivada no servidor e agenda de atrasadas, hoje e próximos 7 dias |
+| M1-09 | Sem lembretes/notificações, sem anexos (boleto/PDF), sem linha digitável, sem observações | — | Funcionalidades básicas dos apps de referência | **Resolvido em parte**: lembretes por e-mail (PR 3) e contador no menu (#9); observações existem; anexos e linha digitável pendentes |
 
 ### 2.3 O que os apps de referência fazem
 
@@ -217,16 +217,16 @@ Passos de migração (cada um um PR pequeno, sem mudar comportamento):
 
 ## 6. Priorização sugerida
 
-### Fase 0 — higiene (1 PR curto)
+### Fase 0 — higiene (1 PR curto) — concluída (CI, baseline, reset, referências movidas; ESLint/Prettier pendentes)
 Commit/fechamento da branch atual · `.gitattributes` global · `AGENTS.md` baseline · ESLint/Prettier · CI · mover JPGs para `docs/referencias/`.
 
-### Fase 1 — Módulo 1 (foco pedido)
-1. Modelo templates/ocorrências/pagamentos + migração dos dados atuais (backup antes).
-2. Rotas com Zod, consulta por intervalo, "pagar" criando lançamento.
-3. Tela nova: filas (atrasadas/hoje/7 dias/mês), chip de status, popover de pagamento, URL persistente, filtros.
-4. Recorrência com geração de ocorrências e edição "só esta / esta e futuras".
-5. Auto-match de pagamentos na importação (seção da prévia).
-6. Badge no menu + notificações locais.
+### Fase 1 — Módulo 1 (foco pedido) — concluída em 2026-11-12, exceto notificações locais
+1. ~~Modelo templates/ocorrências/pagamentos + migração dos dados atuais (backup antes).~~ #6
+2. ~~Rotas com Zod, consulta por intervalo, "pagar" criando lançamento.~~ #7, #8
+3. ~~Tela nova: filas (atrasadas/hoje/7 dias/mês), chip de status, popover de pagamento, URL persistente, filtros.~~ #9
+4. ~~Recorrência com geração de ocorrências e edição "só esta / esta e futuras".~~ #6, #9
+5. ~~Auto-match de pagamentos na importação (seção da prévia).~~ #10, #11
+6. ~~Badge no menu~~ (#9) + notificações locais (pendente; entra com a PWA).
 
 ### Fase 2 — Módulo 2
 Contas (`accounts`) e tipos · perfis de arquivo por banco · OFX · grupo de parcelas · rateio/tags · regras · desfazer lote · quebra de `import.ts`/`ImportsPage.tsx` em wizard.

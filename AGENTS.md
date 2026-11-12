@@ -78,6 +78,8 @@
 
 ```
 client/         SPA React (Vite)
+  src/components/bills/  diálogos e chips da tela de contas a pagar
+  src/lib/bills-view.ts  lógica de apresentação de contas (sem React)
 server/
   drizzle/      migrações SQL + journal
   src/
@@ -85,6 +87,7 @@ server/
     lib/        moeda, datas, normalização, parcelas
     routes/     endpoints Fastify
     services/   regras de negócio
+      bills/    Módulo 1: recorrência, ocorrências, pagamentos, guards, consultas
   tests/        Vitest
 docs/           análise, planos e referências visuais
 package.json    scripts do monorepo (npm workspaces)
