@@ -7,7 +7,7 @@ Tudo roda na sua máquina. Não há login, cloud, integração bancária, Docker
 ## Recursos
 
 - **Importação** de CSV, XLS e XLSX com prévia, mapeamento manual de colunas, correção/rejeição de linhas, criação automática de categorias e formas de pagamento e detecção de duplicidades.
-- **Importações**: área central com os fluxos **Importar movimentações** e **Importar NFC-e/compras** (uma nota pelo QR Code ou lote em CSV/TXT), além do histórico unificado por tipo, data, quantidade processada e resultado.
+- **Importações**: área central com os fluxos **Importar movimentações** e **Importar NFC-e/compras** (PDF ou texto copiado; QR Code e lote em CSV/TXT são opcionais), além do histórico unificado por tipo, data, quantidade processada e resultado.
 - **Transferências entre contas** detectadas na importação (valor de mesmo módulo, sinais opostos, contas diferentes e datas próximas), com revisão lado a lado antes de confirmar, vínculo persistente, desvínculo manual e indicador visual na listagem.
 - **Lançamentos** em formato de planilha: filtros por ano/mês, categoria, pagamento e texto; ordenação (inclusive por **Categoria** e **Pagamento**, A–Z/Z–A); paginação; criação, edição inline e exclusão.
 - **Edição em massa** de categoria, forma de pagamento e exclusão, mantendo a seleção entre páginas e filtros.
@@ -279,7 +279,22 @@ O mesmo núcleo (`runBillReminders`) atende o agendador e a linha de comando, e 
 ## Compras e NFC-e de RJ, SP e TO
 
 A tela **Importações** concentra os dois fluxos: **Importar movimentações** (planilhas
-CSV/Excel) e **Importar NFC-e/compras**. A tela também aceita PDFs textuais de NFC-e do RJ e do MG (no MG, a seção da chave de acesso precisa estar expandida). Ao importar uma NFC-e pela URL, a tela consulta o
+CSV/Excel) e **Importar NFC-e/compras**. Os caminhos principais são o PDF textual
+da NFC-e (RJ e MG; no MG, a seção da chave de acesso precisa estar expandida) e o
+texto copiado da consulta fiscal.
+
+**Consulta automática aos portais (opcional, desligada por padrão).** A consulta
+pela URL do QR Code e o lote de URLs abrem um Chrome headless e dependem do
+layout de cada portal; já houve bloqueio por reputação de IP no RJ, e o canal pode
+parar sem aviso. Por isso ele só existe com `NFCE_PORTAL_QUERY_ENABLED=true` no
+`.env`, seguido de reinício do servidor. Desligado, a tela esconde esses dois
+fluxos e a API responde 403 neles.
+
+| Variável                    | Padrão  | Descrição                                                         |
+| --------------------------- | ------- | ----------------------------------------------------------------- |
+| `NFCE_PORTAL_QUERY_ENABLED` | `false` | `true` liga a consulta pelo QR Code e o lote de URLs nos portais da SEFAZ |
+
+Com o canal ligado, ao importar uma NFC-e pela URL, a tela consulta o
 portal oficial do estado detectado (RJ, SP ou TO) a partir da URL do QR Code, mostra
 uma prévia identificada pela UF e só persiste depois da confirmação. A tela **Compras** organiza as notas por ano e mês, mostra data, fornecedor, número de itens, pagamento, total e categoria, com filtros e resumo do período. A categoria é uma classificação local opcional; ela não altera os dados fiscais importados nem cria movimentações. Nos detalhes, é possível classificar cada item individualmente ou selecionar vários itens; também dá para criar uma categoria ali mesmo, com cor opcional, e aplicá-la imediatamente à seleção. Essa classificação é independente da categoria geral da compra e não altera os dados fiscais. O atalho **Importar NFC-e** leva ao fluxo central sem duplicar o formulário. Compras e itens ficam em tabelas
 próprias, com deduplicação pela chave de acesso; nenhuma movimentação financeira

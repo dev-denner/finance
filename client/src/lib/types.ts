@@ -209,6 +209,8 @@ export interface Meta {
   latestDueDate: string | null;
   latestPurchaseDate: string | null;
   transactionCount: number;
+  /** Recursos opcionais ligados no servidor. */
+  features: { nfcePortalQuery: boolean };
 }
 
 export interface TransferLeg {

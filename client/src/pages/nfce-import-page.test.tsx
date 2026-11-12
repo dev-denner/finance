@@ -14,6 +14,12 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
 }
 
+const metaState = vi.hoisted(() => ({ portalQuery: true }));
+
+vi.mock('../context/MetaContext', () => ({
+  useMeta: () => ({ meta: { features: { nfcePortalQuery: metaState.portalQuery } } }),
+}));
+
 vi.mock('../lib/api', () => ({
   ApiError: class ApiError extends Error {
     constructor(message: string) {
@@ -105,6 +111,7 @@ function buttonByText(text: string): HTMLButtonElement {
 describe('NfceImportPage', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    metaState.portalQuery = true;
     vi.mocked(api.previewPurchase).mockResolvedValue({ state: 'RJ', purchase, alreadyImported: false, existingPurchaseId: null, previewToken: "123e4567-e89b-42d3-a456-426614174000" });
     vi.mocked(api.importPurchase).mockResolvedValue({ id: 42, duplicate: false });
     vi.mocked(api.previewNfcePdf).mockResolvedValue({ state: "RJ", purchase, alreadyImported: false, existingPurchaseId: null });
@@ -141,6 +148,18 @@ describe('NfceImportPage', () => {
     expect(container.textContent).toContain('Compra importada com sucesso');
     expect(container.querySelector('a[href="/compras/42"]')).toBeTruthy();
     expect(container.textContent).not.toContain('Prévia da compra');
+  });
+
+  it('com a consulta aos portais desligada, esconde QR Code e lote e mantém PDF e texto', async () => {
+    metaState.portalQuery = false;
+    await mount();
+
+    expect(container.querySelector('input[type=url]')).toBeNull();
+    expect(container.textContent).toContain('NFCE_PORTAL_QUERY_ENABLED=true');
+    expect(container.textContent).toContain('Importar uma NFC-e em PDF');
+    expect(container.querySelector('#nfce-copied-text')).not.toBeNull();
+    expect(container.querySelector('#nfce-batch-title')).toBeNull();
+    expect(api.previewPurchase).not.toHaveBeenCalled();
   });
 
   it('pré-visualiza e importa PDF usando o arquivo conferido', async () => {

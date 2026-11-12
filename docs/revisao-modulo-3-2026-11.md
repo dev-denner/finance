@@ -34,6 +34,8 @@ Ambas as branches criam uma `0007`. Simulação de merge (`git merge-tree`): `sc
 ### R2 — Consulta aos portais com navegador headless
 Funciona hoje e o código é cuidadoso, mas é o caminho frágil: depende do layout de três portais, já registrou bloqueio por reputação de IP no RJ (o código trata explicitamente) e pode esbarrar em termos de uso. **Recomendação:** manter como canal opcional atrás de configuração (desligado por padrão), com texto colado e PDF como caminhos principais na interface; registrar no README que o canal pode parar sem aviso.
 
+**Resolvido (2026-11-12, decisão do usuário):** a consulta pelo QR Code e o lote de URLs ficam atrás de `NFCE_PORTAL_QUERY_ENABLED=true`, desligados por padrão. Desligado, a API responde 403 nessas rotas, `/api/meta` informa `features.nfcePortalQuery = false` e a tela mostra só PDF e texto copiado.
+
 ### R3 — Conciliar sobrescreve a categoria de todos os itens
 `reconcilePurchase` aplica a categoria da compra a **todos** os `purchase_items`, guardando a anterior em `reconciliation_previous_category_id` e restaurando no desfazer. Isso apaga a classificação item a item feita antes de conciliar, contrariando o README ("essa classificação é independente da categoria geral da compra"). **Recomendação:** aplicar só aos itens sem categoria, ou tornar a propagação uma escolha explícita no payload.
 

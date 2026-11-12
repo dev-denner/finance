@@ -4,7 +4,7 @@ import type { AppDatabase } from '../db/client';
 import { transactions } from '../db/schema';
 import { listLookups } from '../services/lookups';
 
-export function registerMetaRoutes(app: FastifyInstance, db: AppDatabase): void {
+export function registerMetaRoutes(app: FastifyInstance, db: AppDatabase, options: { nfcePortalQueryEnabled: boolean }): void {
   app.get('/api/health', async () => ({ ok: true }));
 
   app.get('/api/meta', async () => {
@@ -46,6 +46,7 @@ export function registerMetaRoutes(app: FastifyInstance, db: AppDatabase): void 
       latestDueDate: dueAggregate?.latest ?? null,
       latestPurchaseDate: purchaseAggregate?.latest ?? null,
       transactionCount: countAggregate?.value ?? 0,
+      features: { nfcePortalQuery: options.nfcePortalQueryEnabled },
     };
   });
 }
