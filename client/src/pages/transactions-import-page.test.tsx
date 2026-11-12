@@ -372,4 +372,55 @@ describe('TransactionsImportPage - laco de previa', () => {
     expect(importFile.mock.calls[0][1]).toMatchObject({ billDecisions: { 'file:2:bill:7': 'reject' } });
     expect(document.body.textContent).toContain('0 paga(s) com lançamento deste arquivo · 0 pendente(s) · 1 rejeitada(s)');
   });
+
+  it('mais de 50 pares: todos aparecem na revisão, inclusive os pré-confirmados', async () => {
+    const fileParty = (rowNumber: number, amountCents: number) => ({
+      key: `file:${rowNumber}`,
+      source: 'file' as const,
+      rowNumber,
+      transactionId: null,
+      dueDate: '2024-02-01',
+      purchaseDate: '2024-02-01',
+      description: `Linha ${rowNumber}`,
+      amountCents,
+      paymentMethod: 'Conta',
+      transfer: null,
+    });
+    const bills = Array.from({ length: 60 }, (_, index) => ({
+      key: `file:${index + 2}:bill:${index + 1}`,
+      confidence: 'high' as const,
+      ambiguous: false,
+      reasons: [],
+      dayDistance: 0,
+      amountDiffCents: 0,
+      party: fileParty(index + 2, -1000 - index),
+      bill: { id: index + 1, description: `Conta ${index + 1}`, amountCents: 1000 + index, dueDate: '2024-02-01', categoryName: 'X' },
+    }));
+    const transfers = Array.from({ length: 60 }, (_, index) => ({
+      key: `t${index}`,
+      confidence: 'high' as const,
+      ambiguous: false,
+      reasons: [],
+      dayDistance: 0,
+      outgoing: fileParty(100 + index, -5000 - index),
+      incoming: fileParty(200 + index, 5000 + index),
+    }));
+    previewImport.mockImplementation(() =>
+      Promise.resolve(previewResponse({ billCandidates: bills, transferCandidates: transfers })),
+    );
+    await mountAndSelectFile();
+    await settle();
+
+    const openTab = async (label: string) => {
+      const tab = [...container.querySelectorAll('button')].find((button) => button.textContent?.startsWith(label));
+      await act(async () => tab!.click());
+    };
+    await openTab('Contas a pagar');
+    expect(container.textContent).toContain('Conta 60');
+    expect(container.textContent).not.toContain('Mostrando 50');
+
+    await openTab('Transferências');
+    expect(container.textContent).toContain('Linha 159');
+    expect(container.textContent).not.toContain('Mostrando 50');
+  });
 });

@@ -2957,19 +2957,16 @@ export function TransactionsImportPage() {
                         Nenhuma saída do arquivo corresponde a uma conta a pagar em aberto.
                       </p>
                     ) : (
-                      <>
-                        {billCandidates.slice(0, 50).map((candidate) => (
-                          <BillCandidateRow
-                            key={candidate.key}
-                            candidate={candidate}
-                            decision={billDecisions[candidate.key] ?? 'pending'}
-                            onDecision={(decision) => setBillDecision(candidate, decision)}
-                          />
-                        ))}
-                        {billCandidates.length > 50 && (
-                          <p className="text-[11px] text-ink-400">Mostrando 50 de {billCandidates.length} pares.</p>
-                        )}
-                      </>
+                      // Todos os pares ficam visíveis: os de alta confiança já vêm
+                      // confirmados e não pode haver confirmação que não foi vista.
+                      billCandidates.map((candidate) => (
+                        <BillCandidateRow
+                          key={candidate.key}
+                          candidate={candidate}
+                          decision={billDecisions[candidate.key] ?? 'pending'}
+                          onDecision={(decision) => setBillDecision(candidate, decision)}
+                        />
+                      ))
                     )}
                   </div>
                 </div>
@@ -2999,21 +2996,16 @@ export function TransactionsImportPage() {
                         existentes. Você também pode revisar pares já gravados em Conciliação.
                       </p>
                     ) : (
-                      <>
-                        {transferCandidates.slice(0, 50).map((candidate) => (
-                          <TransferCandidateRow
-                            key={candidate.key}
-                            candidate={candidate}
-                            decision={transferDecisions[candidate.key] ?? 'pending'}
-                            onDecision={(decision) => setTransferDecision(candidate, decision)}
-                          />
-                        ))}
-                        {transferCandidates.length > 50 && (
-                          <p className="text-[11px] text-ink-400">
-                            Mostrando 50 de {transferCandidates.length} pares candidatos.
-                          </p>
-                        )}
-                      </>
+                      // Todos os pares ficam visíveis: os de alta confiança já vêm
+                      // confirmados e não pode haver confirmação que não foi vista.
+                      transferCandidates.map((candidate) => (
+                        <TransferCandidateRow
+                          key={candidate.key}
+                          candidate={candidate}
+                          decision={transferDecisions[candidate.key] ?? 'pending'}
+                          onDecision={(decision) => setTransferDecision(candidate, decision)}
+                        />
+                      ))
                     )}
                   </div>
                 </div>
