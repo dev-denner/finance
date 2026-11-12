@@ -107,6 +107,39 @@ describe('recorrência — limites (AC3b)', () => {
   });
 });
 
+describe('recorrência — limite inicial (from)', () => {
+  it('série semanal muito antiga chega até hoje sem perder a numeração', () => {
+    const weekly = { frequency: 'weekly' as const, interval: 1, dayOfMonth: null, weekday: null, monthOfYear: null };
+    const dates = nextOccurrenceDates(weekly, '2000-01-03', { from: '2026-03-02', to: '2026-03-31' });
+    const weeksSinceStart = (Date.UTC(2026, 2, 2) - Date.UTC(2000, 0, 3)) / (7 * 86_400_000);
+    expect(dates.map((d) => d.dueDate)).toEqual(['2026-03-02', '2026-03-09', '2026-03-16', '2026-03-23', '2026-03-30']);
+    expect(dates[0].sequence).toBe(weeksSinceStart + 1);
+    expect(dates[0].sequence).toBeGreaterThan(1000);
+  });
+
+  it('mensal com dia 31 entra no mês curto pelo limite inicial', () => {
+    const dates = nextOccurrenceDates(monthly({ dayOfMonth: 31 }), '2025-01-31', { from: '2026-02-01', to: '2026-03-31' });
+    expect(dates).toEqual([
+      { sequence: 14, dueDate: '2026-02-28' },
+      { sequence: 15, dueDate: '2026-03-31' },
+    ]);
+  });
+
+  it('limite inicial respeita quantidade e intervalo', () => {
+    expect(
+      nextOccurrenceDates(monthly({ dayOfMonth: 10 }), '2026-01-10', { from: '2026-05-01', to: '2027-12-31', occurrenceCount: 6 }),
+    ).toEqual([
+      { sequence: 5, dueDate: '2026-05-10' },
+      { sequence: 6, dueDate: '2026-06-10' },
+    ]);
+    const yearly = { frequency: 'yearly' as const, interval: 2, dayOfMonth: 1, weekday: null, monthOfYear: 3 };
+    expect(nextOccurrenceDates(yearly, '2000-03-01', { from: '2025-01-01', to: '2029-12-31' }).map((d) => d.dueDate)).toEqual([
+      '2026-03-01',
+      '2028-03-01',
+    ]);
+  });
+});
+
 describe('recorrência — semanal e anual', () => {
   it('semanal com dia da semana explícito começa no primeiro dia compatível', () => {
     // 2026-01-01 é quinta-feira (4); pedir segunda (1) → 2026-01-05

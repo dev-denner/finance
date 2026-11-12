@@ -18,6 +18,13 @@ import {
 /** Quantos meses à frente as ocorrências de uma recorrência sem fim são materializadas. */
 export const OCCURRENCE_HORIZON_MONTHS = 12;
 
+/**
+ * Quantos meses para trás a geração automática alcança. Uma recorrência com
+ * data inicial antiga não vira centenas de contas vencidas; a numeração
+ * ("3 de 6") continua contada desde a data inicial.
+ */
+export const OCCURRENCE_LOOKBACK_MONTHS = 12;
+
 export interface BillTemplateDto {
   id: number;
   description: string;
@@ -83,6 +90,12 @@ interface ParsedTemplate {
   occurrenceCount: number | null;
   active: number;
   notes: string | null;
+}
+
+export function lookbackFor(today: string): string {
+  const lookback = addMonthsIso(today, -OCCURRENCE_LOOKBACK_MONTHS);
+  if (!lookback) throw badRequest('Data de referência inválida.');
+  return lookback;
 }
 
 export function horizonFor(today: string): string {
@@ -292,7 +305,9 @@ export function previewTemplateDates(
 export function ensureOccurrences(db: AppDatabase, templateId: number, today = todayIso()): { created: number } {
   const template = loadTemplateRow(db, templateId);
   if (template.active !== 1) return { created: 0 };
+  const lookback = lookbackFor(today);
   const dates = nextOccurrenceDates(recurrenceOf(template), template.startDate, {
+    from: template.startDate > lookback ? template.startDate : lookback,
     to: horizonFor(today),
     endDate: template.endDate,
     occurrenceCount: template.occurrenceCount,
@@ -439,6 +454,14 @@ export function updateTemplate(
   return getTemplate(db, id);
 }
 
+function nextDay(iso: string): string {
+  const [year, month, day] = iso.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day) + 86_400_000);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    date.getUTCDate(),
+  ).padStart(2, '0')}`;
+}
+
 function previousDay(iso: string): string {
   const [year, month, day] = iso.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day) - 86_400_000);
@@ -464,6 +487,15 @@ function splitTemplate(
     tx.delete(scheduledBills)
       .where(and(openUnpaidCondition(existing.id), gte(scheduledBills.dueDate, from)))
       .run();
+    // Ocorrências mantidas depois do corte (pagas adiantado, puladas ou com
+    // pagamento) empurram o início da série nova para o dia seguinte à última
+    // delas: a regra nova não pode recriar a mesma data como conta aberta.
+    const lastRetained = tx
+      .select({ dueDate: sql<string | null>`max(${scheduledBills.dueDate})` })
+      .from(scheduledBills)
+      .where(and(eq(scheduledBills.templateId, existing.id), gte(scheduledBills.dueDate, from)))
+      .get()?.dueDate;
+    const cut = lastRetained ? nextDay(lastRetained) : from;
     const remaining = tx
       .select({ count: sql<number>`count(*)`, maxSequence: sql<number | null>`max(${scheduledBills.sequence})` })
       .from(scheduledBills)
@@ -474,7 +506,7 @@ function splitTemplate(
 
     tx.update(billTemplates)
       .set({
-        endDate: previousDay(from),
+        endDate: previousDay(cut),
         occurrenceCount: existing.occurrenceCount !== null ? keptMaxSequence : null,
         active: keptCount > 0 ? existing.active : 0,
         updatedAt: nowIso(),
@@ -483,7 +515,7 @@ function splitTemplate(
       .run();
 
     const timestamp = nowIso();
-    const startDate = parsed.startDate > from ? parsed.startDate : from;
+    const startDate = parsed.startDate > cut ? parsed.startDate : cut;
     const occurrenceCount =
       parsed.occurrenceCount !== null ? Math.max(1, parsed.occurrenceCount - keptCount) : null;
     const created = tx
