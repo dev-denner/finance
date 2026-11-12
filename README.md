@@ -287,7 +287,9 @@ próprias, com deduplicação pela chave de acesso; nenhuma movimentação finan
 oferece movimentações de saída de valor e data próximos (até 7 dias antes ou
 depois da emissão); pagamentos parciais podem ser combinados para fechar o total.
 A pessoa revisa e confirma os vínculos; então a categoria escolhida é aplicada
-à compra e a todos os seus itens, sem alterar as movimentações. É possível
+à compra e aos itens sem categoria (ou em "Sem categoria"), sem alterar as
+movimentações. Itens já classificados mantêm a categoria deles e continuam
+podendo ser reclassificados depois da conciliação. É possível
 desfazer a conciliação para restaurar as categorias anteriores. Uma compra pode
 ser liquidada por várias movimentações e carteiras;
 cada parcela é revisada e o total precisa fechar exatamente antes da confirmação.

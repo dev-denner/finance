@@ -3,6 +3,7 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import type { AppDatabase } from '../db/client';
 import { daysBetweenIso } from '../lib/dates';
 import { badRequest, conflict, notFound, nowIso } from '../lib/errors';
+import { EMPTY_CATEGORY_NAME, normalizeName } from '../lib/normalize';
 import { categories, paymentBalanceAdjustments, paymentMethods, purchaseItems, purchaseSettlements, purchases, transactions, transfers } from '../db/schema';
 import { getPurchase } from './purchases';
 
@@ -217,10 +218,24 @@ export function reconcilePurchase(db: AppDatabase, purchaseId: number, input: Pu
     for (const accountId of accounts) assertNonNegativeChronologicalBalance(tx as unknown as AppDatabase, accountId);
     tx.update(purchases).set({ transactionId: chosen[0]?.transactionId ?? null, reconciledAt,
       reconciliationPreviousCategoryId: purchase.categoryId, categoryId: input.categoryId }).where(eq(purchases.id, purchaseId)).run();
-    tx.update(purchaseItems).set({ reconciliationPreviousCategoryId: purchaseItems.categoryId, categoryId: input.categoryId })
+    tx.update(purchaseItems).set({ reconciliationPreviousCategoryId: purchaseItems.categoryId })
       .where(eq(purchaseItems.purchaseId, purchaseId)).run();
+    if (input.categoryId !== null) {
+      tx.update(purchaseItems).set({ categoryId: input.categoryId })
+        .where(and(eq(purchaseItems.purchaseId, purchaseId), uncategorizedItem(tx as unknown as AppDatabase))).run();
+    }
   });
   return getPurchase(db, purchaseId);
+}
+
+/**
+ * Itens que recebem a categoria da compra na conciliação: os sem categoria ou
+ * na categoria "Sem categoria". Itens já classificados mantêm a sua.
+ */
+function uncategorizedItem(db: AppDatabase) {
+  const empty = db.select({ id: categories.id }).from(categories)
+    .where(eq(categories.normalizedName, normalizeName(EMPTY_CATEGORY_NAME))).get();
+  return empty ? or(isNull(purchaseItems.categoryId), eq(purchaseItems.categoryId, empty.id)) : isNull(purchaseItems.categoryId);
 }
 
 /** Compatibilidade de chamada antiga mantida para consumidores não migrados; UI/API usam reconcilePurchase. */

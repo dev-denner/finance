@@ -32,8 +32,10 @@ Tudo o que foi feito está em `master`. Merges de 2026-11-12, em ordem:
 | #8 | `feat/bills-api` | Rotas Zod, multipart compartilhado, cliente tipado | `9805aff` |
 | #9 | `feat/bills-ui` | Tela nova de contas a pagar e remoção do legado | `854c42a` |
 | #10 | `feat/bills-import-match` | Sugestão e vínculo de pagamentos de contas na importação | `386cc25` |
+| #11 | `fix/import-bill-candidates-all` | Abas de contas e de transferências da importação mostram todos os pares | `d8f9b21` |
+| #12 | `chore/bills-docs-final` | Documentação final do Módulo 1 | `2f883ee` |
 
-Abertos quando este arquivo foi atualizado: **#11** (`fix/import-bill-candidates-all`: as abas de contas e de transferências da importação passam a mostrar todos os pares, apontamento do Codex no #10) e o PR desta documentação (`chore/bills-docs-final`). As branches mescladas não foram apagadas; `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` são locais e sem uso.
+Em andamento: `fix/purchase-reconcile-item-categories` (ressalva R3 do Módulo 3). As branches mescladas não foram apagadas; `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` são locais e sem uso.
 
 O CI (`.github/workflows/ci.yml`, build + testes em Linux) roda em todo push no `master` e em PRs. Ele só passou a valer depois de chegar ao `master`; trocar a base de um PR não o dispara, só um push. O Codex revisa cada PR automaticamente e, nos PRs deste trabalho, sempre encontrou algo real: espere a revisão terminar antes de mesclar, ou trate o apontamento em PR de acompanhamento.
 
@@ -70,13 +72,12 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 
 ## 5. O que falta (em ordem sugerida)
 
-O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído: PR1–PR5 mesclados, PR6 é esta documentação. O registro de cada PR está na seção 9 do plano.
+O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído: PR1–PR6 mesclados (#6 a #12). O registro de cada PR está na seção 9 do plano.
 
-1. **Mesclar #11** (correção da revisão do #10) e o PR desta documentação.
-2. **Módulo 3 — ressalvas da revisão** (`docs/revisao-modulo-3-2026-11.md`): R3 (conciliar uma compra sobrescreve a categoria de todos os itens; pede decisão do usuário), R4 (`purchases.transaction_id` redundante com `purchase_settlements`), R6 (tsconfig `lib: DOM` no server inteiro, teste próprio do parser RJ, mensagens de saldo em BRL), R7 (código do item e formas de pagamento da nota em linhas, para o Módulo 4), R2 (canal de consulta à SEFAZ atrás de configuração; pede decisão).
-3. **Módulo 1 — sobras fora de escopo** (plano, seção 8): pagamento parcial na tela, notificações locais/PWA, anexos e linha digitável, visão calendário, "find schedules" (sugerir recorrências pelo histórico), recorrência na importação de contas por planilha, M1-06 (duplicidade duplicada em `bills-import.ts`), ações em massa e atalhos.
-4. **Módulo 2** (fase 2 da análise): entidade conta evoluindo `payment_methods.balance_type`, perfis de arquivo por banco, OFX, grupo de parcelas, rateio/tags, regras, desfazer lote, quebrar `import.ts`/`TransactionsImportPage.tsx` (3 mil linhas) em wizard.
-5. **Transversal**: ESLint/Prettier, `packages/domain` e `api-client` (análise, seção 5), PWA.
+1. **Módulo 3 — ressalvas da revisão** (`docs/revisao-modulo-3-2026-11.md`): R3 resolvida (a conciliação só categoriza itens sem categoria ou em "Sem categoria"); faltam R4 (`purchases.transaction_id` redundante com `purchase_settlements`), R6 (tsconfig `lib: DOM` no server inteiro, teste próprio do parser RJ, mensagens de saldo em BRL), R7 (código do item e formas de pagamento da nota em linhas, para o Módulo 4), R2 (canal de consulta à SEFAZ atrás de configuração; pede decisão).
+2. **Módulo 1 — sobras fora de escopo** (plano, seção 8): pagamento parcial na tela, notificações locais/PWA, anexos e linha digitável, visão calendário, "find schedules" (sugerir recorrências pelo histórico), recorrência na importação de contas por planilha, M1-06 (duplicidade duplicada em `bills-import.ts`), ações em massa e atalhos.
+3. **Módulo 2** (fase 2 da análise): entidade conta evoluindo `payment_methods.balance_type`, perfis de arquivo por banco, OFX, grupo de parcelas, rateio/tags, regras, desfazer lote, quebrar `import.ts`/`TransactionsImportPage.tsx` (3 mil linhas) em wizard.
+4. **Transversal**: ESLint/Prettier, `packages/domain` e `api-client` (análise, seção 5), PWA.
 
 ## 6. Armadilhas aprendidas (evite repetir)
 
@@ -95,7 +96,7 @@ O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído:
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 
@@ -103,5 +104,6 @@ O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído:
 
 - ~~Dependências de teste de componente~~: não são necessárias; os testes de página usam `react-dom/client` + `act` + jsdom, que já existem.
 - Confirmar se o canal de consulta aos portais da SEFAZ (Playwright) deve ficar atrás de configuração desligada por padrão (ressalva R2 da revisão).
-- Decidir o destino da classificação item a item na conciliação do Módulo 3 (ressalva R3).
-- Decidir a prioridade entre as ressalvas do Módulo 3, as sobras do Módulo 1 e a fase 2 do Módulo 2 (seção 5).
+- ~~Classificação item a item na conciliação (R3)~~: decidido em 2026-11-12; só itens sem categoria ou em "Sem categoria" recebem a categoria da compra.
+- Na importação de movimentações, os pares de alta confiança com contas a pagar devem continuar vindo pré-confirmados, ou todos devem começar pendentes?
+- ~~Prioridade~~: em 2026-11-12 o usuário escolheu começar pelas ressalvas do Módulo 3 e confirmou as sobras do Módulo 1 e a fase 2 do Módulo 2 como próximas frentes.
