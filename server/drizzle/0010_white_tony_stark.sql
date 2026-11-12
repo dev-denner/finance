@@ -1,0 +1,1 @@
+ALTER TABLE `purchase_items` ADD `category_id` integer REFERENCES categories(id);

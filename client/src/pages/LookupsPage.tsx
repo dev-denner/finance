@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Check,
   CreditCard,
+  History,
   Loader2,
   Pencil,
   Plus,
@@ -19,8 +20,8 @@ import { EmptyState, PageHeader } from '../components/ui/Page';
 import { useMeta } from '../context/MetaContext';
 import { useToast } from '../context/ToastContext';
 import { api, errorMessage } from '../lib/api';
-import { CATEGORY_PALETTE, categoryColorHex, formatDateBR } from '../lib/format';
-import type { CategoryClassification, Lookup } from '../lib/types';
+import { CATEGORY_PALETTE, categoryColorHex, formatBRL, formatDateBR } from '../lib/format';
+import type { CategoryClassification, Lookup, PaymentBalanceHistory } from '../lib/types';
 
 type Kind = 'category' | 'payment';
 
@@ -91,23 +92,28 @@ export function LookupsPage() {
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('');
   const [newClassification, setNewClassification] = useState<CategoryClassification | ''>('');
+  const [newBalanceType, setNewBalanceType] = useState<NonNullable<Lookup['balanceType']>>('unclassified');
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<{
     id: number;
     name: string;
     color: string;
     classification: CategoryClassification | '';
+    balanceType: NonNullable<Lookup['balanceType']>;
   } | null>(null);
   const [savingRename, setSavingRename] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Lookup | null>(null);
   const [reassignTo, setReassignTo] = useState<number>(0);
   const [deleting, setDeleting] = useState(false);
+  const [balanceHistory, setBalanceHistory] = useState<PaymentBalanceHistory | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
     setEditing(null);
     setNewName('');
     setNewColor('');
     setNewClassification('');
+    setNewBalanceType('unclassified');
     setDeleteTarget(null);
   }, [kind]);
 
@@ -130,10 +136,12 @@ export function LookupsPage() {
         name,
         kind === 'category' ? newColor || null : undefined,
         kind === 'category' ? newClassification || null : undefined,
+        kind === 'payment' ? newBalanceType : undefined,
       );
       setNewName('');
       setNewColor('');
       setNewClassification('');
+      setNewBalanceType('unclassified');
       await refresh();
       showToast(`${kind === 'category' ? 'Categoria' : 'Forma de pagamento'} criada.`);
     } catch (err) {
@@ -155,6 +163,7 @@ export function LookupsPage() {
         name,
         kind === 'category' ? editing.color || null : undefined,
         kind === 'category' ? editing.classification || null : undefined,
+        kind === 'payment' ? editing.balanceType : undefined,
       );
       setEditing(null);
       await refresh();
@@ -196,6 +205,17 @@ export function LookupsPage() {
       showToast(errorMessage(err), 'error');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openBalanceHistory = async (item: Lookup) => {
+    setLoadingHistory(true);
+    try {
+      setBalanceHistory(await api.getPaymentBalanceHistory(item.id));
+    } catch (err) {
+      showToast(errorMessage(err), 'error');
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -349,6 +369,7 @@ export function LookupsPage() {
                                 Automática
                               </button>
                             )}
+                            {kind === 'payment' && <select className="select h-8 max-w-[150px] text-[12px]" value={editing.balanceType} onChange={(event) => setEditing({ ...editing, balanceType: event.target.value as NonNullable<Lookup['balanceType']> })} aria-label="Tipo de conta"><option value="credit">Crédito</option><option value="debit">Débito</option><option value="wallet">Carteira</option><option value="unclassified">Não classificada</option></select>}
                             <button
                               type="button"
                               className="icon-btn text-emerald-600"
@@ -399,6 +420,8 @@ export function LookupsPage() {
                                     {CLASSIFICATION_LABELS[item.classification]}
                                   </span>
                                 )}
+                                {kind === 'payment' && <span className="badge bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300">{{ credit: 'Crédito', debit: 'Débito', wallet: 'Carteira', unclassified: 'Não classificada' }[item.balanceType ?? 'unclassified']}</span>}
+                                {kind === 'payment' && ['wallet', 'debit'].includes(item.balanceType ?? '') && <p className="mt-1 text-[11px] text-ink-500">Saldo calculado: {formatBRL(item.balanceCents ?? 0)}</p>}
                               </div>
                             </div>
                           </div>
@@ -420,6 +443,7 @@ export function LookupsPage() {
                       </td>
                       <td className="td">
                         <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
+                          {kind === 'payment' && <button type="button" className="icon-btn" onClick={() => void openBalanceHistory(item)} aria-label={`Ver histórico de saldo de ${item.name}`} title="Histórico de saldo"><History className="h-3.5 w-3.5" /></button>}
                           <button
                             type="button"
                             className="icon-btn"
@@ -429,6 +453,7 @@ export function LookupsPage() {
                                 name: item.name,
                                 color: item.color ?? '',
                                 classification: item.classification ?? '',
+                                balanceType: item.balanceType ?? 'unclassified',
                               })
                             }
                             aria-label={`Renomear ${item.name}`}
@@ -474,6 +499,7 @@ export function LookupsPage() {
                   maxLength={120}
                 />
               </Field>
+              {kind === 'payment' && <Field label="Tipo da conta ou carteira" hint="A classificação é explícita; o prefixo do nome não define o comportamento."><select className="select" value={newBalanceType} onChange={(event) => setNewBalanceType(event.target.value as NonNullable<Lookup['balanceType']>)}><option value="credit">Crédito</option><option value="debit">Débito</option><option value="wallet">Carteira com saldo</option><option value="unclassified">Não classificada</option></select></Field>}
               {kind === 'category' && (
                 <>
                   <Field
@@ -552,6 +578,12 @@ export function LookupsPage() {
           </div>
         </div>
       </div>
+
+      {balanceHistory && (
+        <Modal title={`Saldo: ${balanceHistory.account.name}`} description={`Histórico auditável · saldo calculado ${formatBRL(balanceHistory.balance.balanceCents)}`} size="md" onClose={() => setBalanceHistory(null)}>
+          {loadingHistory ? <p className="text-sm text-ink-500">Carregando histórico...</p> : balanceHistory.events.length === 0 ? <p className="text-sm text-ink-500">Nenhum ajuste ou pagamento de compra registrado.</p> : <div className="max-h-80 space-y-2 overflow-y-auto">{balanceHistory.events.map((event) => <div key={`${event.kind}-${event.id}`} className="flex justify-between gap-3 rounded border border-ink-200 p-2 text-xs dark:border-ink-700"><span><strong>{formatDateBR(event.effectiveDate)}</strong> · {event.description}{event.reversedAt ? " · Estornado" : ""}</span><strong>{formatBRL(event.amountCents)}</strong></div>)}</div>}
+        </Modal>
+      )}
 
       {deleteTarget && (
         <Modal

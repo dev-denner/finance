@@ -71,6 +71,11 @@ function seedOperationalData(handle: DatabaseHandle): void {
       "INSERT INTO import_batches (filename, total_rows, imported_rows, rejected_rows) VALUES ('arquivo.csv', 10, 8, 2)",
     )
     .run();
+  const purchaseId = Number(handle.sqlite.prepare("INSERT INTO purchases (access_key, supplier_name, supplier_cnpj, invoice_number, series, issued_at, total_cents) VALUES (?, 'Fornecedor sintético', '12345678000195', '1', '1', '2026-01-05T12:00:00Z', 10000)").run("8".repeat(44)).lastInsertRowid);
+  const paymentMethodId = Number(handle.sqlite.prepare("SELECT payment_method_id FROM transactions WHERE id = ?").get(outgoing.id)?.payment_method_id);
+  handle.sqlite.prepare("INSERT INTO purchase_items (purchase_id, position, description, quantity, unit, unit_price_cents, total_cents) VALUES (?, 0, 'Item sintético', '1', 'UN', 10000, 10000)").run(purchaseId);
+  handle.sqlite.prepare("INSERT INTO purchase_settlements (purchase_id, transaction_id, payment_method_id, amount_cents, settlement_type, effective_date) VALUES (?, ?, ?, 10000, 'movement', '2026-01-05')").run(purchaseId, outgoing.id, paymentMethodId);
+  handle.sqlite.prepare("INSERT INTO payment_balance_adjustments (payment_method_id, effective_date, amount_cents, reason, description, purchase_id) VALUES (?, '2026-01-05', 10000, 'opening_balance', 'Ajuste sintético', ?)").run(paymentMethodId, purchaseId);
 }
 
 describe('procedimento de reset do banco', () => {

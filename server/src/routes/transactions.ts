@@ -118,7 +118,8 @@ export function registerLookupRoutes(app: FastifyInstance, db: AppDatabase): voi
 
     app.post(config.base, async (request, reply) => {
       const body = parseWith(lookupWriteSchema, request.body);
-      const created = createLookup(db, config.kind, body.name, body.color, body.classification);
+      if (config.kind === 'payment' && body.balanceType === undefined) throw badRequest('Selecione o tipo da conta ou carteira.');
+      const created = createLookup(db, config.kind, body.name, body.color, body.classification, body.balanceType);
       return reply.status(201).send(created);
     });
 
@@ -126,7 +127,8 @@ export function registerLookupRoutes(app: FastifyInstance, db: AppDatabase): voi
       const id = Number(request.params.id);
       if (!Number.isInteger(id) || id <= 0) throw badRequest('Registro inválido.');
       const body = parseWith(lookupWriteSchema, request.body);
-      return renameLookup(db, config.kind, id, body.name, body.color, body.classification);
+      if (config.kind === 'payment' && body.balanceType === undefined) throw badRequest('Selecione o tipo da conta ou carteira.');
+      return renameLookup(db, config.kind, id, body.name, body.color, body.classification, body.balanceType);
     });
 
     app.delete<{ Params: { id: string }; Querystring: { reassignTo?: string } }>(

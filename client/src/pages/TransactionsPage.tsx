@@ -745,7 +745,7 @@ export function TransactionsPage() {
   return (
     <div>
       <PageHeader
-        title="Lançamentos"
+        title="Movimentações"
         subtitle="Gerencie as despesas, receitas e transferências do seu fluxo financeiro."
         actions={
           <>

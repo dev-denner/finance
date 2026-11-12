@@ -159,7 +159,7 @@ function DetailsModal({
         <>
           <Button onClick={onClose}>Fechar</Button>
           <Button variant="primary" onClick={openInTransactions}>
-            Abrir em lançamentos
+            Abrir em movimentações
           </Button>
         </>
       }
@@ -237,7 +237,7 @@ function DetailsModal({
           </div>
           {total > rows.length && (
             <p className="mt-2 text-[11px] text-ink-400">
-              Exibindo os primeiros {rows.length} de {total}. Use “Abrir em lançamentos” para ver
+              Exibindo os primeiros {rows.length} de {total}. Use “Abrir em movimentações” para ver
               todos com paginação.
             </p>
           )}

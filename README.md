@@ -7,12 +7,14 @@ Tudo roda na sua máquina. Não há login, cloud, integração bancária, Docker
 ## Recursos
 
 - **Importação** de CSV, XLS e XLSX com prévia, mapeamento manual de colunas, correção/rejeição de linhas, criação automática de categorias e formas de pagamento e detecção de duplicidades.
+- **Importações**: área central com os fluxos **Importar movimentações** e **Importar NFC-e/compras** (uma nota pelo QR Code ou lote em CSV/TXT), além do histórico unificado por tipo, data, quantidade processada e resultado.
 - **Transferências entre contas** detectadas na importação (valor de mesmo módulo, sinais opostos, contas diferentes e datas próximas), com revisão lado a lado antes de confirmar, vínculo persistente, desvínculo manual e indicador visual na listagem.
 - **Lançamentos** em formato de planilha: filtros por ano/mês, categoria, pagamento e texto; ordenação (inclusive por **Categoria** e **Pagamento**, A–Z/Z–A); paginação; criação, edição inline e exclusão.
 - **Edição em massa** de categoria, forma de pagamento e exclusão, mantendo a seleção entre páginas e filtros.
 - **Consolidado anual** por categoria, com 12 colunas mensais, total, média e totais gerais, além da cor de cada categoria. Clique em uma célula para ver os lançamentos que a compõem.
 - **Cadastros auxiliares** de categorias e formas de pagamento, com renomeação, **cor opcional por categoria** e exclusão com reatribuição.
 - **Lembretes por e-mail** das contas a pagar que ainda não foram agendadas, com avisos nos marcos D-3, D-2, D-1 e D0.
+- **Compras**: lista com busca por fornecedor/nota, detalhes dos itens e atalho para importar uma nova NFC-e pela área de Importações; separada das movimentações financeiras.
 - **Tema claro/escuro**, valores em BRL, datas `DD/MM/AAAA` e layout desktop-first.
 - **SQLite persistente** com migrações versionadas e backup por linha de comando.
 
@@ -35,7 +37,7 @@ finance/
 │   │   ├── components/      # Layout, sidebar e componentes de UI
 │   │   ├── context/         # Tema, avisos, cadastros e seleção
 │   │   ├── lib/             # Cliente HTTP, tipos e formatadores
-│   │   └── pages/           # Lançamentos, Consolidado, Importações, Cadastros
+│   │   └── pages/           # Movimentações, Consolidado, Importações, Compras, Cadastros
 │   └── dist/                # Build servido pelo backend em produção
 ├── server/
 │   ├── drizzle/             # Migrações SQL geradas e journal
@@ -220,6 +222,8 @@ npm.cmd run reminders:run -- --today=21/10/2026
 npm.cmd run reminders:run -- --dry-run
 ```
 
+
+
 - `--today=AAAA-MM-DD` (ou `DD/MM/AAAA`) fixa a data de referência do ciclo.
 - `--dry-run` **simula** o ciclo: imprime o e-mail em vez de enviá-lo e
   **não grava nada no banco** (nenhum lote, nenhuma notificação). Por isso o
@@ -236,11 +240,110 @@ npm.cmd run reminders:run -- --dry-run
 O mesmo núcleo (`runBillReminders`) atende o agendador e a linha de comando, e o
 `Message-ID` evita duplicidade quando o aviso é reenviado.
 
+## Compras e NFC-e de RJ, SP e TO
+
+A tela **Importações** concentra os dois fluxos: **Importar movimentações** (planilhas
+CSV/Excel) e **Importar NFC-e/compras**. A tela também aceita PDFs textuais de NFC-e do RJ e do MG (no MG, a seção da chave de acesso precisa estar expandida). Ao importar uma NFC-e pela URL, a tela consulta o
+portal oficial do estado detectado (RJ, SP ou TO) a partir da URL do QR Code, mostra
+uma prévia identificada pela UF e só persiste depois da confirmação. A tela **Compras** organiza as notas por ano e mês, mostra data, fornecedor, número de itens, pagamento, total e categoria, com filtros e resumo do período. A categoria é uma classificação local opcional; ela não altera os dados fiscais importados nem cria movimentações. Nos detalhes, é possível classificar cada item individualmente ou selecionar vários itens; também dá para criar uma categoria ali mesmo, com cor opcional, e aplicá-la imediatamente à seleção. Essa classificação é independente da categoria geral da compra e não altera os dados fiscais. O atalho **Importar NFC-e** leva ao fluxo central sem duplicar o formulário. Compras e itens ficam em tabelas
+próprias, com deduplicação pela chave de acesso; nenhuma movimentação financeira
+é criada ou alterada durante a importação. Nos detalhes da compra, a conciliação
+oferece movimentações de saída de valor e data próximos (até 7 dias antes ou
+depois da emissão); pagamentos parciais podem ser combinados para fechar o total.
+A pessoa revisa e confirma os vínculos; então a categoria escolhida é aplicada
+à compra e a todos os seus itens, sem alterar as movimentações. É possível
+desfazer a conciliação para restaurar as categorias anteriores. Uma compra pode
+ser liquidada por várias movimentações e carteiras;
+cada parcela é revisada e o total precisa fechar exatamente antes da confirmação.
+Uma movimentação só pode aparecer em uma liquidação ativa. A categoria aplicada
+é escolhida explicitamente e as movimentações originais não são modificadas.
+O desfazer marca os vínculos como revertidos, restaura as categorias anteriores
+e preserva ajustes de saldo auditáveis.
+
+Contas e meios de pagamento têm classificação explícita: crédito, débito,
+carteira ou não classificada. A migração inicial classifica nomes existentes
+com prefixo `CC` como crédito e `CD` como débito; esse prefixo não define contas
+criadas posteriormente. Crédito pode ficar negativo. Débito e carteiras precisam
+manter saldo cronológico não negativo. Carteiras podem receber créditos iniciais,
+cashback ou bônus como ajustes auditáveis com vigência retroativa, sem criar
+movimentações financeiras fictícias. Se o saldo faltar durante a conciliação,
+o Finance mostra a insuficiência e exige confirmação do ajuste; o ajuste e os
+vínculos são gravados atomicamente. Importar a nota continua independente de
+saldo e não cria ou altera movimentações.
+
+No portal do RJ, redirecionamentos HTTP do host oficial para o próprio host são
+atualizados para HTTPS antes da navegação; destinos externos ou outros hosts não
+são aceitos.
+
+Além da nota única, a mesma tela importa várias NFC-e por arquivo **CSV** ou
+**TXT**: uma URL de QR Code por linha ou numa coluna escolhida, com detecção de
+cabeçalho e arquivos sem cabeçalho. A prévia mostra, por linha, situação,
+fornecedor, identificação da nota, itens e total; linhas vazias, URLs inválidas,
+notas repetidas no próprio arquivo e notas já existentes aparecem identificadas
+e nunca são descartadas em silêncio. Só as linhas confirmadas são importadas,
+cada nota é persistida de forma atômica e deduplicada pela chave de acesso, e
+notas já existentes não são reconsultadas no portal. Uma falha em uma nota não
+impede as demais. Cada linha física do arquivo é uma linha do lote; células com
+quebra de linha entre aspas não são suportadas. Limites do lote: 1 MB, 200
+linhas, 50 consultas por lote e 2048 caracteres por linha — arquivos maiores
+devem ser divididos em partes.
+
+Também é possível colar o texto copiado de uma ou várias páginas da NFC-e ou
+carregar um arquivo TXT. Separe cada nota com uma linha contendo três ou mais
+hífens. A prévia valida fornecedor, chave de acesso, identificação, itens e
+totais; blocos incompletos ou incompatíveis ficam destacados para conferência.
+Esse fluxo não abre navegador nem consulta a SEFAZ, não salva o texto bruto e
+não importa CPF ou dados de pagamento do consumidor. Limite: 1 MB e até 50
+notas por envio. A importação HTML salvo será adicionada em uma etapa posterior.
+
+Se um portal informar bloqueio de acesso, a consulta individual mostra uma
+mensagem específica e o lote é interrompido na primeira ocorrência. As linhas
+restantes são marcadas como não consultadas; o Finance não tenta novamente nem
+contorna o bloqueio. Após o aviso explícito de bloqueio por reputação da
+SEFAZ-RJ, consultas RJ ficam pausadas localmente por 72 horas; novas prévias e
+importações são recusadas nesse período, e SP/TO continuam independentes.
+
+Para proteger os portais, o Finance inicia no máximo 10 consultas por estado em
+qualquer janela móvel de 24 horas e exige pelo menos 30 segundos entre consultas
+ao mesmo estado. Tentativas são contabilizadas antes de abrir o navegador,
+inclusive quando o portal falha. Ao atingir um limite num lote, as linhas
+restantes são marcadas como não consultadas. O estado mínimo desses controles
+(UF, horários de tentativa e prazo da pausa RJ) é salvo atomicamente em
+`server/data/nfce-query-guard.json`, com permissões locais restritas; se não for
+possível ler ou gravar esse arquivo, novas consultas são bloqueadas.
+
+O backend usa Playwright para abrir uma janela normal do Google Chrome ou
+Chromium instalado no computador. A consulta tem limite de tempo, tamanho e
+requisições, valida os endereços DNS públicos e fixa o endereço resolvido durante
+a navegação. No RJ são permitidos os hosts e o script já usados pelo adaptador
+estadual. Em SP, somente `www.nfce.fazenda.sp.gov.br` é permitido e o documento
+pode redirecionar de `/qrcode` para `/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx`
+no mesmo host. Outros hosts, protocolos, caminhos de navegação e destinos de
+redirecionamento são bloqueados. Não há uso de stealth, proxy, rotação de IP ou
+resolução de CAPTCHA. O navegador fecha após obter a prévia.
+
+São armazenados fornecedor, CNPJ do fornecedor, identificação/data da NFC-e,
+chave de acesso, total a pagar, desconto geral da nota quando informado, forma
+de pagamento quando disponível e os itens. A soma dos itens é conferida com o
+valor total bruto; o desconto geral é conferido contra o valor líquido a pagar. CPF do
+consumidor, dados de cartão, autorização, URL completa do QR Code e HTML bruto
+nunca são armazenados. Os adaptadores RJ e SP mantêm a extração dos portais
+separada do modelo interno; o adaptador SP aceita QR Code online v2 e confere a
+UF, modelo e dígito verificador da chave. Se os campos obrigatórios não forem
+encontrados ou os itens, desconto e total a pagar não fecharem, a importação é
+recusada para revisão, sem salvar parcialmente. Campos opcionais ausentes, como
+forma de pagamento ou desconto por item, permanecem sem valor.
+
+**Limitação conhecida:** os parsers dependem dos layouts atuais dos portais de
+RJ e SP. O parser valida os dados normalizados e recusa a importação quando a
+relação entre itens, desconto e total a pagar não confere. MG permanece fora do
+suporte desta etapa.
+
 ## Importação
 
 Formatos aceitos: `.csv`, `.txt`, `.xls`, `.xlsx` e `.xlsm` (primeira planilha do arquivo, até 20.000 linhas e 25 MB).
 
-1. Arraste o arquivo ou selecione em **Importações**.
+1. Em **Importações**, escolha **Importar movimentações** e arraste o arquivo ou clique para selecionar.
 2. Confira o mapeamento das colunas. Obrigatórias: **Compra** (ou **Lançamento**) e **Valor**. **Data Compra** e **Vencimento** são opcionais, mas a linha precisa de pelo menos uma data válida.
 3. Se alguma linha ficar sem conta/pagamento (arquivo sem a coluna ou célula vazia), escolha a **conta de destino do lote** antes de confirmar.
 4. Revise a prévia. Linhas com erro podem ser corrigidas ou rejeitadas individualmente.
@@ -292,9 +395,9 @@ Antes de criar uma categoria, o importador procura uma existente em camadas: cor
 - Categorias e formas de pagamento inexistentes são criadas automaticamente, preservando o nome original de exibição e ignorando diferenças de caixa, acentos e espaços redundantes.
 - A duplicidade é detectada por uma impressão digital dos campos do lançamento, incluindo a conta de destino e a categoria resolvida. Assim, reimportar o mesmo arquivo com as mesmas decisões é idempotente. Por padrão, duplicidades são ignoradas; desmarque a opção para importá-las mesmo assim.
 - A importação inteira roda em uma transação do SQLite. O arquivo original não é armazenado nem alterado.
-- Cada importação gera um registro no histórico com total, importados e rejeitados.
+- Cada importação de movimentações gera um registro com total, importados e rejeitados. O histórico central de **Importações** combina esses lotes com cada compra importada, identificando tipo, data, quantidade processada e resultado. Não há tabela nova de histórico de compras: cada compra persistida já é o próprio registro da importação.
 
-Também é possível criar lançamentos manualmente em **Lançamentos**.
+Também é possível criar lançamentos manualmente em **Movimentações**.
 
 ## Transferências entre contas
 

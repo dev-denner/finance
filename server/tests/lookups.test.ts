@@ -9,7 +9,7 @@ import {
   renameLookup,
 } from '../src/services/lookups';
 import { persistCategoryAlias } from '../src/services/category-matching';
-import { categoryImportAliases } from '../src/db/schema';
+import { categoryImportAliases, purchaseItems, purchases } from '../src/db/schema';
 import { seedTransaction } from './helpers';
 import { createTestDatabase } from './helpers';
 
@@ -28,6 +28,18 @@ describe('normalização e cadastros auxiliares', () => {
     expect(first.id).toBe(second.id);
     expect(second.name).toBe('Alimentação Saudável');
     handle.sqlite.close();
+  });
+
+  it('permite classificar explicitamente contas novas sem inferir pelo prefixo', () => {
+    const handle = createTestDatabase();
+    try {
+      const account = createLookup(handle.db, 'payment', 'CC nova carteira', null, null, 'wallet');
+      const renamed = renameLookup(handle.db, 'payment', account.id, 'Conta atualizada', null, null, 'debit');
+      const imported = ensureLookup(handle.db, 'payment', 'CD conta via importação');
+      expect(account.balanceType).toBe('wallet');
+      expect(renamed.balanceType).toBe('debit');
+      expect(imported.balanceType).toBe('unclassified');
+    } finally { handle.sqlite.close(); }
   });
 
   it('impede duplicidade normalizada na criação e renomeação', () => {
@@ -64,6 +76,25 @@ describe('normalização e cadastros auxiliares', () => {
       );
       expect(category?.usageCount).toBe(1);
       expect(() => deleteLookup(handle.db, 'category', category!.id)).toThrow(/em uso/i);
+    });
+
+    it('conta e reatribui categorias usadas em compras e itens', () => {
+      const original = createLookup(handle.db, 'category', 'Mercado');
+      const destination = createLookup(handle.db, 'category', 'Eletrônicos');
+      const purchase = handle.db.insert(purchases).values({
+        accessKey: '1'.repeat(44), supplierName: 'Loja de teste', supplierCnpj: '12345678000195',
+        invoiceNumber: '10', series: '1', issuedAt: '2026-01-01T10:00:00Z', totalCents: 2000,
+        invoiceDiscountCents: 0, paymentMethod: null, categoryId: original.id,
+      }).returning({ id: purchases.id }).get();
+      handle.db.insert(purchaseItems).values({
+        purchaseId: purchase.id, position: 1, description: 'Item sintético', quantity: '1', unit: 'UN',
+        unitPriceCents: 2000, discountCents: null, totalCents: 2000, categoryId: original.id,
+      }).run();
+
+      expect(listLookups(handle.db, 'category').find((entry) => entry.id === original.id)?.usageCount).toBe(2);
+      expect(deleteLookup(handle.db, 'category', original.id, destination.id)).toEqual({ reassigned: 2 });
+      expect(handle.db.select({ categoryId: purchases.categoryId }).from(purchases).get()?.categoryId).toBe(destination.id);
+      expect(handle.db.select({ categoryId: purchaseItems.categoryId }).from(purchaseItems).get()?.categoryId).toBe(destination.id);
     });
 
     it('exclui categoria sem uso sem tentar reatribuir alias', () => {

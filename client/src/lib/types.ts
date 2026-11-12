@@ -11,8 +11,195 @@ export interface Lookup {
   normalizedName: string;
   color: string | null;
   classification: CategoryClassification | null;
+  balanceType?: 'credit' | 'debit' | 'wallet' | 'unclassified';
+  balanceCents?: number;
   usageCount: number;
   createdAt: string;
+}
+
+export interface PaymentBalanceHistory {
+  account: { id: number; name: string; balanceType: 'credit' | 'debit' | 'wallet' | 'unclassified' };
+  balance: { balanceType: string; balanceCents: number; minimumBalanceCents: number; minimumBalanceDate: string | null };
+  events: Array<{ id: number; effectiveDate: string; amountCents: number; reason: string; description: string; kind: string; reversedAt: string | null }>;
+}
+
+export interface PurchaseItem {
+  id?: number;
+  categoryId?: number | null;
+  categoryName?: string | null;
+  categoryColor?: string | null;
+  position?: number;
+  description: string;
+  quantity: string;
+  unit: string;
+  unitPriceCents: number;
+  discountCents: number | null;
+  totalCents: number;
+}
+
+export interface Purchase {
+  id?: number;
+  accessKey?: string;
+  supplierName: string;
+  supplierCnpj: string;
+  invoiceNumber: string;
+  series: string;
+  issuedAt: string;
+  totalCents: number;
+  invoiceDiscountCents: number;
+  paymentMethod: string | null;
+  importedAt?: string;
+  categoryId?: number | null;
+  categoryName?: string | null;
+  categoryColor?: string | null;
+  itemCount?: number;
+  transactionId?: number | null;
+  reconciledAt?: string | null;
+  items?: PurchaseItem[];
+}
+
+
+export interface PurchaseReconciliationCandidate {
+  transactionId: number;
+  purchaseDate: string;
+  dueDate: string;
+  description: string;
+  amountCents: number;
+  paymentMethodName: string;
+  paymentMethodId?: number;
+  balanceType?: 'credit' | 'debit' | 'wallet' | 'unclassified';
+  balanceShortfallCents?: number;
+  balanceShortfallDate?: string | null;
+  categoryId: number;
+  categoryName: string;
+  categoryColor: string | null;
+  dayDistance: number;
+}
+
+export interface PurchaseReconciliationCandidates {
+  toleranceDays: number;
+  linkedMovement: Omit<PurchaseReconciliationCandidate, 'dayDistance'> | null;
+  candidates: PurchaseReconciliationCandidate[];
+  settlements: Array<{ id: number; transactionId: number | null; paymentMethodId: number; paymentMethodName: string; amountCents: number; settlementType: 'movement' | 'wallet'; effectiveDate: string }>;
+  wallets: Array<{ id: number; name: string; balanceType: 'wallet'; balanceCents: number; minimumBalanceCents: number; minimumBalanceDate: string | null }>;
+  totalCents: number;
+  settledCents: number;
+  linkedTransactionIds: number[];
+}
+
+export interface PurchaseReconciliationInput {
+  transactionIds: number[];
+  walletPayments: Array<{ paymentMethodId: number; amountCents: number; adjustment?: { amountCents: number; effectiveDate: string; reason: 'opening_balance' | 'cashback' | 'bonus' | 'other'; description: string } }>;
+  balanceAdjustments?: Array<{ paymentMethodId: number; amountCents: number; effectiveDate: string; reason: 'opening_balance' | 'cashback' | 'bonus' | 'other'; description: string }>;
+  categoryId: number | null;
+}
+
+export type NfceBatchRowStatus =
+  | 'valid'
+  | 'invalid'
+  | 'blank'
+  | 'duplicate-file'
+  | 'already-imported'
+  | 'error'
+  | 'not-queried';
+
+export interface NfceBatchLimits {
+  fileBytes: number;
+  lines: number;
+  queries: number;
+  lineChars: number;
+}
+
+export interface NfceBatchColumnInfo {
+  index: number;
+  label: string;
+  validCount: number;
+  totalCount: number;
+}
+
+export interface NfceBatchInspection {
+  headers: string[] | null;
+  columns: NfceBatchColumnInfo[];
+  suggestedColumn: number | null;
+  dataLines: number;
+  blankLines: number;
+  tooLongLines: number;
+  limits: NfceBatchLimits;
+}
+
+export interface NfceBatchRow {
+  line: number;
+  state: 'RJ' | 'SP' | 'TO' | null;
+  status: NfceBatchRowStatus;
+  message: string | null;
+  supplierName: string | null;
+  supplierCnpj: string | null;
+  invoiceNumber: string | null;
+  series: string | null;
+  issuedAt: string | null;
+  totalCents: number | null;
+  invoiceDiscountCents: number | null;
+  itemCount: number | null;
+}
+
+export interface NfceBatchSummary {
+  total: number;
+  valid: number;
+  invalid: number;
+  blank: number;
+  duplicateFile: number;
+  alreadyImported: number;
+  error: number;
+  notQueried: number;
+}
+
+export interface NfceBatchPreview {
+  inspection: NfceBatchInspection;
+  rows: NfceBatchRow[];
+  summary: NfceBatchSummary;
+}
+
+export type NfceBatchImportStatus = 'imported' | 'duplicate' | 'error' | 'not-queried';
+
+export interface NfceBatchImportRow {
+  line: number;
+  status: NfceBatchImportStatus;
+  message: string | null;
+  purchaseId: number | null;
+}
+
+export interface NfceBatchImportSummary {
+  total: number;
+  imported: number;
+  duplicate: number;
+  error: number;
+  notQueried: number;
+}
+
+export interface NfceBatchImportResult {
+  rows: NfceBatchImportRow[];
+  summary: NfceBatchImportSummary;
+}
+
+export type CopiedNfceRowStatus = 'ready' | 'invalid' | 'duplicate-file' | 'already-imported';
+
+export interface CopiedNfcePreviewRow {
+  block: number;
+  state: string | null;
+  status: CopiedNfceRowStatus;
+  message: string | null;
+  purchase: Omit<Purchase, 'accessKey'> | null;
+  purchaseId: number | null;
+}
+
+export interface CopiedNfcePreview {
+  rows: CopiedNfcePreviewRow[];
+  summary: { total: number; ready: number; invalid: number; duplicateFile: number; alreadyImported: number };
+}
+
+export interface CopiedNfceImportResult {
+  rows: { block: number; status: 'imported' | 'duplicate' | 'error'; message: string | null; purchaseId: number | null }[];
+  summary: { total: number; imported: number; duplicate: number; error: number };
 }
 
 export interface Meta {

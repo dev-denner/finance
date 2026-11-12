@@ -11,6 +11,7 @@ import { registerConsolidationRoutes } from './routes/consolidation';
 import { registerImportRoutes } from './routes/imports';
 import { registerInstallmentRoutes } from './routes/installments';
 import { registerMetaRoutes } from './routes/meta';
+import { registerPurchaseRoutes } from './routes/purchases';
 import { registerReconciliationRoutes } from './routes/reconciliation';
 import { registerLookupRoutes, registerTransactionRoutes } from './routes/transactions';
 
@@ -35,6 +36,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   registerMetaRoutes(app, options.db);
+  registerPurchaseRoutes(app, options.db);
   registerTransactionRoutes(app, options.db);
   registerLookupRoutes(app, options.db);
   registerBillRoutes(app, options.db);
