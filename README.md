@@ -168,6 +168,34 @@ $env:BILL_REMINDER_SMTP_PASSWORD = "segredo"
 npm.cmd start
 ```
 
+## Contas a pagar
+
+O módulo é uma **agenda de pagamentos**: registra o que vence, o que foi agendado no banco e o que foi pago. Ligar um pagamento a um lançamento é opcional.
+
+- **Conta avulsa** vale para uma data. **Recorrência** (`bill_templates`) gera ocorrências mensais, semanais ou anuais a partir de uma data inicial, terminando por data, por quantidade ("repetir 6 vezes") ou no que acabar primeiro. Sem término, as ocorrências são materializadas até 12 meses à frente e o horizonte avança sozinho.
+- O estado gravado é só **aberta**, **paga** ou **pulada**. **Atrasada**, **vence hoje**, **agendada** e **futura** são calculados na leitura a partir das datas.
+- **Pagar** tem três modos: só marcar como paga; criar o lançamento de saída; ou vincular um lançamento já existente (ex.: importado do extrato). As regras do vínculo estão em **Regras de negócio**.
+- **Excluir** uma ocorrência de recorrência a marca como pulada, para que a série não a recrie. Conta avulsa é excluída de fato. Conta com pagamento vinculado não pode ser excluída.
+- **Alterar uma recorrência** "em todas" muda descrição, valor, categoria e conta das ocorrências abertas sem pagamento; mudar a frequência ou o dia exige "desta data em diante", que encerra a regra atual na véspera e inicia uma nova.
+
+API (JSON; datas `AAAA-MM-DD`; valores em centavos):
+
+| Método e rota | Efeito |
+|---|---|
+| `GET /api/bills?year=&month=&state=&q=&categoryId=` | Contas do mês com resumo (`openCents`, `paidCents`, `overdueCents`, `statusCounts`) |
+| `GET /api/bills/agenda?days=7` | Atrasadas, vencendo hoje e próximos dias, só em aberto |
+| `GET /api/bills/forecast?months=3` | Resumo por mês a partir do mês corrente |
+| `GET/POST /api/bills`, `PUT/DELETE /api/bills/:id` | Conta avulsa |
+| `POST /api/bills/:id/pay` | `{ mode: 'external', paidAt, paidCents }`, `{ mode: 'transaction', paidAt, paidCents, paymentMethodId }` ou `{ mode: 'link', transactionId }` |
+| `POST /api/bills/:id/unpay` · `/skip` · `/unskip` | Desfazer pagamento, pular, voltar a abrir |
+| `POST /api/bills/:id/schedule` | `{ scheduledFor }` registra (ou limpa, com `null`) o agendamento no banco |
+| `GET/POST /api/bill-templates`, `GET/PUT/DELETE /api/bill-templates/:id` | Recorrências; `PUT ?scope=future&from=AAAA-MM-DD` divide a série |
+| `POST /api/bill-templates/preview` | Próximas datas que a regra geraria, sem gravar |
+
+As rotas `POST /api/bills/:id/status` e `/repeat` continuam disponíveis para a tela atual e serão removidas com a tela nova.
+
+Na migração `0015`, contas com situação `PG` viraram pagas na data de vencimento, sem lançamento vinculado (`migratedPayment`); `AG` virou agendada para o vencimento.
+
 ## Lembretes por e-mail
 
 Contas a pagar com situação **pendente** (ainda não agendadas) recebem um

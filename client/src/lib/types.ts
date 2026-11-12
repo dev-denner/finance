@@ -591,14 +591,46 @@ export interface ImportBatch {
   templateName: string | null;
 }
 
+export type BillState = 'open' | 'paid' | 'skipped';
+
+/** Derivado no servidor a partir do estado e das datas. */
+export type BillDisplayStatus = 'overdue' | 'due_today' | 'scheduled' | 'upcoming' | 'paid' | 'skipped';
+
+export interface BillPayment {
+  id: number;
+  transactionId: number;
+  amountCents: number;
+  paidAt: string;
+  origin: 'manual' | 'import_match' | 'migration';
+  /** true quando o lançamento foi criado pelo próprio pagamento (desfazer apaga). */
+  createdTransaction: boolean;
+  paymentMethodName: string | null;
+  transactionDescription: string;
+}
+
 export interface Bill {
   id: number;
+  templateId: number | null;
+  /** Posição na recorrência ("3 de 6"); nulo para conta avulsa. */
+  sequence: number | null;
   description: string;
   amountCents: number;
   dueDate: string;
+  state: BillState;
+  displayStatus: BillDisplayStatus;
+  /** @deprecated situação legada; sai com a tela nova. */
   status: '' | 'AG' | 'PG';
+  scheduledFor: string | null;
+  paidAt: string | null;
+  paidCents: number | null;
+  migratedPayment: boolean;
   categoryId: number;
   categoryName: string;
+  paymentMethodId: number | null;
+  paymentMethodName: string | null;
+  notes: string | null;
+  payments: BillPayment[];
+  /** @deprecated repetição manual legada. */
   repeatedFromId: number | null;
   createdAt: string;
   updatedAt: string;
@@ -606,9 +638,94 @@ export interface Bill {
 
 export interface BillSummary {
   totalCents: number;
-  unpaidCents: number;
+  openCents: number;
   paidCents: number;
+  overdueCents: number;
+  statusCounts: Record<BillDisplayStatus, number>;
+  /** @deprecated = openCents. */
+  unpaidCents: number;
+  /** @deprecated contagem por situação legada. */
   counts: { '': number; AG: number; PG: number };
+}
+
+export interface BillAgenda {
+  today: string;
+  days: number;
+  overdue: Bill[];
+  dueToday: Bill[];
+  upcoming: Bill[];
+  summary: BillSummary;
+}
+
+export interface BillForecast {
+  today: string;
+  months: { year: number; month: number; from: string; to: string; summary: BillSummary }[];
+}
+
+export type BillFrequency = 'monthly' | 'weekly' | 'yearly';
+
+export interface BillRecurrence {
+  frequency: BillFrequency;
+  interval: number;
+  dayOfMonth: number | null;
+  weekday: number | null;
+  monthOfYear: number | null;
+}
+
+export interface BillTemplate {
+  id: number;
+  description: string;
+  amountCents: number;
+  amountMinCents: number | null;
+  amountMaxCents: number | null;
+  categoryId: number;
+  categoryName: string;
+  paymentMethodId: number | null;
+  recurrence: BillRecurrence;
+  recurrenceLabel: string;
+  startDate: string;
+  endDate: string | null;
+  occurrenceCount: number | null;
+  active: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BillTemplateInput {
+  description: string;
+  amountCents: number;
+  amountMinCents?: number | null;
+  amountMaxCents?: number | null;
+  categoryId: number;
+  paymentMethodId?: number | null;
+  recurrence: {
+    frequency: BillFrequency;
+    interval?: number;
+    dayOfMonth?: number | null;
+    weekday?: number | null;
+    monthOfYear?: number | null;
+  };
+  startDate: string;
+  endDate?: string | null;
+  occurrenceCount?: number | null;
+  active?: boolean;
+  notes?: string | null;
+}
+
+export type BillTemplateUpdate = Partial<Omit<BillTemplateInput, 'recurrence'>> & {
+  recurrence?: Partial<BillTemplateInput['recurrence']>;
+};
+
+export type PayBillInput =
+  | { mode: 'external'; paidAt: string; paidCents: number; notes?: string | null }
+  | { mode: 'transaction'; paidAt: string; paidCents: number; paymentMethodId: number; notes?: string | null }
+  | { mode: 'link'; transactionId: number; notes?: string | null };
+
+export interface BillListFilters {
+  state?: 'all' | BillState;
+  q?: string;
+  categoryId?: number;
 }
 
 export interface BillListResponse {

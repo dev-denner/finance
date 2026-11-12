@@ -353,3 +353,12 @@ Casos obrigatórios de borda: dia 31 em fevereiro; `interval=2`; `endDate` antes
 - `TransactionDto.billPayment` (`{ billId, description, dueDate }`) na leitura individual e na listagem; tipo opcional no client.
 - Testes: `tests/bills-payments.test.ts` (17). Mutação manual confirmou que os testes de AC7 falham sem os guards.
 - Baseline após o PR2: 426 testes (400 server + 26 client).
+
+### PR3 (2026-11-11) — concluído em `feat/bills-api` (empilhada sobre `feat/bills-payments`)
+
+- Rotas com Zod (`parseWith`) para ocorrências (`GET /api/bills`, `/:id`, `/agenda`, `/forecast`; `POST/PUT/DELETE`; `/pay`, `/unpay`, `/skip`, `/unskip`, `/schedule`) e recorrências (`/api/bill-templates` CRUD + `/preview`). `payBillSchema` é união discriminada por `mode`; o modo `link` pela API não aceita `origin` (reservado à importação).
+- **Desvio deliberado do plano:** `/:id/status` e `/:id/repeat` **não** foram removidas, só marcadas deprecated. A tela atual depende delas; a remoção sai junto com a tela nova no PR4 (mitigação do risco R3).
+- `getForecast` (resumo por mês) implementado em `services/bills/queries.ts`, que o PR1 não tinha.
+- `routes/multipart.ts` (`readMultipartForm`, `parseJsonField`) substitui os dois leitores duplicados; contas e importação de movimentações usam o mesmo. Sem `any`.
+- Cliente: tipos `Bill` (com campos novos e legados), `BillAgenda`, `BillForecast`, `BillTemplate`, `PayBillInput` e métodos de API correspondentes; a tela atual compila sem mudança.
+- Testes: `tests/bills-routes.test.ts` (12, via `app.inject`, datas relativas ao dia real). Baseline sobre o Módulo 3: 547 (494 server + 53 client).

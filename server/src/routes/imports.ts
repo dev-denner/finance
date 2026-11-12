@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AppDatabase } from '../db/client';
 import { badRequest } from '../lib/errors';
+import { readMultipartForm } from './multipart';
 import {
   FIELD_LABELS,
   IMPORT_FIELDS,
@@ -226,19 +227,14 @@ function sanitizeTransferDecisions(input: unknown): Record<string, TransferDecis
 }
 
 async function readMultipart(request: FastifyRequest): Promise<MultipartData> {
-  const data: MultipartData = { buffer: null, filename: null };
+  const form = await readMultipartForm(request);
+  const data: MultipartData = {
+    buffer: form.file?.buffer ?? null,
+    filename: form.file?.filename ?? null,
+  };
 
-  for await (const part of request.parts()) {
-    if (part.type === 'file') {
-      if (part.fieldname !== 'file') continue;
-      const buffer = await part.toBuffer();
-      data.buffer = buffer;
-      data.filename = part.filename || 'importacao';
-      continue;
-    }
-
-    const value = String(part.value ?? '');
-    switch (part.fieldname) {
+  for (const [fieldname, value] of form.fields) {
+    switch (fieldname) {
       case 'mapping':
         if (value) data.mapping = parseJson(value, 'Mapeamento');
         break;

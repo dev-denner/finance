@@ -130,3 +130,136 @@ export const consolidationSchema = z.object({
   dateField: z.enum(['due', 'purchase']).default('due'),
   kind: z.enum(['expenses', 'income', 'transfers']).default('expenses'),
 });
+
+// ---------------------------------------------------------------------------
+// Módulo 1 — contas a pagar
+// ---------------------------------------------------------------------------
+
+const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a data no formato AAAA-MM-DD.');
+const positiveCentsSchema = z.number().int().positive().max(1_000_000_000_00);
+const amountTextSchema = z.union([z.string().max(40), z.number()]);
+const notesSchema = z.string().max(1000).nullable().optional();
+
+export const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
+
+const recurrenceShape = {
+  frequency: z.enum(['monthly', 'weekly', 'yearly']),
+  interval: z.number().int().min(1).max(120).optional(),
+  dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
+  weekday: z.number().int().min(0).max(6).nullable().optional(),
+  monthOfYear: z.number().int().min(1).max(12).nullable().optional(),
+};
+
+export const billRecurrenceSchema = z.object(recurrenceShape).strict();
+
+const hasAmount = (value: { amountCents?: unknown; amount?: unknown }) =>
+  value.amountCents !== undefined || value.amount !== undefined;
+
+const billFields = {
+  description: z.string().trim().min(1).max(200),
+  amountCents: positiveCentsSchema.optional(),
+  amount: amountTextSchema.optional(),
+  dueDate: isoDateSchema,
+  categoryId: z.number().int().positive(),
+  paymentMethodId: z.number().int().positive().nullable().optional(),
+  notes: notesSchema,
+  scheduledFor: isoDateSchema.nullable().optional(),
+  /** @deprecated situação legada usada pela tela atual. */
+  status: z.enum(['', 'AG', 'PG']).optional(),
+};
+
+export const billCreateSchema = z
+  .object(billFields)
+  .strict()
+  .refine(hasAmount, { message: 'Informe o valor da conta.', path: ['amountCents'] });
+
+export const billUpdateSchema = z.object(billFields).partial().strict();
+
+export const billListQuerySchema = z.object({
+  year: optionalYear,
+  month: optionalMonth,
+  state: z.enum(['all', 'open', 'paid', 'skipped']).default('all'),
+  q: z.string().max(200).optional(),
+  categoryId: optionalPositiveInt,
+});
+
+export const billAgendaQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(60).default(7),
+});
+
+export const billForecastQuerySchema = z.object({
+  months: z.coerce.number().int().min(1).max(12).default(3),
+});
+
+export const payBillSchema = z.discriminatedUnion('mode', [
+  z
+    .object({
+      mode: z.literal('external'),
+      paidAt: isoDateSchema,
+      paidCents: positiveCentsSchema,
+      notes: notesSchema,
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal('transaction'),
+      paidAt: isoDateSchema,
+      paidCents: positiveCentsSchema,
+      paymentMethodId: z.number().int().positive(),
+      notes: notesSchema,
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal('link'),
+      transactionId: z.number().int().positive(),
+      notes: notesSchema,
+    })
+    .strict(),
+]);
+
+export const scheduleBillSchema = z
+  .object({ scheduledFor: isoDateSchema.nullable() })
+  .strict();
+
+const templateFields = {
+  description: z.string().trim().min(1).max(200),
+  amountCents: positiveCentsSchema.optional(),
+  amount: amountTextSchema.optional(),
+  amountMinCents: positiveCentsSchema.nullable().optional(),
+  amountMaxCents: positiveCentsSchema.nullable().optional(),
+  categoryId: z.number().int().positive(),
+  paymentMethodId: z.number().int().positive().nullable().optional(),
+  recurrence: billRecurrenceSchema,
+  startDate: isoDateSchema,
+  endDate: isoDateSchema.nullable().optional(),
+  occurrenceCount: z.number().int().min(1).max(600).nullable().optional(),
+  active: z.boolean().optional(),
+  notes: notesSchema,
+};
+
+export const billTemplateCreateSchema = z
+  .object(templateFields)
+  .strict()
+  .refine(hasAmount, { message: 'Informe o valor previsto.', path: ['amountCents'] });
+
+export const billTemplateUpdateSchema = z
+  .object({
+    ...templateFields,
+    recurrence: z.object(recurrenceShape).partial().strict(),
+  })
+  .partial()
+  .strict();
+
+export const billTemplateUpdateQuerySchema = z.object({
+  scope: z.enum(['all', 'future']).default('all'),
+  from: isoDateSchema.optional(),
+});
+
+export const billTemplateListQuerySchema = z.object({
+  includeInactive: z
+    .preprocess((value) => value === true || value === 'true' || value === '1', z.boolean())
+    .default(false),
+});
