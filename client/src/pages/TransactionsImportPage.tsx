@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Ban,
+  CalendarClock,
   Bookmark,
   Check,
   CheckCircle2,
@@ -40,11 +41,14 @@ import { useMeta } from '../context/MetaContext';
 import { useToast } from '../context/ToastContext';
 import { api, errorMessage } from '../lib/api';
 import {
+  applyBillDecision,
+  billDecisionsForImport,
   buildCategoryDecisions,
   buildImportIdentity,
   canAutoAcceptSuggestion,
   isMappingIdentityCompatible,
   isReviewableCategoryGroup,
+  mergeBillDecisions,
   previewIdentityKey,
   resolveIncludedDuplicateRows,
 } from '../lib/import-decisions';
@@ -57,6 +61,8 @@ import {
   isoToParts,
 } from '../lib/format';
 import type {
+  BillDecision,
+  BillPaymentCandidate,
   CategoryDecisionsPayload,
   CategorySuggestionGroup,
   ColumnMapping,
@@ -92,7 +98,7 @@ const FIELD_CONFIG: {
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
-type FilterTab = 'all' | 'valid' | 'duplicates' | 'errors' | 'transfers';
+type FilterTab = 'all' | 'valid' | 'duplicates' | 'errors' | 'transfers' | 'bills';
 
 function rowStatus(
   row: PreviewRow,
@@ -195,6 +201,88 @@ function PartyMini({ party, tone }: { party: TransferParty; tone: 'out' | 'in' }
         {formatDateBR(party.dueDate)} · {party.paymentMethod} ·{' '}
         {party.source === 'database' ? `Lançamento #${party.transactionId}` : `Linha ${party.rowNumber}`}
       </p>
+    </div>
+  );
+}
+
+function BillCandidateRow({
+  candidate,
+  decision,
+  onDecision,
+}: {
+  candidate: BillPaymentCandidate;
+  decision: BillDecision;
+  onDecision: (decision: BillDecision) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-ink-200 p-3 dark:border-ink-800">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`badge ${
+              candidate.confidence === 'high'
+                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'
+            }`}
+          >
+            {candidate.confidence === 'high' ? 'Alta confiança' : 'Possível pagamento'}
+          </span>
+          {candidate.ambiguous && (
+            <span className="badge bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              Ambíguo
+            </span>
+          )}
+        </div>
+        <span className="text-[11px] text-ink-400">
+          {candidate.dayDistance === 0 ? 'Mesmo dia do vencimento' : `${candidate.dayDistance} dia(s) do vencimento`}
+        </span>
+      </div>
+
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <PartyMini party={candidate.party} tone="out" />
+        <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 dark:border-blue-900/50 dark:bg-blue-950/20">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+              Conta a pagar
+            </span>
+            <span className="num text-[12px] font-semibold text-ink-800 dark:text-ink-100">
+              {formatBRL(candidate.bill.amountCents)}
+            </span>
+          </div>
+          <p className="mt-0.5 truncate text-[12px] font-medium text-ink-700 dark:text-ink-200">
+            {candidate.bill.description}
+          </p>
+          <p className="mt-0.5 truncate text-[10px] text-ink-500 dark:text-ink-400">
+            Vence {formatDateBR(candidate.bill.dueDate)} · {candidate.bill.categoryName}
+          </p>
+        </div>
+      </div>
+
+      <ul className="mt-2 space-y-0.5">
+        {candidate.reasons.map((reason) => (
+          <li key={reason} className="text-[11px] text-ink-500 dark:text-ink-400">
+            • {reason}
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
+        {DECISION_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={decision === option.value}
+            onClick={() => onDecision(option.value)}
+            className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition ${
+              decision === option.value
+                ? option.active
+                : 'border-ink-200 text-ink-500 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-400 dark:hover:bg-ink-800/50'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1132,6 +1220,7 @@ export function TransactionsImportPage() {
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [correction, setCorrection] = useState<PreviewRow | null>(null);
   const [transferDecisions, setTransferDecisions] = useState<Record<string, TransferDecision>>({});
+  const [billDecisions, setBillDecisions] = useState<Record<string, BillDecision>>({});
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [duplicateIncludes, setDuplicateIncludes] = useState<Set<number>>(new Set());
   const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
@@ -1235,6 +1324,7 @@ export function TransactionsImportPage() {
           }
           return next;
         });
+        setBillDecisions((current) => mergeBillDecisions(response.billCandidates ?? [], current));
         setInlineDrafts((current) => (preserveDrafts ? current : {}));
         const rowNumbers = new Set(response.rows.map((row) => row.rowNumber));
         setRejected(
@@ -1312,6 +1402,7 @@ export function TransactionsImportPage() {
     setActiveTab('all');
     setSummary(null);
     setTransferDecisions({});
+    setBillDecisions({});
     setError(null);
     setCorrection(null);
     setLoadingPreview(false);
@@ -1347,6 +1438,7 @@ export function TransactionsImportPage() {
     setInlineDrafts({});
     setActiveTab('all');
     setTransferDecisions({});
+    setBillDecisions({});
     setError(null);
     setAppliedTemplateId(null);
     setDestinationPaymentMethodId(null);
@@ -1577,6 +1669,17 @@ export function TransactionsImportPage() {
     });
   };
 
+  const billCandidates = useMemo(() => {
+    if (!preview) return [];
+    return (preview.billCandidates ?? []).filter(
+      (candidate) => candidate.party.rowNumber === null || !effectiveRejected.has(candidate.party.rowNumber),
+    );
+  }, [preview, effectiveRejected]);
+
+  const setBillDecision = (candidate: BillPaymentCandidate, decision: BillDecision) => {
+    setBillDecisions((current) => applyBillDecision(billCandidates, current, candidate, decision));
+  };
+
   const acceptedRows = useMemo(() => {
     if (!preview) return [];
     return preview.rows.filter(
@@ -1602,8 +1705,9 @@ export function TransactionsImportPage() {
       duplicates: rows.filter((row) => row.errors.length === 0 && Boolean(row.duplicate)).length,
       errors: rows.filter((row) => row.errors.length > 0).length,
       transfers: transferCandidates.length,
+      bills: billCandidates.length,
     };
-  }, [preview, transferCandidates]);
+  }, [preview, transferCandidates, billCandidates]);
 
   const filteredRows = useMemo(() => {
     if (!preview) return [];
@@ -1926,6 +2030,7 @@ export function TransactionsImportPage() {
         includedDuplicateRows,
         toleranceDays: preview.transferToleranceDays,
         transferDecisions,
+        billDecisions: billDecisionsForImport(preview.billCandidates ?? [], billDecisions, effectiveRejected),
         templateId: appliedTemplateId ?? undefined,
         // A conta de destino é enviada sempre, igual à prévia: é parte da
         // identidade usada para calcular a duplicidade.
@@ -2506,6 +2611,13 @@ export function TransactionsImportPage() {
                       tone="violet"
                       onClick={() => setActiveTab('transfers')}
                     />
+                    <TabButton
+                      active={activeTab === 'bills'}
+                      label="Contas a pagar"
+                      count={counts.bills}
+                      tone="emerald"
+                      onClick={() => setActiveTab('bills')}
+                    />
                   </div>
                   <p className="ml-auto text-[10px] text-ink-400">
                     As decisões permanecem ao trocar de aba.
@@ -2824,6 +2936,45 @@ export function TransactionsImportPage() {
                 </div>
               )}
 
+              {activeTab === 'bills' && (
+                <div className="card overflow-hidden">
+                  <div className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-200 px-4 py-3 dark:border-ink-800">
+                    <div>
+                      <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-900 dark:text-white">
+                        <CalendarClock className="h-4 w-4 text-emerald-500" />
+                        Contas a pagar encontradas
+                      </h2>
+                      <p className="mt-0.5 text-[11px] text-ink-400">
+                        {billCandidates.length} saída(s) parecem pagar contas em aberto (valor igual ou dentro da faixa,
+                        até 5 dias do vencimento). Confirmar marca a conta como paga com este lançamento.
+                      </p>
+                    </div>
+                    <span className="text-[11px] text-ink-400">Pares de alta confiança já vêm confirmados.</span>
+                  </div>
+                  <div className="space-y-2.5 px-4 py-3.5">
+                    {billCandidates.length === 0 ? (
+                      <p className="py-6 text-center text-[12px] text-ink-400">
+                        Nenhuma saída do arquivo corresponde a uma conta a pagar em aberto.
+                      </p>
+                    ) : (
+                      <>
+                        {billCandidates.slice(0, 50).map((candidate) => (
+                          <BillCandidateRow
+                            key={candidate.key}
+                            candidate={candidate}
+                            decision={billDecisions[candidate.key] ?? 'pending'}
+                            onDecision={(decision) => setBillDecision(candidate, decision)}
+                          />
+                        ))}
+                        {billCandidates.length > 50 && (
+                          <p className="text-[11px] text-ink-400">Mostrando 50 de {billCandidates.length} pares.</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'transfers' && (
                 <div className="card overflow-hidden">
                   <div className="flex flex-wrap items-start justify-between gap-2 border-b border-ink-200 px-4 py-3 dark:border-ink-800">
@@ -2944,6 +3095,29 @@ export function TransactionsImportPage() {
               </p>
             </div>
           </div>
+
+          {(summary.billCandidates ?? 0) > 0 && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+              <p className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-800 dark:text-emerald-200">
+                <CalendarClock className="h-3.5 w-3.5" />
+                Contas a pagar
+              </p>
+              <p className="mt-0.5 text-[12px] text-emerald-700/90 dark:text-emerald-300/90">
+                {summary.linkedBillPayments ?? 0} paga(s) com lançamento deste arquivo · {summary.pendingBillPayments ?? 0}{' '}
+                pendente(s) · {summary.rejectedBillPayments ?? 0} rejeitada(s)
+              </p>
+              {(summary.skippedBillPayments ?? []).length > 0 && (
+                <ul className="mt-1.5 space-y-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                  {(summary.skippedBillPayments ?? []).map((item) => (
+                    <li key={`${item.rowNumber}-${item.billDescription}-${item.reason}`}>
+                      Linha {item.rowNumber ?? '?'}
+                      {item.billDescription ? ` (${item.billDescription})` : ''}: {item.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {summary.transferCandidates > 0 && (
             <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2.5 dark:border-violet-900/50 dark:bg-violet-950/20">

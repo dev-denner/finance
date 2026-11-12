@@ -8,7 +8,12 @@ import {
   isReviewableCategoryGroup,
   previewIdentityKey,
   resolveIncludedDuplicateRows,
+  applyBillDecision,
+  billDecisionsForImport,
+  defaultBillDecisions,
+  mergeBillDecisions,
 } from './import-decisions';
+import type { BillPaymentCandidate } from './types';
 import type { CategorySuggestionGroup, ColumnMapping } from './types';
 
 function group(overrides: Partial<CategorySuggestionGroup> = {}): CategorySuggestionGroup {
@@ -266,5 +271,62 @@ describe('import-decisions - chave de identidade da prévia', () => {
       buildImportIdentity(groups, {}, 7),
     );
     expect(second).toBe(first);
+  });
+});
+
+describe('decisões de pagamento de contas na importação', () => {
+  const party = (rowNumber: number) => ({
+    key: `file:${rowNumber}`,
+    source: 'file' as const,
+    rowNumber,
+    transactionId: null,
+    dueDate: '2026-03-10',
+    purchaseDate: '2026-03-10',
+    description: 'PAG VIVO',
+    amountCents: -14287,
+    paymentMethod: 'Conta',
+    transfer: null,
+  });
+  const candidate = (rowNumber: number, billId: number, overrides: Partial<BillPaymentCandidate> = {}): BillPaymentCandidate => ({
+    key: `file:${rowNumber}:bill:${billId}`,
+    confidence: 'high',
+    ambiguous: false,
+    reasons: [],
+    dayDistance: 0,
+    amountDiffCents: 0,
+    party: party(rowNumber),
+    bill: { id: billId, description: `Conta ${billId}`, amountCents: 14287, dueDate: '2026-03-10', categoryName: 'Contas' },
+    ...overrides,
+  });
+
+  it('alta confiança sem disputa vem confirmada; o resto pendente', () => {
+    expect(
+      defaultBillDecisions([candidate(2, 1), candidate(3, 2, { confidence: 'possible' }), candidate(4, 3, { ambiguous: true })]),
+    ).toEqual({ 'file:2:bill:1': 'confirm', 'file:3:bill:2': 'pending', 'file:4:bill:3': 'pending' });
+  });
+
+  it('nova prévia preserva decisões de candidatos que continuam', () => {
+    const candidates = [candidate(2, 1), candidate(3, 2)];
+    expect(mergeBillDecisions(candidates, { 'file:2:bill:1': 'reject', 'file:9:bill:9': 'confirm' })).toEqual({
+      'file:2:bill:1': 'reject',
+      'file:3:bill:2': 'confirm',
+    });
+  });
+
+  it('confirmar um par devolve a pendente quem divide a linha ou a conta', () => {
+    const sameRow = [candidate(2, 1, { ambiguous: true }), candidate(2, 2, { ambiguous: true }), candidate(3, 1, { ambiguous: true })];
+    const start = { 'file:2:bill:1': 'confirm' as const, 'file:2:bill:2': 'pending' as const, 'file:3:bill:1': 'pending' as const };
+    const afterRow = applyBillDecision(sameRow, start, sameRow[1], 'confirm');
+    expect(afterRow).toEqual({ 'file:2:bill:1': 'pending', 'file:2:bill:2': 'confirm', 'file:3:bill:1': 'pending' });
+    const afterBill = applyBillDecision(sameRow, start, sameRow[2], 'confirm');
+    expect(afterBill['file:2:bill:1']).toBe('pending');
+    expect(applyBillDecision(sameRow, start, sameRow[0], 'reject')['file:2:bill:1']).toBe('reject');
+  });
+
+  it('não envia decisões de linhas rejeitadas na revisão', () => {
+    const candidates = [candidate(2, 1), candidate(3, 2)];
+    expect(billDecisionsForImport(candidates, { 'file:2:bill:1': 'confirm', 'file:3:bill:2': 'confirm' }, new Set([3]))).toEqual({
+      'file:2:bill:1': 'confirm',
+    });
   });
 });
