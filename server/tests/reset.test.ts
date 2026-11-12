@@ -76,6 +76,19 @@ function seedOperationalData(handle: DatabaseHandle): void {
   handle.sqlite.prepare("INSERT INTO purchase_items (purchase_id, position, description, quantity, unit, unit_price_cents, total_cents) VALUES (?, 0, 'Item sintético', '1', 'UN', 10000, 10000)").run(purchaseId);
   handle.sqlite.prepare("INSERT INTO purchase_settlements (purchase_id, transaction_id, payment_method_id, amount_cents, settlement_type, effective_date) VALUES (?, ?, ?, 10000, 'movement', '2026-01-05')").run(purchaseId, outgoing.id, paymentMethodId);
   handle.sqlite.prepare("INSERT INTO payment_balance_adjustments (payment_method_id, effective_date, amount_cents, reason, description, purchase_id) VALUES (?, '2026-01-05', 10000, 'opening_balance', 'Ajuste sintético', ?)").run(paymentMethodId, purchaseId);
+  const category = handle.sqlite
+    .prepare('SELECT id FROM categories ORDER BY id LIMIT 1')
+    .get() as { id: number };
+  const template = handle.sqlite
+    .prepare(
+      "INSERT INTO bill_templates (description, amount_cents, category_id, frequency, start_date) VALUES ('Aluguel', 150000, ?, 'monthly', '2026-01-10')",
+    )
+    .run(category.id);
+  handle.sqlite
+    .prepare(
+      "INSERT INTO scheduled_bills (description, amount_cents, due_date, state, category_id, template_id, sequence) VALUES ('Aluguel', 150000, '2026-01-10', 'open', ?, ?, 1)",
+    )
+    .run(category.id, Number(template.lastInsertRowid));
 }
 
 describe('procedimento de reset do banco', () => {
@@ -96,6 +109,8 @@ describe('procedimento de reset do banco', () => {
       expect(countRows(handle.sqlite, 'transfers')).toBe(0);
       expect(countRows(handle.sqlite, 'transfer_rejections')).toBe(0);
       expect(countRows(handle.sqlite, 'import_batches')).toBe(0);
+      expect(countRows(handle.sqlite, 'scheduled_bills')).toBe(0);
+      expect(countRows(handle.sqlite, 'bill_templates')).toBe(0);
       expect(countRows(handle.sqlite, 'categories')).toBeGreaterThan(0);
       expect(countRows(handle.sqlite, 'payment_methods')).toBeGreaterThan(0);
       expect(summary.deleted.find((entry) => entry.table === 'transactions')?.count).toBe(2);
@@ -126,6 +141,9 @@ describe('procedimento de reset do banco', () => {
         'transfers',
         'transfer_rejections',
         'import_batches',
+        'scheduled_bills',
+        'bill_templates',
+        'bill_payments',
         'categories',
         'payment_methods',
       ]) {

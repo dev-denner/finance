@@ -1,6 +1,8 @@
 # AGENTS.md — regras do repositório Finance
 
 > Lido por todos os agentes. Comandos reais do projeto; não inventar scripts.
+>
+> **Antes de começar, leia `docs/HANDOFF.md`**: estado das branches, decisões já tomadas com o usuário, o que falta e as armadilhas conhecidas (migrações, drizzle-kit, better-sqlite3).
 
 ## Stack
 
@@ -35,7 +37,7 @@
 
 1. `npm run build` sem erro (server + client)
 2. `npm test` verde (Vitest)
-3. nenhuma regressão vs baseline (362 testes: 336 no server + 26 no client)
+3. nenhuma regressão vs baseline (518 testes: 465 no server + 53 no client)
 4. sem `console.log`, `debugger`, `.only`, `.skip`
 5. nenhuma variável de ambiente nova sem entrada no README
 6. sem segredo, token ou PII em código, log ou teste
@@ -84,5 +86,6 @@ server/
     routes/     endpoints Fastify
     services/   regras de negócio
   tests/        Vitest
+docs/           análise, planos e referências visuais
 package.json    scripts do monorepo (npm workspaces)
 ```

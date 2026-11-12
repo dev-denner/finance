@@ -11,21 +11,29 @@ export const RESTORE_CONFIRMATION_PHRASE = 'RESTAURAR';
 /**
  * Escopo do reset de movimentações. A ordem respeita as chaves estrangeiras:
  * rejeições e vínculos de transferência antes dos lançamentos, lotes por
- * último. As tabelas dos lembretes entram no fim — as notificações antes dos
- * lotes, porque `bill_reminder_notifications.batch_id` referencia
- * `bill_reminder_batches`.
+ * último. As tabelas dos lembretes entram antes das contas a pagar — as
+ * notificações antes dos lotes, porque `bill_reminder_notifications.batch_id`
+ * referencia `bill_reminder_batches`, e ambas antes de `scheduled_bills`, que
+ * as notificações referenciam. Contas a pagar (Módulo 1) também são
+ * movimentação: referenciam categorias e precisam sair antes do reset
+ * completo apagar os cadastros; `bill_payments` referencia lançamentos e
+ * contas, e as tabelas de compras (Módulo 3) referenciam lançamentos e
+ * cadastros, por isso abrem a lista.
  */
 export const DATA_RESET_TABLES = [
   'purchase_settlements',
   'payment_balance_adjustments',
   'purchase_items',
   'purchases',
+  'bill_payments',
   'transfer_rejections',
   'transfers',
   'transactions',
   'import_batches',
   'bill_reminder_notifications',
   'bill_reminder_batches',
+  'scheduled_bills',
+  'bill_templates',
 ] as const;
 
 /** Escopo do reset completo: também apaga categorias e formas de pagamento. */

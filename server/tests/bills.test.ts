@@ -286,7 +286,7 @@ describe('integridade do banco', () => {
   it('check constraints rejeitam status e valor inválidos', () => {
     const db = createTestDatabase();
     const category = ensureLookup(db.db, 'category', 'Moradia');
-    expect(() => db.sqlite.prepare('INSERT INTO scheduled_bills (description, amount_cents, due_date, status, category_id) VALUES (?,?,?,?,?)').run('X', 0, '2026-10-10', '', category.id)).toThrow();
-    expect(() => db.sqlite.prepare('INSERT INTO scheduled_bills (description, amount_cents, due_date, status, category_id) VALUES (?,?,?,?,?)').run('X', 100, '2026-10-10', 'XX', category.id)).toThrow();
+    expect(() => db.sqlite.prepare('INSERT INTO scheduled_bills (description, amount_cents, due_date, state, category_id) VALUES (?,?,?,?,?)').run('X', 0, '2026-10-10', 'open', category.id)).toThrow();
+    expect(() => db.sqlite.prepare('INSERT INTO scheduled_bills (description, amount_cents, due_date, state, category_id) VALUES (?,?,?,?,?)').run('X', 100, '2026-10-10', 'PG', category.id)).toThrow();
   });
 });

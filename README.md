@@ -13,6 +13,7 @@ Tudo roda na sua máquina. Não há login, cloud, integração bancária, Docker
 - **Edição em massa** de categoria, forma de pagamento e exclusão, mantendo a seleção entre páginas e filtros.
 - **Consolidado anual** por categoria, com 12 colunas mensais, total, média e totais gerais, além da cor de cada categoria. Clique em uma célula para ver os lançamentos que a compõem.
 - **Cadastros auxiliares** de categorias e formas de pagamento, com renomeação, **cor opcional por categoria** e exclusão com reatribuição.
+- **Contas a pagar** com recorrência (mensal, semanal, anual; término por data ou por quantidade), ocorrências geradas automaticamente, pagamento externo ou vinculado a lançamento, agendamento e agenda de atrasadas/hoje/próximos dias (API; a tela nova está em andamento).
 - **Lembretes por e-mail** das contas a pagar que ainda não foram agendadas, com avisos nos marcos D-3, D-2, D-1 e D0.
 - **Compras**: lista com busca por fornecedor/nota, detalhes dos itens e atalho para importar uma nova NFC-e pela área de Importações; separada das movimentações financeiras.
 - **Tema claro/escuro**, valores em BRL, datas `DD/MM/AAAA` e layout desktop-first.
@@ -490,6 +491,9 @@ Tabelas:
 - `transactions`: lançamentos com FKs para categoria, pagamento e lote de importação. A coluna `transfer` preserva a marcação original do arquivo.
 - `import_batches`: histórico das importações.
 - `transfers`: vínculo entre uma saída e uma entrada (`outgoing_transaction_id`, `incoming_transaction_id`), com confiança e origem. Índices únicos e gatilhos impedem que um lançamento participe de duas transferências ou que o par tenha contas/valores inválidos.
+- `bill_templates`: regra de recorrência de uma conta a pagar (frequência, intervalo, dia, início, término por data ou por quantidade, conta padrão). Gera ocorrências até 12 meses à frente; nunca cria lançamento.
+- `scheduled_bills`: ocorrências de contas a pagar (avulsas ou geradas por `bill_templates`, com `template_id` + `sequence`). Grava só `state` (`open`, `paid`, `skipped`), `scheduled_for` (agendamento no banco), `paid_at` e `paid_cents`; atrasada/hoje/próxima são derivados na leitura. Contas pagas antes da migração 0015 ficam com `migrated_payment = 1` (sem lançamento).
+- `bill_payments`: vínculo opcional entre uma ocorrência e o lançamento que a pagou (`transaction_id` único). Pagamento "externo" marca a conta sem criar vínculo.
 - `bill_reminder_batches`: um registro por e-mail de lembrete, com chave única `(milestone, send_date)` — no máximo um e-mail por marco e dia.
 - `bill_reminder_notifications`: histórico por conta e marco, com chave única `(bill_id, milestone, due_date)`. Apagar a conta apaga o histórico dela (`ON DELETE CASCADE`).
 
@@ -518,8 +522,9 @@ Para testes repetidos de importação, duplicidades, parcelas, transferências e
 
 ```powershell
 # Reset de movimentações: apaga lançamentos, lotes de importação,
-# vínculos de transferência, rejeições de conciliação e o histórico
-# dos lembretes por e-mail.
+# vínculos de transferência, rejeições de conciliação, o histórico
+# dos lembretes por e-mail e as contas a pagar (ocorrências,
+# recorrências e pagamentos).
 # Preserva categorias e formas de pagamento cadastradas.
 npm.cmd run db:reset:data
 
