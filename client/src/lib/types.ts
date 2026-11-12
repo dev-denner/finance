@@ -283,6 +283,8 @@ export interface Transaction {
   paymentMethodName: string;
   transferStatus: TransferStatus;
   transferLink: TransferLink | null;
+  /** Conta a pagar que este lançamento quita (Módulo 1), quando houver. */
+  billPayment?: { billId: number; description: string; dueDate: string } | null;
   /** Data estimada da primeira parcela (derivada; nunca a data real da compra). */
   estimatedFirstInstallmentDate: string | null;
 }

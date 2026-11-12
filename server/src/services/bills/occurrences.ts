@@ -31,17 +31,6 @@ export interface BillWriteInput {
   status?: unknown;
 }
 
-export type PayBillInput =
-  | { mode: 'external'; paidAt: string; paidCents: number; notes?: string | null }
-  | {
-      mode: 'transaction';
-      paidAt: string;
-      paidCents: number;
-      paymentMethodId: number;
-      notes?: string | null;
-    }
-  | { mode: 'link'; transactionId: number; notes?: string | null };
-
 export function loadBillRow(db: AppDatabase, id: number): BillRow {
   const row = db.select().from(scheduledBills).where(eq(scheduledBills.id, id)).get();
   if (!row) throw notFound('Conta a pagar não encontrada.');
@@ -294,51 +283,6 @@ export function scheduleBill(
   const value = parseOptionalDate(scheduledFor, 'Agendamento');
   db.update(scheduledBills)
     .set({ scheduledFor: value, updatedAt: nowIso() })
-    .where(eq(scheduledBills.id, id))
-    .run();
-  return getBill(db, id, today);
-}
-
-/**
- * Marca a conta como paga. `external` só registra data e valor; os modos
- * `transaction` e `link` (Módulo 2) entram no passo seguinte do plano.
- */
-export function payBill(db: AppDatabase, id: number, input: PayBillInput, today = todayIso()): BillDto {
-  const existing = loadBillRow(db, id);
-  if (billState(existing.state) === 'paid') throw conflict('Esta conta já está paga.');
-  if (input.mode !== 'external') {
-    throw badRequest('Pagamento com lançamento ainda não disponível; use o modo externo.');
-  }
-  const paidAt = parseDateValue(input.paidAt);
-  if (!paidAt.ok) throw badRequest(`Data do pagamento: ${paidAt.error}`);
-  if (!Number.isInteger(input.paidCents) || input.paidCents <= 0) {
-    throw badRequest('O valor pago deve ser positivo.');
-  }
-  const notes = input.notes !== undefined ? parseNotes(input.notes) : existing.notes;
-  db.update(scheduledBills)
-    .set({
-      state: 'paid',
-      paidAt: paidAt.value,
-      paidCents: input.paidCents,
-      scheduledFor: null,
-      notes,
-      migratedPayment: 0,
-      updatedAt: nowIso(),
-    })
-    .where(eq(scheduledBills.id, id))
-    .run();
-  return getBill(db, id, today);
-}
-
-/** Reabre a conta. Com lançamento vinculado, o desfazer completo entra no passo seguinte do plano. */
-export function unpayBill(db: AppDatabase, id: number, today = todayIso()): BillDto {
-  const existing = loadBillRow(db, id);
-  if (billState(existing.state) !== 'paid') return getBill(db, id, today);
-  if (hasPayments(db, id)) {
-    throw conflict('Esta conta tem lançamento vinculado; desfazer com lançamento ainda não disponível.');
-  }
-  db.update(scheduledBills)
-    .set({ state: 'open', paidAt: null, paidCents: null, migratedPayment: 0, updatedAt: nowIso() })
     .where(eq(scheduledBills.id, id))
     .run();
   return getBill(db, id, today);

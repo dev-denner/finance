@@ -127,13 +127,11 @@ describe('ocorrências — pagamento externo (AC4a), pular (AC8) e agendar', () 
     expect((sqlite.prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n).toBe(0);
   });
 
-  it('pagar valida data e valor; modos com lançamento ainda não disponíveis', () => {
+  it('pagar no modo externo valida data e valor', () => {
     const { db, bill } = setup();
     const target = bill('Água', '2026-03-12');
     expect(() => payBill(db, target.id, { mode: 'external', paidAt: '31/02/2026', paidCents: 100 }, TODAY)).toThrow(/Data do pagamento/);
     expect(() => payBill(db, target.id, { mode: 'external', paidAt: '2026-03-12', paidCents: 0 }, TODAY)).toThrow(/positivo/);
-    expect(() => payBill(db, target.id, { mode: 'transaction', paidAt: '2026-03-12', paidCents: 100, paymentMethodId: 1 }, TODAY)).toThrow(/modo externo/);
-    expect(() => payBill(db, target.id, { mode: 'link', transactionId: 1 }, TODAY)).toThrow(/modo externo/);
     expect(getBill(db, target.id, TODAY).state).toBe('open');
   });
 
