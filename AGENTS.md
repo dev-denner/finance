@@ -1,6 +1,8 @@
 # AGENTS.md — regras do repositório Finance
 
 > Lido por todos os agentes. Comandos reais do projeto; não inventar scripts.
+>
+> **Antes de começar, leia `docs/HANDOFF.md`**: estado das branches, decisões já tomadas com o usuário, o que falta e as armadilhas conhecidas (migrações, drizzle-kit, better-sqlite3).
 
 ## Stack
 
