@@ -415,14 +415,12 @@ export const purchases = sqliteTable(
     invoiceDiscountCents: integer('invoice_discount_cents').notNull().default(0),
     paymentMethod: text('payment_method'),
     categoryId: integer('category_id').references(() => categories.id, { onDelete: 'set null', onUpdate: 'cascade' }),
-    transactionId: integer('transaction_id').references(() => transactions.id, { onDelete: 'set null', onUpdate: 'cascade' }),
     reconciledAt: text('reconciled_at'),
     reconciliationPreviousCategoryId: integer('reconciliation_previous_category_id'),
     importedAt: text('imported_at').notNull().default(now),
   },
   (table) => [
     uniqueIndex('purchases_access_key_uq').on(table.accessKey),
-    uniqueIndex('purchases_transaction_id_uq').on(table.transactionId),
     index('purchases_issued_at_idx').on(table.issuedAt),
   ],
 );

@@ -134,7 +134,7 @@ describe('PurchasesPage', () => {
     vi.mocked(api.getPurchase).mockResolvedValue(detail);
     vi.mocked(api.updatePurchaseCategory).mockResolvedValue({ ...list[0], categoryId: 4, categoryName: 'Mercado', categoryColor: '#22aa66' });
     vi.mocked(api.getPurchaseReconciliationCandidates).mockResolvedValue({ toleranceDays: 7, linkedMovement: null, candidates: [], settlements: [], wallets: [], totalCents: 3000, settledCents: 0, linkedTransactionIds: [] });
-    vi.mocked(api.reconcilePurchase).mockResolvedValue({ ...detail, transactionId: 77, reconciledAt: '2026-10-23T12:00:00Z', categoryId: 4 });
+    vi.mocked(api.reconcilePurchase).mockResolvedValue({ ...detail, reconciledAt: '2026-10-23T12:00:00Z', categoryId: 4 });
     vi.mocked(api.undoPurchaseReconciliation).mockResolvedValue(detail);
     vi.mocked(api.updatePurchaseItemsCategory).mockResolvedValue({ updated: 1 });
     vi.mocked(api.createLookup).mockResolvedValue({ id: 5, name: 'Eletrônicos', normalizedName: 'eletronicos', color: '#3b82f6', classification: null, usageCount: 0, createdAt: '2026-10-23T00:00:00.000Z' });
@@ -254,7 +254,7 @@ describe('PurchasesPage', () => {
       .mockResolvedValueOnce({ toleranceDays: 7, linkedMovement: null, candidates: [candidate], settlements: [], wallets: [], totalCents: 3000, settledCents: 0, linkedTransactionIds: [] })
       .mockResolvedValueOnce({ toleranceDays: 7, linkedMovement: { ...candidate }, candidates: [], settlements: [{ id: 1, transactionId: 77, paymentMethodId: 2, paymentMethodName: 'Cartão', amountCents: 3000, settlementType: 'movement', effectiveDate: '2026-03-01' }], wallets: [], totalCents: 3000, settledCents: 3000, linkedTransactionIds: [77] });
     vi.mocked(api.reconcilePurchase).mockResolvedValue({
-      ...detail, transactionId: 77, reconciledAt: '2026-10-23T12:00:00Z', categoryId: 4,
+      ...detail, reconciledAt: '2026-10-23T12:00:00Z', categoryId: 4,
       items: detail.items?.map((item) => ({ ...item, categoryId: 4, categoryName: 'Mercado' })),
     });
 

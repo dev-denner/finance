@@ -35,7 +35,7 @@ Tudo o que foi feito está em `master`. Merges de 2026-11-12, em ordem:
 | #11 | `fix/import-bill-candidates-all` | Abas de contas e de transferências da importação mostram todos os pares | `d8f9b21` |
 | #12 | `chore/bills-docs-final` | Documentação final do Módulo 1 | `2f883ee` |
 
-Em andamento: `fix/purchase-reconcile-item-categories` (#13, ressalva R3 do Módulo 3) e `chore/nfce-portal-query-opt-in` (ressalva R2, empilhada sobre o #13). As branches mescladas não foram apagadas; `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` são locais e sem uso.
+Em andamento: `fix/purchase-reconcile-item-categories` (#13, ressalva R3 do Módulo 3), `chore/nfce-portal-query-opt-in` (#14, ressalva R2, empilhada sobre o #13) e `chore/drop-purchases-transaction-id` (ressalva R4 com a migração `0016`, empilhada sobre o #14). As branches mescladas não foram apagadas; `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` são locais e sem uso.
 
 O CI (`.github/workflows/ci.yml`, build + testes em Linux) roda em todo push no `master` e em PRs. Ele só passou a valer depois de chegar ao `master`; trocar a base de um PR não o dispara, só um push. O Codex revisa cada PR automaticamente e, nos PRs deste trabalho, sempre encontrou algo real: espere a revisão terminar antes de mesclar, ou trate o apontamento em PR de acompanhamento.
 
@@ -74,14 +74,14 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 
 O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído: PR1–PR6 mesclados (#6 a #12). O registro de cada PR está na seção 9 do plano.
 
-1. **Módulo 3 — ressalvas da revisão** (`docs/revisao-modulo-3-2026-11.md`): R3 resolvida (a conciliação só categoriza itens sem categoria ou em "Sem categoria"); R2 resolvida (consulta aos portais atrás de `NFCE_PORTAL_QUERY_ENABLED`, desligada por padrão); faltam R4 (`purchases.transaction_id` redundante com `purchase_settlements`), R6 (tsconfig `lib: DOM` no server inteiro, teste próprio do parser RJ, mensagens de saldo em BRL) e R7 (código do item e formas de pagamento da nota em linhas, para o Módulo 4).
+1. **Módulo 3 — ressalvas da revisão** (`docs/revisao-modulo-3-2026-11.md`): R3 resolvida (a conciliação só categoriza itens sem categoria ou em "Sem categoria"); R2 resolvida (consulta aos portais atrás de `NFCE_PORTAL_QUERY_ENABLED`, desligada por padrão); R4 resolvida (migração `0016` remove `purchases.transaction_id`); faltam R6 (tsconfig `lib: DOM` no server inteiro, teste próprio do parser RJ, mensagens de saldo em BRL) e R7 (código do item e formas de pagamento da nota em linhas, para o Módulo 4).
 2. **Módulo 1 — sobras fora de escopo** (plano, seção 8): pagamento parcial na tela, notificações locais/PWA, anexos e linha digitável, visão calendário, "find schedules" (sugerir recorrências pelo histórico), recorrência na importação de contas por planilha, M1-06 (duplicidade duplicada em `bills-import.ts`), ações em massa e atalhos.
 3. **Módulo 2** (fase 2 da análise): entidade conta evoluindo `payment_methods.balance_type`, perfis de arquivo por banco, OFX, grupo de parcelas, rateio/tags, regras, desfazer lote, quebrar `import.ts`/`TransactionsImportPage.tsx` (3 mil linhas) em wizard.
 4. **Transversal**: ESLint/Prettier, `packages/domain` e `api-client` (análise, seção 5), PWA.
 
 ## 6. Armadilhas aprendidas (evite repetir)
 
-- **Migrator do Drizzle roda em transação**: `PRAGMA foreign_keys=OFF` gerado pelo drizzle-kit **não tem efeito**. Um rebuild de tabela (`__new_x` + `DROP` + `RENAME`) dispara `ON DELETE SET NULL/CASCADE` nos filhos e na auto-referência. Solução usada na `0015`: copiar filhos/colunas auto-referentes para tabelas auxiliares antes do `DROP` e restaurar após o `RENAME`. Teste de migração cobre isso.
+- **Migrator do Drizzle roda em transação**: `PRAGMA foreign_keys=OFF` gerado pelo drizzle-kit **não tem efeito**. Um rebuild de tabela (`__new_x` + `DROP` + `RENAME`) dispara `ON DELETE SET NULL/CASCADE` nos filhos e na auto-referência. Solução usada na `0015` e na `0016`: copiar filhos/colunas auto-referentes para tabelas auxiliares antes do `DROP` e restaurar após o `RENAME`; filhos com `ON DELETE RESTRICT` (como `payment_balance_adjustments.purchase_id`) precisam ser apagados antes do `DROP` e reinseridos depois. Testes de migração cobrem isso.
 - **`drizzle-kit generate` é interativo** quando há coluna removida + colunas adicionadas na mesma tabela (pergunta "rename ou nova?") e falha sem TTY. Contorno: gerar em dois passos (manter a coluna antiga, gerar; editar o SQL à mão para remover a coluna e fazer a cópia de dados; apagar a coluna do snapshot JSON; remover do `schema.ts`; `generate` deve responder "No schema changes").
 - **O INSERT…SELECT gerado para rebuild seleciona colunas novas da tabela antiga** (não existem): sempre revisar e reescrever o SELECT com `CASE`/`NULL`.
 - **`better-sqlite3` precisa de `npm rebuild better-sqlite3`** quando o `node_modules` veio de outro SO/Node ("Could not locate the bindings file").
@@ -96,7 +96,7 @@ O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído:
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 

@@ -113,6 +113,13 @@
       "when": 1794452405016,
       "tag": "0015_bill_templates_and_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1794526377242,
+      "tag": "0016_drop_purchases_transaction_id",
+      "breakpoints": true
     }
   ]
 }

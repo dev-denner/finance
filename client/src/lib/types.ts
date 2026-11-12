@@ -53,7 +53,6 @@ export interface Purchase {
   categoryName?: string | null;
   categoryColor?: string | null;
   itemCount?: number;
-  transactionId?: number | null;
   reconciledAt?: string | null;
   items?: PurchaseItem[];
 }
