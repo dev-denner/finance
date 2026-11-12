@@ -160,7 +160,7 @@ describe('rotas de contas a pagar — ocorrências', () => {
     const bill = await createBill({ dueDate: shiftDays(TODAY, 3) });
 
     const scheduled = await call('POST', `/api/bills/${bill.id}/schedule`, { scheduledFor: shiftDays(TODAY, 2) });
-    expect(scheduled.body.bill).toMatchObject({ displayStatus: 'scheduled', status: 'AG' });
+    expect(scheduled.body.bill).toMatchObject({ displayStatus: 'scheduled' });
 
     const paid = await call('POST', `/api/bills/${bill.id}/pay`, {
       mode: 'transaction',
@@ -199,12 +199,11 @@ describe('rotas de contas a pagar — ocorrências', () => {
     expect(transaction.body.billPayment).toMatchObject({ billId: bill.id });
   });
 
-  it('rotas legadas /status e /repeat continuam respondendo para a tela atual', async () => {
+  it('rotas legadas /status e /repeat foram removidas; "status" não é aceito na API', async () => {
     const bill = await createBill();
-    const status = await call('POST', `/api/bills/${bill.id}/status`, { status: 'PG' });
-    expect(status.body).toMatchObject({ promptRepeat: true, bill: { status: 'PG' } });
-    const repeat = await call('POST', `/api/bills/${bill.id}/repeat`);
-    expect(repeat.body.created).toBe(true);
+    expect((await app.inject({ method: 'POST', url: `/api/bills/${bill.id}/status`, payload: { status: 'PG' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: `/api/bills/${bill.id}/repeat` })).statusCode).toBe(404);
+    expect((await call('PUT', `/api/bills/${bill.id}`, { status: 'PG' })).status).toBe(400);
   });
 });
 

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useSelection } from '../context/SelectionContext';
+import { useBillsBadge } from '../context/BillsBadgeContext';
 
 const NAV_ITEMS = [
   { to: '/lancamentos', label: 'Movimentações', icon: ReceiptText },
@@ -49,6 +50,7 @@ function Brand() {
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { theme, toggleTheme } = useTheme();
   const { selectedCount } = useSelection();
+  const { count: billsAttention } = useBillsBadge();
 
   return (
     <div className="flex h-full flex-col">
@@ -77,6 +79,15 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             >
               <Icon className="h-4 w-4 shrink-0" strokeWidth={1.8} />
               <span className="flex-1">{item.label}</span>
+              {item.to === '/contas' && billsAttention > 0 && (
+                <span
+                  className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                  title="Contas atrasadas ou vencendo hoje"
+                  aria-label={`${billsAttention} conta(s) atrasada(s) ou vencendo hoje`}
+                >
+                  {billsAttention > 99 ? '99+' : billsAttention}
+                </span>
+              )}
               {item.to === '/lancamentos' && selectedCount > 0 && (
                 <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                   {selectedCount > 99 ? '99+' : selectedCount}

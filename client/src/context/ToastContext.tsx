@@ -3,14 +3,27 @@ import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 
 type ToastKind = 'success' | 'error' | 'info';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
+export interface ToastOptions {
+  /** Botão no aviso (ex.: "Desfazer"); clicar executa e fecha o aviso. */
+  action?: ToastAction;
+  /** Tempo na tela em milissegundos (padrão 5000). */
+  durationMs?: number;
+}
+
 interface Toast {
   id: number;
   kind: ToastKind;
   message: string;
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
-  showToast: (message: string, kind?: ToastKind) => void;
+  showToast: (message: string, kind?: ToastKind, options?: ToastOptions) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -44,11 +57,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const showToast = useCallback(
-    (message: string, kind: ToastKind = 'success') => {
+    (message: string, kind: ToastKind = 'success', options: ToastOptions = {}) => {
       const id = nextId.current;
       nextId.current += 1;
-      setToasts((current) => [...current.slice(-3), { id, kind, message }]);
-      window.setTimeout(() => dismiss(id), 5000);
+      setToasts((current) => [...current.slice(-3), { id, kind, message, action: options.action }]);
+      window.setTimeout(() => dismiss(id), options.durationMs ?? 5000);
     },
     [dismiss],
   );
@@ -71,6 +84,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             >
               <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${ICON_STYLES[toast.kind]}`} />
               <p className="flex-1 text-[13px] leading-snug">{toast.message}</p>
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismiss(toast.id);
+                    toast.action?.onClick();
+                  }}
+                  className="rounded-md px-1.5 py-0.5 text-[12px] font-semibold underline-offset-2 transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/30"
+                >
+                  {toast.action.label}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => dismiss(toast.id)}

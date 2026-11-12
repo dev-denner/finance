@@ -13,7 +13,7 @@ Tudo roda na sua máquina. Não há login, cloud, integração bancária, Docker
 - **Edição em massa** de categoria, forma de pagamento e exclusão, mantendo a seleção entre páginas e filtros.
 - **Consolidado anual** por categoria, com 12 colunas mensais, total, média e totais gerais, além da cor de cada categoria. Clique em uma célula para ver os lançamentos que a compõem.
 - **Cadastros auxiliares** de categorias e formas de pagamento, com renomeação, **cor opcional por categoria** e exclusão com reatribuição.
-- **Contas a pagar** com recorrência (mensal, semanal, anual; término por data ou por quantidade), ocorrências geradas automaticamente, pagamento externo ou vinculado a lançamento, agendamento e agenda de atrasadas/hoje/próximos dias (API; a tela nova está em andamento).
+- **Contas a pagar** com recorrência (mensal, semanal, anual; término por data ou por quantidade), ocorrências geradas automaticamente, pagamento com ou sem lançamento em Movimentações e desfazer, agendamento, agenda de atrasadas/hoje/próximos 7 dias e contador no menu.
 - **Lembretes por e-mail** das contas a pagar que ainda não foram agendadas, com avisos nos marcos D-3, D-2, D-1 e D0.
 - **Compras**: lista com busca por fornecedor/nota, detalhes dos itens e atalho para importar uma nova NFC-e pela área de Importações; separada das movimentações financeiras.
 - **Tema claro/escuro**, valores em BRL, datas `DD/MM/AAAA` e layout desktop-first.
@@ -192,7 +192,15 @@ API (JSON; datas `AAAA-MM-DD`; valores em centavos):
 | `GET/POST /api/bill-templates`, `GET/PUT/DELETE /api/bill-templates/:id` | Recorrências; `PUT ?scope=future&from=AAAA-MM-DD` divide a série |
 | `POST /api/bill-templates/preview` | Próximas datas que a regra geraria, sem gravar |
 
-As rotas `POST /api/bills/:id/status` e `/repeat` continuam disponíveis para a tela atual e serão removidas com a tela nova.
+Na tela **Contas a pagar**:
+
+- O topo lista as contas **atrasadas**, as que **vencem hoje** e as dos **próximos 7 dias**, sempre em relação a hoje; o menu lateral mostra quantas estão atrasadas ou vencem hoje.
+- Abaixo fica o mês, com navegação, busca, filtro por situação e por categoria e o resumo do mês (em aberto, atrasado, agendado, pago). Mês e filtros ficam no endereço da página, então voltar de outra tela mantém o que estava aberto.
+- **Pagar** pede data e valor. "Registrar lançamento em Movimentações" vem desligado, a menos que a conta tenha conta padrão; ligado, cria a saída na conta escolhida. O aviso de confirmação tem **Desfazer** por alguns segundos, e a linha paga mantém o botão de desfazer.
+- **Nova conta** com **Repetir** mostra as próximas datas calculadas pelo servidor antes de salvar. Editar uma conta recorrente pergunta se a alteração vale **só para esta** ou **para esta e as futuras**; mudar a repetição só é possível no segundo caso.
+- **Excluir** uma conta recorrente oferece **pular só esta** ou **excluir a recorrência** (as já pagas ficam no histórico).
+
+As rotas antigas `POST /api/bills/:id/status` e `/repeat` foram removidas. A importação de contas por planilha continua aceitando a coluna **Situação** (`AG` vira agendada no vencimento; `PG`, paga sem lançamento).
 
 Na migração `0015`, contas com situação `PG` viraram pagas na data de vencimento, sem lançamento vinculado (`migratedPayment`); `AG` virou agendada para o vencimento.
 

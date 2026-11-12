@@ -58,7 +58,6 @@ describe('recorrências — criação e geração (AC1, AC3, AC3b)', () => {
       dueDate: '2026-03-10',
       state: 'open',
       displayStatus: 'upcoming',
-      status: '',
       paymentMethodId: account.id,
       categoryName: 'Moradia',
     });
@@ -250,6 +249,40 @@ describe('recorrências — alteração (AC10)', () => {
     ]);
     expect(fresh.every((b) => b.amountCents === 170000)).toBe(true);
     expect(fresh.map((b) => b.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('contrato da tela: recorrência parcial sem data inicial preserva o dia 31', () => {
+    const { db, category } = setup();
+    const template = createTemplate(
+      db,
+      monthlyInput({ categoryId: category.id, recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: 31 }, startDate: '2026-01-31' }),
+      TODAY,
+    );
+    // Edição pela ocorrência de 28/02 mudando só o valor (o que a tela envia).
+    const replacement = updateTemplate(
+      db,
+      template.id,
+      { amountCents: 160000, recurrence: { interval: 1 } },
+      { scope: 'future', from: '2026-02-28' },
+      TODAY,
+    );
+    expect(replacement.recurrence.dayOfMonth).toBe(31);
+    const dates = listBillsBetween(db, '2026-02-01', '2026-05-31', { today: TODAY })
+      .bills.filter((b) => b.templateId === replacement.id)
+      .map((b) => b.dueDate);
+    expect(dates).toEqual(['2026-02-28', '2026-03-31', '2026-04-30', '2026-05-31']);
+  });
+
+  it('contrato da tela: corte no dia seguinte a uma ocorrência paga não a duplica', () => {
+    const { db, category } = setup();
+    const template = createTemplate(db, monthlyInput({ categoryId: category.id }), TODAY);
+    const june = listBills(db, 2026, 6, { today: TODAY }).bills[0];
+    payBill(db, june.id, { mode: 'external', paidAt: '2026-06-10', paidCents: 150000 }, TODAY);
+    updateTemplate(db, template.id, { amountCents: 170000, recurrence: { interval: 1 } }, { scope: 'future', from: '2026-06-11' }, TODAY);
+    const juneBills = listBills(db, 2026, 6, { today: TODAY }).bills;
+    expect(juneBills).toHaveLength(1);
+    expect(juneBills[0]).toMatchObject({ id: june.id, state: 'paid' });
+    expect(listBills(db, 2026, 7, { today: TODAY }).bills[0]).toMatchObject({ amountCents: 170000, dueDate: '2026-07-10' });
   });
 
   it('scope=future não recria a data de uma ocorrência paga adiantado depois do corte', () => {

@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { advanceMonth } from '../src/services/bills';
-import {
-  createBill,
-  deleteBill,
-  getBill,
-  listBills,
-  repeatBill,
-  setBillStatus,
-  updateBill,
-} from '../src/services/bills';
+import { addMonthsIso } from '../src/lib/dates';
+import { createBill, deleteBill, getBill, listBills, updateBill } from '../src/services/bills';
 import { importBills, previewBillsImport } from '../src/services/bills-import';
 import { createTestDatabase, makeCsv } from './helpers';
 import { ensureLookup } from '../src/services/lookups';
@@ -24,12 +16,13 @@ describe('contas a pagar — CRUD e estados', () => {
       categoryId: category.id,
       status: '',
     });
-    expect(created.status).toBe('');
+    expect(created.state).toBe('open');
+    expect(created.scheduledFor).toBeNull();
     expect(created.amountCents).toBe(78200);
 
-    const updated = updateBill(db.db, created.id, { amountCents: 80000, status: 'AG' });
+    const updated = updateBill(db.db, created.id, { amountCents: 80000, scheduledFor: '2026-10-09' });
     expect(updated.amountCents).toBe(80000);
-    expect(updated.status).toBe('AG');
+    expect(updated.scheduledFor).toBe('2026-10-09');
 
     const { bills } = listBills(db.db, 2026, 10);
     expect(bills).toHaveLength(1);
@@ -60,7 +53,7 @@ describe('contas a pagar — CRUD e estados', () => {
     ).toThrow();
   });
 
-  it('rejeita situação inválida', () => {
+  it('rejeita situação de planilha inválida', () => {
     const db = createTestDatabase();
     const category = ensureLookup(db.db, 'category', 'Moradia');
     expect(() =>
@@ -84,13 +77,13 @@ describe('contas a pagar — CRUD e estados', () => {
     const oct = listBills(db.db, 2026, 10);
     expect(oct.bills.map((b) => b.description)).toEqual(['A', 'B']);
     expect(oct.summary.totalCents).toBe(3000);
-    expect(oct.summary.counts['']).toBe(2);
+    expect(oct.summary.openCents).toBe(3000);
 
     const nov = listBills(db.db, 2026, 11);
     expect(nov.bills).toHaveLength(1);
   });
 
-  it('resumo separa pago de não pago (AG conta como não pago)', () => {
+  it('resumo separa pago de em aberto (agendada conta como em aberto)', () => {
     const db = createTestDatabase();
     const category = ensureLookup(db.db, 'category', 'Moradia');
     createBill(db.db, { description: 'Paga', amountCents: 5000, dueDate: '2026-10-05', categoryId: category.id, status: 'PG' });
@@ -100,103 +93,26 @@ describe('contas a pagar — CRUD e estados', () => {
     const { summary } = listBills(db.db, 2026, 10);
     expect(summary.totalCents).toBe(10000);
     expect(summary.paidCents).toBe(5000);
-    expect(summary.unpaidCents).toBe(5000);
-    expect(summary.counts).toEqual({ '': 1, AG: 1, PG: 1 });
-  });
-});
-
-describe('transição para PG e repetição', () => {
-  it('transição para PG dispara promptRepeat; já paga não dispara', () => {
-    const db = createTestDatabase();
-    const category = ensureLookup(db.db, 'category', 'Moradia');
-    const bill = createBill(db.db, { description: 'Condomínio', amountCents: 78200, dueDate: '2026-10-10', categoryId: category.id });
-
-    const first = setBillStatus(db.db, bill.id, 'PG');
-    expect(first.promptRepeat).toBe(true);
-    expect(first.bill.status).toBe('PG');
-
-    const second = setBillStatus(db.db, bill.id, 'PG');
-    expect(second.promptRepeat).toBe(false);
-  });
-
-  it('repetição cria conta no mês seguinte com dados copiados e status vazio', () => {
-    const db = createTestDatabase();
-    const category = ensureLookup(db.db, 'category', 'Moradia');
-    const bill = createBill(db.db, { description: 'Condomínio', amountCents: 78200, dueDate: '2026-10-10', categoryId: category.id });
-    setBillStatus(db.db, bill.id, 'PG');
-
-    const result = repeatBill(db.db, bill.id);
-    expect(result.created).toBe(true);
-    expect(result.bill.description).toBe('Condomínio');
-    expect(result.bill.amountCents).toBe(78200);
-    expect(result.bill.categoryId).toBe(category.id);
-    expect(result.bill.status).toBe('');
-    expect(result.bill.dueDate).toBe('2026-11-10');
-    expect(result.bill.repeatedFromId).toBe(bill.id);
-
-    // original permanece PG
-    expect(getBill(db.db, bill.id).status).toBe('PG');
-  });
-
-  it('repetição repetida não duplica e retorna a existente', () => {
-    const db = createTestDatabase();
-    const category = ensureLookup(db.db, 'category', 'Moradia');
-    const bill = createBill(db.db, { description: 'Condomínio', amountCents: 78200, dueDate: '2026-10-10', categoryId: category.id });
-    setBillStatus(db.db, bill.id, 'PG');
-    repeatBill(db.db, bill.id);
-    const second = repeatBill(db.db, bill.id);
-    expect(second.created).toBe(false);
-
-    const { bills } = listBills(db.db, 2026, 11);
-    expect(bills).toHaveLength(1);
-  });
-
-  it('setBillStatus informa existingRepeatId quando já repetido', () => {
-    const db = createTestDatabase();
-    const category = ensureLookup(db.db, 'category', 'Moradia');
-    const bill = createBill(db.db, { description: 'Condomínio', amountCents: 78200, dueDate: '2026-10-10', categoryId: category.id });
-    setBillStatus(db.db, bill.id, 'PG');
-    const repeat = repeatBill(db.db, bill.id);
-    // voltar para AG e depois PG novamente informa a repetição existente
-    setBillStatus(db.db, bill.id, 'AG');
-    const again = setBillStatus(db.db, bill.id, 'PG');
-    expect(again.promptRepeat).toBe(true);
-    expect(again.existingRepeatId).toBe(repeat.bill.id);
-  });
-
-  it('voltar de PG para AG não apaga a conta criada no mês seguinte', () => {
-    const db = createTestDatabase();
-    const category = ensureLookup(db.db, 'category', 'Moradia');
-    const bill = createBill(db.db, { description: 'Condomínio', amountCents: 78200, dueDate: '2026-10-10', categoryId: category.id });
-    setBillStatus(db.db, bill.id, 'PG');
-    repeatBill(db.db, bill.id);
-    setBillStatus(db.db, bill.id, 'AG');
-    const { bills } = listBills(db.db, 2026, 11);
-    expect(bills).toHaveLength(1);
+    expect(summary.openCents).toBe(5000);
+    expect(summary.statusCounts.paid).toBe(1);
+    expect(summary.statusCounts.paid + summary.statusCounts.scheduled + summary.statusCounts.overdue + summary.statusCounts.upcoming + summary.statusCounts.due_today).toBe(3);
   });
 });
 
 describe('mudança de mês/ano e fim de mês', () => {
-  it('advanceMonth trata 31/01, 30/01 e 31/03 em ano não bissexto', () => {
-    expect(advanceMonth('2026-01-31')).toBe('2026-02-28');
-    expect(advanceMonth('2026-01-30')).toBe('2026-02-28');
-    expect(advanceMonth('2026-03-31')).toBe('2026-04-30');
+  // Antes coberto por advanceMonth (repetição manual removida com a tela nova);
+  // a aritmética continua em addMonthsIso, usada pelas recorrências.
+  it('addMonthsIso trata 31/01, 30/01 e 31/03 em ano não bissexto', () => {
+    expect(addMonthsIso('2026-01-31', 1)).toBe('2026-02-28');
+    expect(addMonthsIso('2026-01-30', 1)).toBe('2026-02-28');
+    expect(addMonthsIso('2026-03-31', 1)).toBe('2026-04-30');
   });
 
-  it('advanceMonth respeita ano bissexto em fevereiro', () => {
-    expect(advanceMonth('2024-01-31')).toBe('2024-02-29');
-    expect(advanceMonth('2024-02-29')).toBe('2024-03-29');
-  });
-
-  it('repetição a partir de 31/12 avança o ano', () => {
-    const db = createTestDatabase();
-    const category = ensureLookup(db.db, 'category', 'Moradia');
-    const bill = createBill(db.db, { description: 'Anual', amountCents: 1000, dueDate: '2026-12-31', categoryId: category.id });
-    setBillStatus(db.db, bill.id, 'PG');
-    const repeat = repeatBill(db.db, bill.id);
-    expect(repeat.bill.dueDate).toBe('2027-01-31');
-    const { bills } = listBills(db.db, 2027, 1);
-    expect(bills).toHaveLength(1);
+  it('addMonthsIso respeita ano bissexto e vira o ano', () => {
+    expect(addMonthsIso('2024-01-31', 1)).toBe('2024-02-29');
+    expect(addMonthsIso('2024-02-29', 1)).toBe('2024-03-29');
+    expect(addMonthsIso('2026-12-31', 1)).toBe('2027-01-31');
+    expect(addMonthsIso('2026-01-15', -1)).toBe('2025-12-15');
   });
 
   it('listBills filtra corretamente meses de anos diferentes', () => {
@@ -207,6 +123,15 @@ describe('mudança de mês/ano e fim de mês', () => {
     expect(listBills(db.db, 2026, 12).bills).toHaveLength(1);
     expect(listBills(db.db, 2027, 1).bills).toHaveLength(1);
     expect(listBills(db.db, 2026, 11).bills).toHaveLength(0);
+  });
+
+  it('marcar como paga pela situação da planilha e voltar para em aberto', () => {
+    const db = createTestDatabase();
+    const category = ensureLookup(db.db, 'category', 'Moradia');
+    const bill = createBill(db.db, { description: 'Condomínio', amountCents: 78200, dueDate: '2026-10-10', categoryId: category.id });
+    expect(updateBill(db.db, bill.id, { status: 'PG' }, '2026-10-11')).toMatchObject({ state: 'paid', paidAt: '2026-10-11', paidCents: 78200 });
+    expect(updateBill(db.db, bill.id, { status: 'AG' }, '2026-10-11')).toMatchObject({ state: 'open', paidAt: null, scheduledFor: '2026-10-10' });
+    expect(getBill(db.db, bill.id).state).toBe('open');
   });
 });
 
@@ -246,9 +171,9 @@ describe('importação de contas a pagar', () => {
     const { bills } = listBills(db.db, 2024, 1);
     expect(bills).toHaveLength(2);
     const internet = bills.find((b) => b.description === 'Internet Casa (Sea)');
-    expect(internet?.status).toBe('');
+    expect(internet).toMatchObject({ state: 'open', scheduledFor: null });
     const ag = bills.find((b) => b.description === 'Equatorial Sitio Casa');
-    expect(ag?.status).toBe('AG');
+    expect(ag).toMatchObject({ state: 'open', scheduledFor: '2024-01-05' });
 
     // categorias compartilhadas com Módulo 2
     const cats = db.sqlite.prepare('SELECT COUNT(*) AS n FROM categories WHERE normalized_name = ?').get('agro negocio') as { n: number };

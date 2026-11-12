@@ -618,8 +618,6 @@ export interface Bill {
   dueDate: string;
   state: BillState;
   displayStatus: BillDisplayStatus;
-  /** @deprecated situação legada; sai com a tela nova. */
-  status: '' | 'AG' | 'PG';
   scheduledFor: string | null;
   paidAt: string | null;
   paidCents: number | null;
@@ -630,8 +628,6 @@ export interface Bill {
   paymentMethodName: string | null;
   notes: string | null;
   payments: BillPayment[];
-  /** @deprecated repetição manual legada. */
-  repeatedFromId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -642,10 +638,6 @@ export interface BillSummary {
   paidCents: number;
   overdueCents: number;
   statusCounts: Record<BillDisplayStatus, number>;
-  /** @deprecated = openCents. */
-  unpaidCents: number;
-  /** @deprecated contagem por situação legada. */
-  counts: { '': number; AG: number; PG: number };
 }
 
 export interface BillAgenda {

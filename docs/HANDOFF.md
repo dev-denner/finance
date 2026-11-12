@@ -22,16 +22,16 @@ Stack: TypeScript strict, Fastify 5, React 19 + Vite 7, Tailwind 3, SQLite (`bet
 
 ## 2. Estado das branches (2026-11-12)
 
-As branches do Módulo 1 estão **empilhadas sobre o PR #5** (Módulo 3) e publicadas como PRs empilhados no GitHub: a base de cada PR é a branch anterior. Ordem de merge: **#5 → PR1 → PR2 → PR3 → PR4**. Ao mesclar um PR, apagar a branch dele faz o GitHub trocar a base do seguinte para `master`; se a branch não for apagada, troque a base manualmente.
+Em 2026-11-12 foram mesclados em `master` o **PR #5** (Módulo 3, `7acb54f`) o **PR #6** (modelo de recorrência e migração `0015`, `c012364`), o **PR #7** (pagamento com lançamento, `82614de`) e o **PR #8** (API validada, `9805aff`). Falta o **#9** (tela nova), com base em `master`; o `master` foi mesclado na branch dele para resolver o conflito nos testes de recorrência. Com o #6, o CI (`.github/workflows/ci.yml`) passou a rodar: o GitHub só registrou o workflow quando ele chegou ao branch padrão. Trocar a base de um PR não dispara o CI; ele roda no próximo push da branch. Ao mesclar um PR, apagar a branch dele faz o GitHub trocar a base do seguinte para `master`; se a branch não for apagada, troque a base manualmente.
 
 | Branch | Onde | Estado |
 |---|---|---|
 | `origin/master` (7676fe5) | remoto | PR 2 (importação com decisões de categoria), PR 3 (lembretes por e-mail, migração `0006_slimy_nekra`), PR 4 (OpenCode simplificado) |
-| `feat/module3-purchases` (5c03ee6) | **PR #5** | Módulo 3 (compras/NFC-e), migrações `0007`–`0014`, 418 + 53 testes. Revisado e aprovado com ressalvas (`docs/revisao-modulo-3-2026-11.md`). **Decisão de merge é do usuário** |
-| `feat/bills-recurrence` | PR1 (base: `feat/module3-purchases`) | CI, imagens movidas, análise, plano, modelo de recorrência/ocorrência/pagamento com migração **`0015_bill_templates_and_payments`**, revisão do M3, este HANDOFF. 465 + 53 testes |
-| `feat/bills-payments` | PR2 (base: `feat/bills-recurrence`) | Pagar com lançamento ou vínculo, guards no Módulo 2. 482 + 53 testes |
-| `feat/bills-api` | PR3 (base: `feat/bills-payments`) | Rotas Zod de ocorrências e recorrências, multipart compartilhado, cliente tipado. 494 + 53 testes |
-| `feat/bills-ui` | PR4 em andamento (base: `feat/bills-api`) | Tela nova de contas a pagar e remoção do legado |
+| `feat/module3-purchases` (5c03ee6) | PR #5, **mesclado** | Módulo 3 (compras/NFC-e), migrações `0007`–`0014`. Ressalvas R2–R7 da revisão (`docs/revisao-modulo-3-2026-11.md`) continuam pendentes. A branch remota não foi apagada |
+| `feat/bills-recurrence` | PR #6, **mesclado** | CI, imagens movidas, análise, plano, modelo de recorrência/ocorrência/pagamento com migração **`0015_bill_templates_and_payments`**, revisão do M3, este HANDOFF. 465 + 53 testes |
+| `feat/bills-payments` | PR #7, **mesclado** | Pagar com lançamento ou vínculo, guards no Módulo 2. 482 + 53 testes |
+| `feat/bills-api` | PR #8, **mesclado** | Rotas Zod de ocorrências e recorrências, multipart compartilhado, cliente tipado. 494 + 53 testes |
+| `feat/bills-ui` | PR #9 (base: `master`) | Tela nova de contas a pagar (agenda, pagar/desfazer, recorrência com prévia, escopo de edição, badge) e remoção do legado. 489 + 73 testes |
 | `feat/bills-recurrence-oldbase`, `feat/import-installments-category-matching` | local | Bases antigas, sem uso. Podem ser apagadas |
 
 O usuário autorizou (2026-11-12) **publicar cada PR assim que concluído** (push da branch e abertura do PR); merge continua sendo decisão dele.
@@ -67,10 +67,10 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 
 ## 5. O que falta (em ordem)
 
-1. ~~**Empilhar sobre o Módulo 3**~~ — **feito** (2026-11-12): pilha rebaseada sobre o PR #5 com `git rebase --onto origin/feat/module3-purchases origin/master --update-refs`; migração regenerada como `0015` com o procedimento da seção 6 (SQL idêntico à antiga `0007`); resets unidos. Falta só o usuário decidir o merge do #5.
+1. ~~**Empilhar sobre o Módulo 3**~~ — **feito** (2026-11-12): pilha rebaseada sobre o PR #5 com `git rebase --onto origin/feat/module3-purchases origin/master --update-refs`; migração regenerada como `0015` com o procedimento da seção 6 (SQL idêntico à antiga `0007`); resets unidos. O #5 foi mesclado em 2026-11-12.
 2. ~~**PR2**~~ — **feito** em `feat/bills-payments` (ver registro no plano).
 3. ~~**PR3**~~ — **feito** em `feat/bills-api` (ver registro no plano). `/status` e `/repeat` ficaram como deprecated e saem no PR4.
-4. **PR4** — tela nova (filas atrasadas/hoje/7 dias/mês, chip de status, popover "Pagar" com toggle "Registrar lançamento", formulário com toggle "Repetir" e prévia de 6 datas, "só esta / esta e as futuras", URL persistente, badge no menu). Remover `legacy.ts`, `status` e `counts` legados, testes antigos de status/repeat (com justificativa no commit).
+4. ~~**PR4**~~ — **feito** em `feat/bills-ui` (ver registro no plano). O PR1 recebeu depois a correção de duas sugestões do Codex (`cd2da19`: recorrência antiga e data duplicada na divisão); as branches de cima não tocam esses arquivos e não precisaram de rebase.
 5. **PR5** — auto-match de pagamentos na importação de extrato (`bill-payment-detection.ts`, `billCandidates`/`billDecisions`).
 6. **PR6** — docs finais.
 7. **Módulo 3, após o merge**: ressalvas R3 (conciliar sobrescreve categoria dos itens), R4 (`purchases.transaction_id` redundante), R6 (tsconfig `lib: DOM`, teste do parser RJ, mensagens em BRL), R7 (código do item e `purchase_payments` para o Módulo 4).
@@ -87,10 +87,13 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 - A tela atual de contas e os lembretes dependem do campo legado `status`/`counts` do DTO até o PR4.
 - O `.gitattributes` do `origin/master` já define `* text=auto eol=lf`; não renormalizar retroativamente (decisão registrada lá).
 
+- **`@fastify/static` com `wildcard: false`** registra a lista de arquivos ao iniciar: depois de um `vite build`, o servidor de produção precisa ser reiniciado, senão o bundle novo responde `index.html` (tela branca, erro de MIME no console).
+- **Verificar a tela no navegador sem tocar no banco real**: copie o backup mais recente para o scratchpad e suba `node server/dist/index.js` com `DATABASE_PATH` apontando para a cópia e `PORT` livre (nesta máquina 3101 e 5173 já estão ocupadas por outros apps). Os lembretes ficam desligados sem `.env`; deixe `BILL_REMINDER_TO=` vazio por garantia.
+
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 
