@@ -86,7 +86,7 @@ describe('conciliação manual de compras', () => {
     } finally { handle.sqlite.close(); }
   });
 
-  it('só vincula após seleção explícita, propaga categoria e desfaz restaurando categorias anteriores', () => {
+  it('só vincula após seleção explícita, categoriza os itens sem categoria e desfaz restaurando as anteriores', () => {
     const handle = createTestDatabase();
     try {
       const purchaseId = importPurchase(handle.db, purchaseInput('2')).id;
@@ -105,7 +105,7 @@ describe('conciliação manual de compras', () => {
       const result = reconcilePurchaseWithTransaction(handle.db, purchaseId, movement.id);
       expect(result).toMatchObject({ transactionId: movement.id, categoryId: destination.id, reconciledAt: expect.any(String) });
       expect(result.items).toMatchObject([
-        { id: itemIds[0], categoryId: destination.id, categoryName: 'Categoria da movimentação' },
+        { id: itemIds[0], categoryId: previousItem.id, categoryName: 'Categoria anterior do item' },
         { id: itemIds[1], categoryId: destination.id, categoryName: 'Categoria da movimentação' },
       ]);
       expect(handle.sqlite.prepare('SELECT category_id, amount_cents, purchase_date FROM transactions WHERE id = ?').get(movement.id)).toEqual(originalMovement);
@@ -121,6 +121,39 @@ describe('conciliação manual de compras', () => {
         { id: itemIds[0], categoryId: previousItem.id },
         { id: itemIds[1], categoryId: manual.id },
       ]);
+    } finally { handle.sqlite.close(); }
+  });
+
+  it('conciliar preserva itens já classificados e trata "Sem categoria" como vazio', () => {
+    const handle = createTestDatabase();
+    try {
+      const purchaseId = importPurchase(handle.db, purchaseInput('3')).id;
+      const empty = ensureLookup(handle.db, 'category', 'Sem categoria');
+      const hygiene = ensureLookup(handle.db, 'category', 'Higiene');
+      const market = ensureLookup(handle.db, 'category', 'Mercado');
+      const [first, second] = getPurchase(handle.db, purchaseId).items.map((item) => item.id);
+      updatePurchaseItemsCategory(handle.db, purchaseId, [first!], hygiene.id);
+      updatePurchaseItemsCategory(handle.db, purchaseId, [second!], empty.id);
+      const wallet = ensureLookup(handle.db, 'payment', 'Carteira sintética');
+      handle.sqlite.prepare("UPDATE payment_methods SET balance_type = 'wallet' WHERE id = ?").run(wallet.id);
+      const payment = { paymentMethodId: wallet.id, amountCents: 4598, adjustment: { amountCents: 4598, effectiveDate: '2026-10-20', reason: 'opening_balance' as const, description: 'Saldo inicial sintético' } };
+
+      const result = reconcilePurchase(handle.db, purchaseId, { transactionIds: [], walletPayments: [payment], categoryId: market.id });
+      expect(result.categoryId).toBe(market.id);
+      expect(result.items).toMatchObject([
+        { id: first, categoryId: hygiene.id },
+        { id: second, categoryId: market.id },
+      ]);
+
+      // Depois de conciliar, cada item continua podendo receber outra categoria.
+      updatePurchaseItemsCategory(handle.db, purchaseId, [second!], hygiene.id);
+      expect(getPurchase(handle.db, purchaseId).items.map((item) => item.categoryId)).toEqual([hygiene.id, hygiene.id]);
+
+      const undone = undoPurchaseReconciliation(handle.db, purchaseId);
+      expect(undone.items.map((item) => item.categoryId)).toEqual([hygiene.id, hygiene.id]);
+
+      const again = reconcilePurchase(handle.db, purchaseId, { transactionIds: [], walletPayments: [{ paymentMethodId: wallet.id, amountCents: 4598 }], categoryId: null });
+      expect(again.items.map((item) => item.categoryId)).toEqual([hygiene.id, hygiene.id]);
     } finally { handle.sqlite.close(); }
   });
 

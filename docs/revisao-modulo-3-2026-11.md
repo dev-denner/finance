@@ -37,6 +37,8 @@ Funciona hoje e o código é cuidadoso, mas é o caminho frágil: depende do lay
 ### R3 — Conciliar sobrescreve a categoria de todos os itens
 `reconcilePurchase` aplica a categoria da compra a **todos** os `purchase_items`, guardando a anterior em `reconciliation_previous_category_id` e restaurando no desfazer. Isso apaga a classificação item a item feita antes de conciliar, contrariando o README ("essa classificação é independente da categoria geral da compra"). **Recomendação:** aplicar só aos itens sem categoria, ou tornar a propagação uma escolha explícita no payload.
 
+**Resolvido (2026-11-12, decisão do usuário):** a conciliação aplica a categoria da compra só aos itens sem categoria ou na categoria "Sem categoria". Itens já classificados ficam como estão e continuam editáveis depois de conciliar; o desfazer restaura a categoria anterior de cada item.
+
 ### R4 — `purchases.transaction_id` redundante
 Com `purchase_settlements` como fonte da verdade, `transaction_id` guarda só o primeiro movimento e tem índice único, o que impede duas compras parciais pagas pelo mesmo lançamento mesmo quando as liquidações permitiriam. **Recomendação:** remover a coluna (ou renomear para "movimento principal" e tirar a unicidade) em uma migração própria.
 
