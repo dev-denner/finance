@@ -384,7 +384,7 @@ Formatos aceitos: `.csv`, `.txt`, `.xls`, `.xlsx` e `.xlsm` (primeira planilha d
 3. Se alguma linha ficar sem conta/pagamento (arquivo sem a coluna ou célula vazia), escolha a **conta de destino do lote** antes de confirmar.
 4. Revise a prévia. Linhas com erro podem ser corrigidas ou rejeitadas individualmente.
 5. Se houver pares candidatos de transferência, revise cada par lado a lado e escolha **Confirmar**, **Rejeitar** ou **Pendente**.
-   Na aba **Contas a pagar**, confira as saídas do arquivo que parecem pagar uma conta em aberto (valor igual ao previsto, ou dentro da faixa mín./máx. da recorrência, e até 5 dias do vencimento). Confirmar marca a conta como paga com aquele lançamento; nada é vinculado sem confirmação. Pares de alta confiança (valor exato e descrição parecida) e sem disputa já vêm confirmados; uma linha só paga uma conta e uma conta só é paga por uma linha.
+   Na aba **Contas a pagar**, confira as saídas do arquivo que parecem pagar uma conta em aberto (valor igual ao previsto, ou dentro da faixa mín./máx. da recorrência, e até 5 dias do vencimento). Confirmar marca a conta como paga com aquele lançamento. **Pares de alta confiança (valor exato e descrição parecida) e sem disputa já vêm confirmados**: se você importar sem mudá-los, a conta é marcada como paga. Os demais ficam pendentes e só são vinculados se você confirmar. Uma linha só paga uma conta e uma conta só é paga por uma linha.
 6. Revise as **sugestões de categoria** agrupadas por categoria de origem.
 7. Escolha o tratamento de duplicidades e confirme a importação.
 
@@ -668,7 +668,7 @@ A suíte cobre:
 - Não há confirmação de leitura, assinatura digital, configuração pela interface nem canal além de e-mail (WhatsApp e afins ficaram fora do escopo).
 - **Contas a pagar**: contas marcadas como pagas antes da migração `0015` não têm lançamento vinculado (aparecem como "paga antes da atualização"). A tela registra um pagamento por conta; o modelo aceita vários (pagamento parcial), mas a interface ainda não. Não há anexos (boleto/PDF), linha digitável, visão em calendário nem notificação do sistema além do contador no menu e do e-mail.
 - **Recorrências** materializam ocorrências até 12 meses à frente e, para trás, no máximo 12 meses a partir de hoje: uma série com data inicial antiga não gera as ocorrências mais velhas que isso (a numeração "N de T" continua contada desde a data inicial).
-- **Sugestão de pagamento na importação** é heurística (valor igual ou dentro da faixa, até 5 dias, descrição parecida): só sugere, nunca vincula sem confirmação, e não procura contas já pagas nem lançamentos já gravados antes da importação.
+- **Sugestão de pagamento na importação** é heurística (valor igual ou dentro da faixa, até 5 dias, descrição parecida). Na revisão, os pares de alta confiança e sem disputa já vêm confirmados e são vinculados ao importar, a menos que você os mude para Rejeitar ou Pendente; os demais só com confirmação. O servidor não vincula nada sem decisão enviada pela tela. Não procura contas já pagas nem lançamentos gravados antes da importação.
 
 ## Solução de problemas
 
