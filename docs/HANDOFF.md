@@ -22,16 +22,16 @@ Stack: TypeScript strict, Fastify 5, React 19 + Vite 7, Tailwind 3, SQLite (`bet
 
 ## 2. Estado das branches (2026-11-12)
 
-As branches do Módulo 1 estão **empilhadas sobre o PR #5** (Módulo 3) e publicadas como PRs empilhados no GitHub: a base de cada PR é a branch anterior. Ordem de merge: **#5 → PR1 → PR2 → PR3 → PR4**. Ao mesclar um PR, apagar a branch dele faz o GitHub trocar a base do seguinte para `master`; se a branch não for apagada, troque a base manualmente.
+O **PR #5 (Módulo 3) foi mesclado em `master` em 2026-11-12** (merge commit `7acb54f`). Os PRs do Módulo 1 estão publicados e empilhados: **#6** (base `master`) → **#7** → **#8** → **#9**, cada um com base na branch anterior. Ordem de merge: #6 → #7 → #8 → #9. Ao mesclar um PR, apagar a branch dele faz o GitHub trocar a base do seguinte para `master`; se a branch não for apagada, troque a base manualmente.
 
 | Branch | Onde | Estado |
 |---|---|---|
 | `origin/master` (7676fe5) | remoto | PR 2 (importação com decisões de categoria), PR 3 (lembretes por e-mail, migração `0006_slimy_nekra`), PR 4 (OpenCode simplificado) |
-| `feat/module3-purchases` (5c03ee6) | **PR #5** | Módulo 3 (compras/NFC-e), migrações `0007`–`0014`, 418 + 53 testes. Revisado e aprovado com ressalvas (`docs/revisao-modulo-3-2026-11.md`). **Decisão de merge é do usuário** |
-| `feat/bills-recurrence` | PR1 (base: `feat/module3-purchases`) | CI, imagens movidas, análise, plano, modelo de recorrência/ocorrência/pagamento com migração **`0015_bill_templates_and_payments`**, revisão do M3, este HANDOFF. 465 + 53 testes |
-| `feat/bills-payments` | PR2 (base: `feat/bills-recurrence`) | Pagar com lançamento ou vínculo, guards no Módulo 2. 482 + 53 testes |
-| `feat/bills-api` | PR3 (base: `feat/bills-payments`) | Rotas Zod de ocorrências e recorrências, multipart compartilhado, cliente tipado. 494 + 53 testes |
-| `feat/bills-ui` | PR4 (base: `feat/bills-api`) | Tela nova de contas a pagar (agenda, pagar/desfazer, recorrência com prévia, escopo de edição, badge) e remoção do legado. 489 + 73 testes |
+| `feat/module3-purchases` (5c03ee6) | PR #5, **mesclado** | Módulo 3 (compras/NFC-e), migrações `0007`–`0014`. Ressalvas R2–R7 da revisão (`docs/revisao-modulo-3-2026-11.md`) continuam pendentes. A branch remota não foi apagada |
+| `feat/bills-recurrence` | PR #6 (base: `master`) | CI, imagens movidas, análise, plano, modelo de recorrência/ocorrência/pagamento com migração **`0015_bill_templates_and_payments`**, revisão do M3, este HANDOFF. 465 + 53 testes |
+| `feat/bills-payments` | PR #7 (base: `feat/bills-recurrence`) | Pagar com lançamento ou vínculo, guards no Módulo 2. 482 + 53 testes |
+| `feat/bills-api` | PR #8 (base: `feat/bills-payments`) | Rotas Zod de ocorrências e recorrências, multipart compartilhado, cliente tipado. 494 + 53 testes |
+| `feat/bills-ui` | PR #9 (base: `feat/bills-api`) | Tela nova de contas a pagar (agenda, pagar/desfazer, recorrência com prévia, escopo de edição, badge) e remoção do legado. 489 + 73 testes |
 | `feat/bills-recurrence-oldbase`, `feat/import-installments-category-matching` | local | Bases antigas, sem uso. Podem ser apagadas |
 
 O usuário autorizou (2026-11-12) **publicar cada PR assim que concluído** (push da branch e abertura do PR); merge continua sendo decisão dele.
@@ -67,7 +67,7 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 
 ## 5. O que falta (em ordem)
 
-1. ~~**Empilhar sobre o Módulo 3**~~ — **feito** (2026-11-12): pilha rebaseada sobre o PR #5 com `git rebase --onto origin/feat/module3-purchases origin/master --update-refs`; migração regenerada como `0015` com o procedimento da seção 6 (SQL idêntico à antiga `0007`); resets unidos. Falta só o usuário decidir o merge do #5.
+1. ~~**Empilhar sobre o Módulo 3**~~ — **feito** (2026-11-12): pilha rebaseada sobre o PR #5 com `git rebase --onto origin/feat/module3-purchases origin/master --update-refs`; migração regenerada como `0015` com o procedimento da seção 6 (SQL idêntico à antiga `0007`); resets unidos. O #5 foi mesclado em 2026-11-12.
 2. ~~**PR2**~~ — **feito** em `feat/bills-payments` (ver registro no plano).
 3. ~~**PR3**~~ — **feito** em `feat/bills-api` (ver registro no plano). `/status` e `/repeat` ficaram como deprecated e saem no PR4.
 4. ~~**PR4**~~ — **feito** em `feat/bills-ui` (ver registro no plano). O PR1 recebeu depois a correção de duas sugestões do Codex (`cd2da19`: recorrência antiga e data duplicada na divisão); as branches de cima não tocam esses arquivos e não precisaram de rebase.
