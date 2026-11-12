@@ -1,6 +1,6 @@
 # HANDOFF — estado do projeto Finance e como continuar
 
-Atualizado em 2026-11-11 (sessão com Claude Fable 5.1). Leia este arquivo antes de qualquer trabalho; ele resume o que já foi decidido, feito e o que falta, com ponteiros para os documentos detalhados. Os documentos de referência estão em `docs/`:
+Atualizado em 2026-11-11 (sessão com Claude Fable 5.1; PR2 adicionado na sessão com Claude Opus 5.5). Leia este arquivo antes de qualquer trabalho; ele resume o que já foi decidido, feito e o que falta, com ponteiros para os documentos detalhados. Os documentos de referência estão em `docs/`:
 
 | Documento | Conteúdo |
 |---|---|
@@ -27,6 +27,7 @@ Stack: TypeScript strict, Fastify 5, React 19 + Vite 7, Tailwind 3, SQLite (`bet
 | `origin/master` (7676fe5) | remoto | Contém PR 2 (importação com decisões de categoria), PR 3 (lembretes por e-mail para contas a pagar, migração `0006_slimy_nekra`), PR 4 (OpenCode simplificado). Baseline declarado no `AGENTS.md`: 362 testes |
 | `origin/feat/module3-purchases` (5c03ee6) | remoto | Módulo 3 completo: 3 commits grandes, migrações `0007`–`0014`, build e 418+53 testes verdes. **Revisado, aprovado com ressalvas**, aguardando merge |
 | `feat/bills-recurrence` | **local apenas** | Fase 0 + PR1 do Módulo 1: 7 commits sobre `origin/master` (CI, imagens movidas, docs, feat(bills) com migração `0007_bill_templates_and_payments`, docs de baseline, revisão do M3). Build verde; 383 testes server + 26 client. **Nenhum PR aberto, nada enviado** |
+| `feat/bills-payments` | **local apenas** | PR2 do Módulo 1, empilhada sobre `feat/bills-recurrence`: pagar com lançamento e vínculo, guards no Módulo 2. Build verde; 400 testes server + 26 client. Abrir PR só depois do PR1 |
 | `feat/bills-recurrence-oldbase` | local | Backup do mesmo trabalho sobre a base antiga. Pode ser apagada |
 | `feat/import-installments-category-matching` | local | Base antiga com commits duplicados do que já está em `origin/master`. Pode ser apagada |
 
@@ -62,7 +63,7 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 ## 5. O que falta (em ordem)
 
 1. **Esperar o merge do Módulo 3** (decisão do usuário). Então, em `feat/bills-recurrence`: `git fetch`, rebase sobre `origin/master`, renomear `server/drizzle/0007_bill_templates_and_payments.sql` e `meta/0007_snapshot.json` para `0015_...`, corrigir `meta/_journal.json` (tag e `idx`), unir `DATA_RESET_TABLES` em `server/src/db/reset.ts` na ordem `purchase_settlements, payment_balance_adjustments, purchase_items, purchases, bill_payments, transfer_rejections, transfers, transactions, import_batches, bill_reminder_notifications, bill_reminder_batches, scheduled_bills, bill_templates`, unir `tests/reset.test.ts`, atualizar baseline no `AGENTS.md`, rodar `npm run build && npm test`. `schema.ts` e `README.md` mesclam sozinhos (verificado com `git merge-tree`). Depois abrir o PR (sem push até o usuário aprovar).
-2. **PR2** — `payBill` modos `transaction` e `link`, `unpayBill` com lançamento, guard em `deleteTransaction`/`bulkDeleteTransactions`/`linkTransfer` (plano, seção 5).
+2. ~~**PR2**~~ — **feito** em `feat/bills-payments` (ver registro no plano). Após o rebase do PR1 (item 1), rebasear `feat/bills-payments` sobre a nova `feat/bills-recurrence` (`git rebase --onto`); não toca migrações.
 3. **PR3** — rotas novas com Zod (`/api/bills/agenda`, `/pay`, `/unpay`, `/skip`, `/schedule`, `/api/bill-templates`), `routes/multipart.ts` compartilhado, remoção de `/status` e `/repeat`, client tipado, README.
 4. **PR4** — tela nova (filas atrasadas/hoje/7 dias/mês, chip de status, popover "Pagar" com toggle "Registrar lançamento", formulário com toggle "Repetir" e prévia de 6 datas, "só esta / esta e as futuras", URL persistente, badge no menu). Remover `legacy.ts`, `status` e `counts` legados, testes antigos de status/repeat (com justificativa no commit).
 5. **PR5** — auto-match de pagamentos na importação de extrato (`bill-payment-detection.ts`, `billCandidates`/`billDecisions`).
@@ -84,7 +85,7 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes ao fim do PR1: 383 server + 26 client (409). Na branch do Módulo 3: 418 + 53.
+- Baseline de testes ao fim do PR1: 383 server + 26 client (409); ao fim do PR2: 400 + 26 (426). Na branch do Módulo 3: 418 + 53.
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 

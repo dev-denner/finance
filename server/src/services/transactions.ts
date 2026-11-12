@@ -8,6 +8,12 @@ import { normalizeTransfer } from '../lib/installments';
 import { parseAmountToCents } from '../lib/money';
 import { displayName, normalizeName } from '../lib/normalize';
 import {
+  ensureBillPaymentStaysOutflow,
+  ensureTransactionsNotBillPayments,
+  loadBillPaymentLinks,
+  type BillPaymentLink,
+} from './bills/guards';
+import {
   ensurePaymentChangeKeepsTransfers,
   ensureTransactionCanBeRemoved,
   ensureUpdateKeepsTransfer,
@@ -40,6 +46,8 @@ export interface TransactionDto extends Transaction {
   paymentMethodName: string;
   transferStatus: TransferStatus;
   transferLink: TransferLinkDto | null;
+  /** Conta a pagar que este lançamento quita (Módulo 1), quando houver. */
+  billPayment: BillPaymentLink | null;
   /**
    * Data estimada da primeira parcela, derivada do vencimento e do número
    * atual da parcela. Nunca é a data real da compra; null quando não há
@@ -247,6 +255,7 @@ function baseDto(row: JoinedRow): TransactionDto {
     paymentMethodName: row.paymentMethodName,
     transferStatus: null,
     transferLink: null,
+    billPayment: null,
     estimatedFirstInstallmentDate: estimateFirstInstallmentDate(
       transaction.dueDate,
       transaction.installmentNumber,
@@ -272,7 +281,10 @@ export function getTransaction(db: AppDatabase, id: number): TransactionDto {
   const row = rowSelect(db).where(eq(transactions.id, id)).get();
   if (!row) throw notFound('Lançamento não encontrado.');
   const dto = baseDto(row);
-  return withTransfer(dto, getTransferContext(db, [id]).get(id));
+  return {
+    ...withTransfer(dto, getTransferContext(db, [id]).get(id)),
+    billPayment: loadBillPaymentLinks(db, [id]).get(id) ?? null,
+  };
 }
 
 function validateLookups(db: AppDatabase, categoryId: number, paymentMethodId: number) {
@@ -422,6 +434,7 @@ export function updateTransaction(
   ensureNoActivePurchaseSettlement(db, [id]);
 
   const parsed = parseWrite(db, input, existing);
+  ensureBillPaymentStaysOutflow(db, id, parsed.amountCents);
   try {
     ensureUpdateKeepsTransfer(db, id, {
       amountCents: parsed.amountCents,
@@ -449,6 +462,7 @@ export function updateTransaction(
 export function deleteTransaction(db: AppDatabase, id: number): void {
   ensureNoActivePurchaseSettlement(db, [id]);
   ensureTransactionCanBeRemoved(db, [id]);
+  ensureTransactionsNotBillPayments(db, [id]);
   const result = db.delete(transactions).where(eq(transactions.id, id)).run();
   if (result.changes === 0) throw notFound('Lançamento não encontrado.');
 }
@@ -517,6 +531,7 @@ export function bulkDeleteTransactions(db: AppDatabase, idsInput: unknown): numb
   const ids = normalizeIds(idsInput);
   ensureNoActivePurchaseSettlement(db, ids);
   ensureTransactionCanBeRemoved(db, ids);
+  ensureTransactionsNotBillPayments(db, ids);
   return db.delete(transactions).where(inArray(transactions.id, ids)).run().changes;
 }
 
@@ -553,9 +568,14 @@ export function listTransactions(db: AppDatabase, filters: ListTransactionsFilte
     db,
     rawRows.map((row) => row.transaction.id),
   );
-  const rows = rawRows.map((row) =>
-    withTransfer(baseDto(row), transferContext.get(row.transaction.id)),
+  const billPaymentLinks = loadBillPaymentLinks(
+    db,
+    rawRows.map((row) => row.transaction.id),
   );
+  const rows = rawRows.map((row) => ({
+    ...withTransfer(baseDto(row), transferContext.get(row.transaction.id)),
+    billPayment: billPaymentLinks.get(row.transaction.id) ?? null,
+  }));
 
   const totalRow = db
     .select({ value: count() })

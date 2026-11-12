@@ -453,6 +453,7 @@ Transferências internas movimentam dinheiro entre contas próprias e **não** s
   - o relatório é calculado diretamente dos lançamentos, sem tabela de resumo.
 - **Seleção em massa** é mantida ao navegar entre páginas e ao mudar filtros. A barra de ações mostra a quantidade total selecionada, inclusive itens fora da página atual.
 - **Categorias e formas de pagamento** não podem ser excluídas deixando referências inválidas. A tela oferece reatribuição dos lançamentos para outro cadastro. Reatribuir a forma de pagamento é bloqueado se quebrar uma transferência confirmada.
+- **Pagamento de conta a pagar**: a conta pode ser marcada como paga sem lançamento (modo externo), criar o lançamento de saída (data da compra = vencimento da conta; vencimento = data do pagamento) ou vincular um lançamento de saída já existente. Um lançamento que paga uma conta não pode ser excluído, virar entrada nem ser vinculado como transferência; desfaça o pagamento antes. Desfazer apaga só o lançamento criado pelo próprio pagamento; um lançamento vinculado volta a ficar livre.
 
 ## Scripts
 

@@ -8,6 +8,7 @@ import {
   transfers,
 } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
+import { ensureNotBillPaymentForTransfer } from './bills/guards';
 
 export type TransferExecutor = Pick<AppDatabase, 'select' | 'insert' | 'update' | 'delete'>;
 
@@ -180,6 +181,7 @@ export function insertTransferRecord(db: TransferExecutor, input: LinkTransferIn
   if (!incoming) throw notFound('Lançamento de entrada não encontrado.');
 
   validatePair(outgoing, incoming);
+  ensureNotBillPaymentForTransfer(db, [outgoing.id, incoming.id]);
 
   const existing = findActiveLink(db, [outgoing.id, incoming.id]);
   if (existing.length > 0) {
