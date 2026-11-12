@@ -2,6 +2,8 @@
 
 Data: 2026-11-11 · Base: `docs/analise-modulos-2026-11.md` · Formato: `.opencode/agents/planner.md`
 
+> **Status (2026-11-12): concluído.** PR1–PR5 mesclados (#6, #7, #8, #9, #10; correção #11) e este PR6 de documentação. O que ficou fora está na seção 8; o registro de cada PR, na seção 9.
+
 ## 1. Interpretação do pedido
 
 Evoluir o agendador de contas a pagar de "lista mensal com flag de status" para um módulo com três camadas: **regra de recorrência** (template), **ocorrência** (a conta de um mês) e **pagamento** (vínculo com um lançamento real do Módulo 2). A tela passa a ser orientada ao job "não atrasar": atrasadas, vence hoje, próximos dias.
@@ -380,3 +382,11 @@ Casos obrigatórios de borda: dia 31 em fevereiro; `interval=2`; `endDate` antes
 - Tela de importação ganha a aba **Contas a pagar** (`TransactionsImportPage.tsx`), com as decisões em `client/src/lib/import-decisions.ts` (`defaultBillDecisions`, `mergeBillDecisions`, `applyBillDecision`, `billDecisionsForImport`) e o resumo final com vinculadas, pendentes, rejeitadas e puladas.
 - Verificado ponta a ponta pela API com uma cópia do banco real: extrato com Vivo Fibra e Darf gerou dois candidatos de alta confiança; confirmar a Vivo a marcou paga com o lançamento importado e rejeitar a Darf a manteve em aberto. A tela não foi verificada no navegador porque o painel não anexa arquivos; está coberta por `transactions-import-page.test.tsx`.
 - Baseline: 594 testes (511 server + 83 client).
+
+### PR6 (2026-11-12) — documentação final
+
+- README: lembretes descritos pelo estado novo (em aberto e sem agendamento), limitações de contas a pagar, recorrências e sugestão na importação, e cobertura de testes.
+- AGENTS: estrutura de `services/bills` e dos componentes da tela.
+- Análise: coluna de status para M1-01…M1-09 e Fase 0/Fase 1 marcadas.
+- HANDOFF: estado após os merges e próximos passos.
+- Correção do review do #10 em PR próprio (#11): as abas de contas e de transferências da importação passam a mostrar todos os pares, porque os de alta confiança vêm pré-confirmados.

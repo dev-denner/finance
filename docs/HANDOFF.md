@@ -1,6 +1,6 @@
 # HANDOFF — estado do projeto Finance e como continuar
 
-Atualizado em 2026-11-12 (sessão com Claude Fable 5.1; PR2, PR3, a publicação dos PRs e o PR4 na sessão com Claude Opus 5.5). Leia este arquivo antes de qualquer trabalho; ele resume o que já foi decidido, feito e o que falta, com ponteiros para os documentos detalhados. Os documentos de referência estão em `docs/`:
+Atualizado em 2026-11-12 (sessão com Claude Fable 5.1; PR2 a PR6, publicação e merges na sessão com Claude Opus 5.5). **O Módulo 1 do plano está concluído**; os próximos trabalhos estão na seção 5. Leia este arquivo antes de qualquer trabalho; ele resume o que já foi decidido, feito e o que falta, com ponteiros para os documentos detalhados. Os documentos de referência estão em `docs/`:
 
 | Documento | Conteúdo |
 |---|---|
@@ -20,20 +20,22 @@ App local (sem login, sem cloud) para substituir a planilha financeira do usuár
 
 Stack: TypeScript strict, Fastify 5, React 19 + Vite 7, Tailwind 3, SQLite (`better-sqlite3`) + Drizzle, Zod nas rotas, Vitest. Monorepo npm workspaces (`server/`, `client/`). Regras do repositório em `AGENTS.md` (comandos reais, gate de qualidade, proibições: sem dependência nova sem aprovação, sem push sem aprovação, Conventional Commits com Gitmoji).
 
-## 2. Estado das branches (2026-11-12)
+## 2. Estado do repositório (2026-11-12)
 
-Em 2026-11-12 foram mesclados em `master` o **PR #5** (Módulo 3, `7acb54f`) o **PR #6** (modelo de recorrência e migração `0015`, `c012364`), o **PR #7** (pagamento com lançamento, `82614de`) o **PR #8** (API validada, `9805aff`) e o **PR #9** (tela nova, `854c42a`; o `master` foi mesclado na branch dele para resolver um conflito nos testes de recorrência). O PR5 (auto-match na importação) está em `feat/bills-import-match`, com base em `master`. Com o #6, o CI (`.github/workflows/ci.yml`) passou a rodar: o GitHub só registrou o workflow quando ele chegou ao branch padrão. Trocar a base de um PR não dispara o CI; ele roda no próximo push da branch. Ao mesclar um PR, apagar a branch dele faz o GitHub trocar a base do seguinte para `master`; se a branch não for apagada, troque a base manualmente.
+Tudo o que foi feito está em `master`. Merges de 2026-11-12, em ordem:
 
-| Branch | Onde | Estado |
-|---|---|---|
-| `origin/master` (7676fe5) | remoto | PR 2 (importação com decisões de categoria), PR 3 (lembretes por e-mail, migração `0006_slimy_nekra`), PR 4 (OpenCode simplificado) |
-| `feat/module3-purchases` (5c03ee6) | PR #5, **mesclado** | Módulo 3 (compras/NFC-e), migrações `0007`–`0014`. Ressalvas R2–R7 da revisão (`docs/revisao-modulo-3-2026-11.md`) continuam pendentes. A branch remota não foi apagada |
-| `feat/bills-recurrence` | PR #6, **mesclado** | CI, imagens movidas, análise, plano, modelo de recorrência/ocorrência/pagamento com migração **`0015_bill_templates_and_payments`**, revisão do M3, este HANDOFF. 465 + 53 testes |
-| `feat/bills-payments` | PR #7, **mesclado** | Pagar com lançamento ou vínculo, guards no Módulo 2. 482 + 53 testes |
-| `feat/bills-api` | PR #8, **mesclado** | Rotas Zod de ocorrências e recorrências, multipart compartilhado, cliente tipado. 494 + 53 testes |
-| `feat/bills-ui` | PR #9, **mesclado** | Tela nova de contas a pagar (agenda, pagar/desfazer, recorrência com prévia, escopo de edição, badge) e remoção do legado. 489 + 73 testes |
-| `feat/bills-import-match` | PR5 (base: `master`) | Auto-match de pagamentos de contas na importação de extrato. 511 + 83 testes |
-| `feat/bills-recurrence-oldbase`, `feat/import-installments-category-matching` | local | Bases antigas, sem uso. Podem ser apagadas |
+| PR | Branch | Conteúdo | Merge |
+|---|---|---|---|
+| #5 | `feat/module3-purchases` | Módulo 3 (compras/NFC-e), migrações `0007`–`0014` | `7acb54f` |
+| #6 | `feat/bills-recurrence` | CI, docs, modelo de recorrência/ocorrência/pagamento, migração `0015_bill_templates_and_payments` | `c012364` |
+| #7 | `feat/bills-payments` | Pagar criando ou vinculando lançamento; guards no Módulo 2 | `82614de` |
+| #8 | `feat/bills-api` | Rotas Zod, multipart compartilhado, cliente tipado | `9805aff` |
+| #9 | `feat/bills-ui` | Tela nova de contas a pagar e remoção do legado | `854c42a` |
+| #10 | `feat/bills-import-match` | Sugestão e vínculo de pagamentos de contas na importação | `386cc25` |
+
+Abertos quando este arquivo foi atualizado: **#11** (`fix/import-bill-candidates-all`: as abas de contas e de transferências da importação passam a mostrar todos os pares, apontamento do Codex no #10) e o PR desta documentação (`chore/bills-docs-final`). As branches mescladas não foram apagadas; `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` são locais e sem uso.
+
+O CI (`.github/workflows/ci.yml`, build + testes em Linux) roda em todo push no `master` e em PRs. Ele só passou a valer depois de chegar ao `master`; trocar a base de um PR não o dispara, só um push. O Codex revisa cada PR automaticamente e, nos PRs deste trabalho, sempre encontrou algo real: espere a revisão terminar antes de mesclar, ou trate o apontamento em PR de acompanhamento.
 
 O usuário autorizou (2026-11-12) **publicar cada PR assim que concluído** (push da branch e abertura do PR); merge continua sendo decisão dele.
 
@@ -47,7 +49,7 @@ O usuário trabalha em mais de uma máquina (Windows e Linux) e com sessões par
 - **Manter a tabela `scheduled_bills`** como ocorrência (sem renomear). "AG" virou `scheduled_for`.
 - **Excluir lançamento vinculado a pagamento é bloqueado** (mesmo padrão das transferências), não cascateado.
 - **Sugestões nunca se aplicam sozinhas** (categorias, transferências, pagamentos de contas): decisão explícita na prévia.
-- **Ordem de merge**: PR #5 (Módulo 3) entra primeiro; os PRs do Módulo 1 já estão empilhados sobre ele, com a migração renumerada para `0015`.
+- **Ordem de merge** (cumprida): PR #5 (Módulo 3) primeiro, depois os PRs do Módulo 1 empilhados sobre ele, com a migração renumerada para `0015`.
 - **Manter a stack**; o problema é organização, não tecnologia. Caminho para mobile: PWA primeiro, Expo depois, com `packages/domain` e `api-client` compartilhados (ver análise, seção 5).
 - **Módulo 3 sem scraping agressivo**: a branch automatiza portais da SEFAZ com guardas (sem captcha, limites), mas a recomendação registrada é deixar esse canal opcional e priorizar texto colado e PDF.
 
@@ -66,16 +68,15 @@ Schema/migração: `bill_templates`, `bill_payments`, `scheduled_bills` recriada
 
 Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills-migration` (aplica migrações até `0014`, semeia dados legados e lembretes, aplica `0015`, confere). Os testes antigos de status/repeat continuam válidos pela camada legada.
 
-## 5. O que falta (em ordem)
+## 5. O que falta (em ordem sugerida)
 
-1. ~~**Empilhar sobre o Módulo 3**~~ — **feito** (2026-11-12): pilha rebaseada sobre o PR #5 com `git rebase --onto origin/feat/module3-purchases origin/master --update-refs`; migração regenerada como `0015` com o procedimento da seção 6 (SQL idêntico à antiga `0007`); resets unidos. O #5 foi mesclado em 2026-11-12.
-2. ~~**PR2**~~ — **feito** em `feat/bills-payments` (ver registro no plano).
-3. ~~**PR3**~~ — **feito** em `feat/bills-api` (ver registro no plano). `/status` e `/repeat` ficaram como deprecated e saem no PR4.
-4. ~~**PR4**~~ — **feito** em `feat/bills-ui` (ver registro no plano). O PR1 recebeu depois a correção de duas sugestões do Codex (`cd2da19`: recorrência antiga e data duplicada na divisão); as branches de cima não tocam esses arquivos e não precisaram de rebase.
-5. ~~**PR5**~~ — **feito** em `feat/bills-import-match` (ver registro no plano).
-6. **PR6** — docs finais.
-7. **Módulo 3, após o merge**: ressalvas R3 (conciliar sobrescreve categoria dos itens), R4 (`purchases.transaction_id` redundante), R6 (tsconfig `lib: DOM`, teste do parser RJ, mensagens em BRL), R7 (código do item e `purchase_payments` para o Módulo 4).
-8. **Módulo 2** (fase 2 da análise): entidade conta evoluindo `payment_methods.balance_type`, perfis de arquivo por banco, OFX, grupo de parcelas, rateio/tags, regras, desfazer lote, quebrar `import.ts`/`TransactionsImportPage.tsx` em wizard.
+O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído: PR1–PR5 mesclados, PR6 é esta documentação. O registro de cada PR está na seção 9 do plano.
+
+1. **Mesclar #11** (correção da revisão do #10) e o PR desta documentação.
+2. **Módulo 3 — ressalvas da revisão** (`docs/revisao-modulo-3-2026-11.md`): R3 (conciliar uma compra sobrescreve a categoria de todos os itens; pede decisão do usuário), R4 (`purchases.transaction_id` redundante com `purchase_settlements`), R6 (tsconfig `lib: DOM` no server inteiro, teste próprio do parser RJ, mensagens de saldo em BRL), R7 (código do item e formas de pagamento da nota em linhas, para o Módulo 4), R2 (canal de consulta à SEFAZ atrás de configuração; pede decisão).
+3. **Módulo 1 — sobras fora de escopo** (plano, seção 8): pagamento parcial na tela, notificações locais/PWA, anexos e linha digitável, visão calendário, "find schedules" (sugerir recorrências pelo histórico), recorrência na importação de contas por planilha, M1-06 (duplicidade duplicada em `bills-import.ts`), ações em massa e atalhos.
+4. **Módulo 2** (fase 2 da análise): entidade conta evoluindo `payment_methods.balance_type`, perfis de arquivo por banco, OFX, grupo de parcelas, rateio/tags, regras, desfazer lote, quebrar `import.ts`/`TransactionsImportPage.tsx` (3 mil linhas) em wizard.
+5. **Transversal**: ESLint/Prettier, `packages/domain` e `api-client` (análise, seção 5), PWA.
 
 ## 6. Armadilhas aprendidas (evite repetir)
 
@@ -103,3 +104,4 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 - ~~Dependências de teste de componente~~: não são necessárias; os testes de página usam `react-dom/client` + `act` + jsdom, que já existem.
 - Confirmar se o canal de consulta aos portais da SEFAZ (Playwright) deve ficar atrás de configuração desligada por padrão (ressalva R2 da revisão).
 - Decidir o destino da classificação item a item na conciliação do Módulo 3 (ressalva R3).
+- Decidir a prioridade entre as ressalvas do Módulo 3, as sobras do Módulo 1 e a fase 2 do Módulo 2 (seção 5).

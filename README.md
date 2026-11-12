@@ -206,7 +206,7 @@ Na migração `0015`, contas com situação `PG` viraram pagas na data de vencim
 
 ## Lembretes por e-mail
 
-Contas a pagar com situação **pendente** (ainda não agendadas) recebem um
+Contas a pagar **em aberto e sem data de agendamento** recebem um
 aviso por e-mail nos marcos **D-3, D-2, D-1 e D0** — isto é, 3, 2, 1 e 0 dias
 antes do vencimento.
 
@@ -216,8 +216,7 @@ antes do vencimento.
   só. **Corrigir o vencimento** da conta cria um **conjunto novo de marcos** —
   o histórico do vencimento anterior não é reaproveitado e um marco já
   avisado pode ser avisado de novo (até 4 avisos por conta **e vencimento**).
-- **Marcar como agendado (`AG`) ou pagar (`PG`) interrompe** os avisos
-  restantes da conta.
+- **Agendar, pagar ou pular** a conta interrompe os avisos restantes dela.
 - **Sem valor no e-mail**: o aviso traz apenas descrição, vencimento
   (`DD/MM/AAAA`), prazo restante (`faltam 3 dias`), categoria, quantidade de
   itens e o marco. Nenhum valor monetário, total ou soma é enviado — a
@@ -385,7 +384,7 @@ Formatos aceitos: `.csv`, `.txt`, `.xls`, `.xlsx` e `.xlsm` (primeira planilha d
 3. Se alguma linha ficar sem conta/pagamento (arquivo sem a coluna ou célula vazia), escolha a **conta de destino do lote** antes de confirmar.
 4. Revise a prévia. Linhas com erro podem ser corrigidas ou rejeitadas individualmente.
 5. Se houver pares candidatos de transferência, revise cada par lado a lado e escolha **Confirmar**, **Rejeitar** ou **Pendente**.
-   Na aba **Contas a pagar**, confira as saídas do arquivo que parecem pagar uma conta em aberto (valor igual ao previsto, ou dentro da faixa mín./máx. da recorrência, e até 5 dias do vencimento). Confirmar marca a conta como paga com aquele lançamento; nada é vinculado sem confirmação. Pares de alta confiança (valor exato e descrição parecida) e sem disputa já vêm confirmados; uma linha só paga uma conta e uma conta só é paga por uma linha.
+   Na aba **Contas a pagar**, confira as saídas do arquivo que parecem pagar uma conta em aberto (valor igual ao previsto, ou dentro da faixa mín./máx. da recorrência, e até 5 dias do vencimento). Confirmar marca a conta como paga com aquele lançamento. **Pares de alta confiança (valor exato e descrição parecida) e sem disputa já vêm confirmados**: se você importar sem mudá-los, a conta é marcada como paga. Os demais ficam pendentes e só são vinculados se você confirmar. Uma linha só paga uma conta e uma conta só é paga por uma linha.
 6. Revise as **sugestões de categoria** agrupadas por categoria de origem.
 7. Escolha o tratamento de duplicidades e confirme a importação.
 
@@ -638,6 +637,7 @@ A suíte cobre:
 - transferências: vínculo/desvínculo, prevenção de vínculos duplicados, validação de valor/sinal/conta, bloqueios de edição/exclusão, preservação da marcação original e exclusão dos totais de receita/despesa;
 - cores das categorias: persistência, atualização, limpeza, validação de formato e integridade após reaplicar migrações;
 - consolidado anual: agrupamento, sinais, transferências, médias e totais;
+- contas a pagar: regras de recorrência (fim de mês, bissexto, término por data ou quantidade, limite inicial), geração idempotente, divisão "desta data em diante" sem duplicar ocorrências mantidas, migração de dados `''/AG/PG`, pagar externo/com lançamento/vinculando, desfazer, proteções no Módulo 2, rotas validadas, tela (estado na URL, pagar e desfazer, escopo de edição) e sugestão de pagamentos na importação;
 - lembretes por e-mail: marcos, consolidação por marco, idempotência, retentativa e limite de tentativas, privacidade do e-mail (sem valor), sanitização de erro (host, usuário, senha e valor redigidos), TLS obrigatório, pré-visualização (`dry-run`) que não consome o aviso, CLI e escopo do reset.
 
 ## Decisões de arquitetura
@@ -660,12 +660,15 @@ A suíte cobre:
 - Uma reimportação de arquivo pode criar uma transferência duplicada se o par já existir e os lançamentos não tiverem sido vinculados antes.
 - O e-mail de lembrete **não informa valores**: apenas descrição, vencimento, prazo restante, categoria, quantidade de itens e marco. Quem quiser os valores precisa abrir o aplicativo.
 - A **descrição da conta vai no e-mail**: é texto livre e pode conter dado pessoal — evite nome de pessoa, documento ou outra informação sensível nela.
-- Os lembretes avisam apenas contas **pendentes** (`AG` e `PG` nunca são avisadas) e dependem do backend no ar: sem servidor rodando, não há aviso — os marcos só são recuperados depois, dentro da janela de catch-up.
+- Os lembretes avisam apenas contas **em aberto e sem agendamento** (agendadas, pagas e puladas nunca são avisadas) e dependem do backend no ar: sem servidor rodando, não há aviso — os marcos só são recuperados depois, dentro da janela de catch-up.
 - Marcos cujo vencimento ficou para trás além da janela de catch-up são descartados, e não há reenvio manual de um marco já perdido.
 - Cada aviso é tentado no máximo **5 vezes**; depois disso é descartado e fica registrado no histórico (`falha persistente: limite de tentativas`).
 - Com `BILL_REMINDER_TRANSPORT=dry-run` nada é enviado e o agendador nem sobe — o aviso do dia não é consumido.
 - A CLI (`npm.cmd run reminders:run`) **pode** rodar com o backend no ar: a reserva atômica do lote no banco garante um único envio por marco em condições normais. A garantia é *at-least-once* (pode haver reenvio se o processo cair entre a aceitação pelo SMTP e a gravação de `sent`).
 - Não há confirmação de leitura, assinatura digital, configuração pela interface nem canal além de e-mail (WhatsApp e afins ficaram fora do escopo).
+- **Contas a pagar**: contas marcadas como pagas antes da migração `0015` não têm lançamento vinculado (aparecem como "paga antes da atualização"). A tela registra um pagamento por conta; o modelo aceita vários (pagamento parcial), mas a interface ainda não. Não há anexos (boleto/PDF), linha digitável, visão em calendário nem notificação do sistema além do contador no menu e do e-mail.
+- **Recorrências** materializam ocorrências até 12 meses à frente e, para trás, no máximo 12 meses a partir de hoje: uma série com data inicial antiga não gera as ocorrências mais velhas que isso (a numeração "N de T" continua contada desde a data inicial).
+- **Sugestão de pagamento na importação** é heurística (valor igual ou dentro da faixa, até 5 dias, descrição parecida). Na revisão, os pares de alta confiança e sem disputa já vêm confirmados e são vinculados ao importar, a menos que você os mude para Rejeitar ou Pendente; os demais só com confirmação. O servidor não vincula nada sem decisão enviada pela tela. Não procura contas já pagas nem lançamentos gravados antes da importação.
 
 ## Solução de problemas
 
