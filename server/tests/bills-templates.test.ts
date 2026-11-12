@@ -86,6 +86,27 @@ describe('recorrências — criação e geração (AC1, AC3, AC3b)', () => {
     expect(later.bills.at(-1)?.dueDate).toBe('2027-06-10');
   });
 
+  it('data inicial antiga: materializa só os últimos 12 meses e mantém a numeração', () => {
+    const { db, category, sqlite } = setup();
+    const template = createTemplate(
+      db,
+      monthlyInput({
+        categoryId: category.id,
+        description: 'Academia',
+        recurrence: { frequency: 'weekly', interval: 1 },
+        startDate: '2000-01-03',
+      }),
+      TODAY,
+    );
+    const january = listBills(db, 2026, 1, { today: TODAY }).bills.filter((b) => b.templateId === template.id);
+    expect(january.length).toBeGreaterThanOrEqual(4);
+    const weeks = (Date.UTC(2026, 0, 5) - Date.UTC(2000, 0, 3)) / (7 * 86_400_000);
+    expect(january.find((b) => b.dueDate === '2026-01-05')?.sequence).toBe(weeks + 1);
+    const total = (sqlite.prepare('SELECT COUNT(*) AS n, MIN(due_date) AS first FROM scheduled_bills WHERE template_id = ?').get(template.id) as { n: number; first: string });
+    expect(total.first >= '2025-01-15').toBe(true);
+    expect(total.n).toBeLessThanOrEqual(106);
+  });
+
   it('occurrenceCount limita a série e "N de T" sai pela sequence (AC3b)', () => {
     const { db, category } = setup();
     const template = createTemplate(
@@ -229,6 +250,30 @@ describe('recorrências — alteração (AC10)', () => {
     ]);
     expect(fresh.every((b) => b.amountCents === 170000)).toBe(true);
     expect(fresh.map((b) => b.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('scope=future não recria a data de uma ocorrência paga adiantado depois do corte', () => {
+    const { db, category } = setup();
+    const template = createTemplate(db, monthlyInput({ categoryId: category.id }), TODAY);
+    const june = listBills(db, 2026, 6, { today: TODAY }).bills[0];
+    payBill(db, june.id, { mode: 'external', paidAt: '2026-05-28', paidCents: 150000 }, TODAY);
+
+    const replacement = updateTemplate(
+      db,
+      template.id,
+      { amountCents: 160000 },
+      { scope: 'future', from: '2026-06-01' },
+      TODAY,
+    );
+
+    expect(replacement.startDate).toBe('2026-06-11');
+    expect(getTemplate(db, template.id).endDate).toBe('2026-06-10');
+    const juneBills = listBills(db, 2026, 6, { today: TODAY }).bills;
+    expect(juneBills).toHaveLength(1);
+    expect(juneBills[0]).toMatchObject({ id: june.id, state: 'paid', amountCents: 150000 });
+    const july = listBills(db, 2026, 7, { today: TODAY }).bills;
+    expect(july).toHaveLength(1);
+    expect(july[0]).toMatchObject({ templateId: replacement.id, amountCents: 160000, dueDate: '2026-07-10' });
   });
 
   it('scope=future a partir do início substitui a série inteira', () => {

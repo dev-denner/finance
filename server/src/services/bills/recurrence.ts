@@ -21,6 +21,11 @@ export interface BillRecurrence {
 }
 
 export interface OccurrenceLimits {
+  /**
+   * Limite inferior (inclusive): ocorrências anteriores não são devolvidas,
+   * mas a sequência continua contada desde a data inicial.
+   */
+  from?: string | null;
   /** Horizonte máximo (inclusive), normalmente hoje + 12 meses. */
   to: string;
   /** Término por data (inclusive). */
@@ -35,7 +40,7 @@ export interface OccurrenceDate {
   dueDate: string;
 }
 
-/** Proteção contra regras degeneradas. */
+/** Teto de ocorrências devolvidas por chamada (proteção contra janelas degeneradas). */
 const MAX_OCCURRENCES = 1000;
 
 interface DateParts {
@@ -178,8 +183,40 @@ function occurrenceAt(recurrence: BillRecurrence, anchor: Anchor, index: number)
 }
 
 /**
+ * Índice (base 0) a partir do qual vale procurar ocorrências >= `from`.
+ * Calculado direto da distância em semanas, meses ou anos, um passo antes
+ * para cobrir o recuo de fim de mês; quem chama descarta o que ficar antes.
+ */
+function firstIndexNear(recurrence: BillRecurrence, anchor: Anchor, from: string): number {
+  const first = parseParts(anchor.first);
+  const target = parseParts(from);
+  if (!first || !target || from <= anchor.first) return 0;
+  let steps: number;
+  switch (recurrence.frequency) {
+    case 'monthly':
+      steps = Math.floor(((target.year - first.year) * 12 + (target.month - first.month)) / recurrence.interval);
+      break;
+    case 'weekly': {
+      const days = Math.round(
+        (Date.UTC(target.year, target.month - 1, target.day) - Date.UTC(first.year, first.month - 1, first.day)) /
+          86_400_000,
+      );
+      steps = Math.floor(days / (7 * recurrence.interval));
+      break;
+    }
+    case 'yearly':
+      steps = Math.floor((target.year - first.year) / recurrence.interval);
+      break;
+    default:
+      steps = 0;
+  }
+  return Math.max(0, steps - 1);
+}
+
+/**
  * Datas das ocorrências a partir da data inicial, respeitando o primeiro
- * limite atingido: horizonte (`to`), término por data ou por contagem.
+ * limite atingido: horizonte (`to`), término por data ou por contagem. Com
+ * `from`, pula direto para a janela pedida sem perder a numeração.
  */
 export function nextOccurrenceDates(
   recurrence: BillRecurrence,
@@ -191,13 +228,17 @@ export function nextOccurrenceDates(
   if (!isValidIsoDate(startDate)) throw new Error(`Data inicial inválida: ${startDate}`);
   if (!isValidIsoDate(limits.to)) throw new Error(`Horizonte inválido: ${limits.to}`);
 
+  if (limits.from && !isValidIsoDate(limits.from)) throw new Error(`Limite inicial inválido: ${limits.from}`);
+
   const anchor = anchorFor(recurrence, startDate);
   const result: OccurrenceDate[] = [];
-  for (let index = 0; index < MAX_OCCURRENCES; index += 1) {
+  const startIndex = limits.from ? firstIndexNear(recurrence, anchor, limits.from) : 0;
+  for (let index = startIndex; result.length < MAX_OCCURRENCES; index += 1) {
     const sequence = index + 1;
     if (limits.occurrenceCount != null && sequence > limits.occurrenceCount) break;
     const dueDate = occurrenceAt(recurrence, anchor, index);
     if (dueDate > limits.to) break;
+    if (limits.from && dueDate < limits.from) continue;
     if (limits.endDate && dueDate > limits.endDate) break;
     result.push({ sequence, dueDate });
   }
