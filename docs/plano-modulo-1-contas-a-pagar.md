@@ -362,3 +362,13 @@ Casos obrigatórios de borda: dia 31 em fevereiro; `interval=2`; `endDate` antes
 - `routes/multipart.ts` (`readMultipartForm`, `parseJsonField`) substitui os dois leitores duplicados; contas e importação de movimentações usam o mesmo. Sem `any`.
 - Cliente: tipos `Bill` (com campos novos e legados), `BillAgenda`, `BillForecast`, `BillTemplate`, `PayBillInput` e métodos de API correspondentes; a tela atual compila sem mudança.
 - Testes: `tests/bills-routes.test.ts` (12, via `app.inject`, datas relativas ao dia real). Baseline sobre o Módulo 3: 547 (494 server + 53 client).
+
+### PR4 (2026-11-12) — concluído em `feat/bills-ui` (empilhada sobre `feat/bills-api`)
+
+- Tela nova em `client/src/pages/BillsPage.tsx` com componentes em `client/src/components/bills/` (`StatusChip`, `PayDialog`, `BillFormDialog`, `SmallBillDialogs` com agendar, excluir e escolha de escopo). Lógica sem React em `client/src/lib/bills-view.ts` (estado na URL, rótulos de situação, conversão de valores, modelo do formulário).
+- Agenda agrupada (atrasadas, vencem hoje, próximos 7 dias) limitada a 8 linhas com "Mostrar todas"; mês com filtros na URL (AC17); popover de pagamento virou diálogo pequeno com toggle "Registrar lançamento" desligado por padrão e ligado quando há conta padrão (AC18); "Desfazer" no aviso por 6 s (o `ToastContext` ganhou `action` e `durationMs`, retrocompatível); escopo "só esta / esta e as futuras" com "só esta" bloqueado quando a repetição muda (AC19); badge no menu via `BillsBadgeContext`, atualizado a cada 60 s e após cada mudança (AC20).
+- Formulário de nova conta não pré-seleciona categoria (a primeira da lista induzia erro, visto no teste com dados reais).
+- Legado removido (AC21): `services/bills/legacy.ts`, rotas `/status` e `/repeat`, `status`/`repeatedFromId` no DTO, `counts`/`unpaidCents` no resumo e os métodos do cliente. A entrada `status` (`''/AG/PG`) continua aceita pelo serviço porque a importação de planilha usa a coluna "Situação"; a API não a aceita mais (400). Os testes de `setBillStatus`, `repeatBill` e `advanceMonth` foram substituídos por testes diretos de `addMonthsIso` e da situação da planilha.
+- Sem dependência nova: os testes de página usam `react-dom/client` + `act` + jsdom (`client/src/pages/bills-page.test.tsx`, 8). Mutação manual (toggle ligado por padrão) faz o teste de AC18 falhar.
+- Verificado no navegador com uma cópia do banco real (servidor de produção em porta livre, `DATABASE_PATH` apontando para a cópia): agenda, pagar, desfazer, badge e prévia de recorrência.
+- Baseline: 562 testes (489 server + 73 client).
