@@ -166,8 +166,6 @@ const billFields = {
   paymentMethodId: z.number().int().positive().nullable().optional(),
   notes: notesSchema,
   scheduledFor: isoDateSchema.nullable().optional(),
-  /** @deprecated situação legada usada pela tela atual. */
-  status: z.enum(['', 'AG', 'PG']).optional(),
 };
 
 export const billCreateSchema = z

@@ -27,7 +27,10 @@ export interface BillWriteInput {
   notes?: unknown;
   /** Data de agendamento no banco; null limpa. */
   scheduledFor?: unknown;
-  /** @deprecated situação legada ('' | AG | PG); mapeada para state/scheduledFor/pagamento externo. */
+  /**
+   * Situação no formato da planilha de contas ('' | AG | PG), usada pela
+   * importação: AG vira agendamento no vencimento e PG, pagamento externo.
+   */
   status?: unknown;
 }
 
@@ -198,7 +201,7 @@ export function updateBill(
   return getBill(db, id, today);
 }
 
-/** Transição de situação legada sobre o modelo novo (só pagamento externo). */
+/** Situação da planilha aplicada ao modelo (só pagamento externo). */
 function legacyTransition(
   existing: BillRow,
   legacy: LegacyBillStatus,

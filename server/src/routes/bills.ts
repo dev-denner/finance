@@ -20,9 +20,7 @@ import {
   listTemplates,
   payBill,
   previewTemplateDates,
-  repeatBill,
   scheduleBill,
-  setBillStatus,
   skipBill,
   unpayBill,
   unskipBill,
@@ -162,16 +160,6 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
     const body = parseWith(scheduleBillSchema, request.body, 'Data de agendamento inválida.');
     return { bill: scheduleBill(db, id, body.scheduledFor) };
   });
-
-  /** @deprecated use /pay, /unpay e /schedule. Mantida para a tela atual até a tela nova (PR4). */
-  app.post('/api/bills/:id/status', async (request) => {
-    const id = idOf(request);
-    const body = (request.body ?? {}) as { status?: unknown };
-    return setBillStatus(db, id, body.status);
-  });
-
-  /** @deprecated use recorrências (/api/bill-templates). Mantida para a tela atual até o PR4. */
-  app.post('/api/bills/:id/repeat', async (request) => repeatBill(db, idOf(request)));
 
   // ---- Importação de contas ---------------------------------------------
 

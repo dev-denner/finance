@@ -8,7 +8,6 @@ import {
   listBills,
   payBill,
   scheduleBill,
-  setBillStatus,
   skipBill,
   unpayBill,
   unskipBill,
@@ -40,9 +39,9 @@ describe('ocorrências — status derivado e agenda (AC9)', () => {
     expect(overdue.displayStatus).toBe('overdue');
     expect(today.displayStatus).toBe('due_today');
     expect(upcoming.displayStatus).toBe('upcoming');
-    expect(scheduled).toMatchObject({ displayStatus: 'scheduled', scheduledFor: '2026-03-18', status: 'AG' });
-    expect(paid).toMatchObject({ displayStatus: 'paid', status: 'PG', paidAt: '2026-03-04', paidCents: 1000 });
-    expect(skipped).toMatchObject({ displayStatus: 'skipped', state: 'skipped', status: '' });
+    expect(scheduled).toMatchObject({ displayStatus: 'scheduled', scheduledFor: '2026-03-18' });
+    expect(paid).toMatchObject({ displayStatus: 'paid', paidAt: '2026-03-04', paidCents: 1000 });
+    expect(skipped).toMatchObject({ displayStatus: 'skipped', state: 'skipped' });
 
     // atrasada agendada continua atrasada: a data manda
     const lateScheduled = scheduleBill(db, overdue.id, '2026-03-02', TODAY);
@@ -54,9 +53,6 @@ describe('ocorrências — status derivado e agenda (AC9)', () => {
     expect(summary.paidCents).toBe(1000);
     expect(summary.openCents).toBe(4000);
     expect(summary.overdueCents).toBe(1000);
-    // compatibilidade com a tela atual
-    expect(summary.unpaidCents).toBe(4000);
-    expect(summary.counts).toEqual({ '': 3, AG: 2, PG: 1 }); // a atrasada também foi agendada acima
   });
 
   it('agenda separa atrasadas, hoje e próximos N dias, só em aberto', () => {
@@ -170,23 +166,10 @@ describe('ocorrências — pagamento externo (AC4a), pular (AC8) e agendar', () 
   });
 });
 
-describe('ocorrências — compatibilidade com a situação legada', () => {
-  it('status PG/AG/"" mapeia para pagamento externo, agendamento e aberta', () => {
+describe('ocorrências — situação da planilha (importação)', () => {
+  it('situação inválida é recusada', () => {
     const { db, bill } = setup();
-    const target = bill('Legado', '2026-03-15', 2500);
-
-    const paid = setBillStatus(db, target.id, 'PG', TODAY);
-    expect(paid.promptRepeat).toBe(true);
-    expect(paid.bill).toMatchObject({ state: 'paid', status: 'PG', paidAt: TODAY, paidCents: 2500 });
-
-    const scheduled = setBillStatus(db, target.id, 'AG', TODAY);
-    expect(scheduled.promptRepeat).toBe(false);
-    expect(scheduled.bill).toMatchObject({ state: 'open', status: 'AG', scheduledFor: '2026-03-15', paidAt: null });
-
-    const open = updateBill(db, target.id, { status: '' }, TODAY);
-    expect(open).toMatchObject({ state: 'open', status: '', scheduledFor: null });
-
-    expect(() => setBillStatus(db, target.id, 'XX', TODAY)).toThrow(/Situação inválida/);
+    expect(() => updateBill(db, bill('X', '2026-03-15').id, { status: 'XX' }, TODAY)).toThrow(/Situação inválida/);
   });
 
   it('criar com status PG registra pagamento externo na data de vencimento (importação histórica)', () => {

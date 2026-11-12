@@ -58,7 +58,6 @@ describe('recorrências — criação e geração (AC1, AC3, AC3b)', () => {
       dueDate: '2026-03-10',
       state: 'open',
       displayStatus: 'upcoming',
-      status: '',
       paymentMethodId: account.id,
       categoryName: 'Moradia',
     });

@@ -28,7 +28,7 @@ export const BILL_DISPLAY_STATUSES: readonly BillDisplayStatus[] = [
   'skipped',
 ];
 
-/** Situação legada exposta ao client atual ('' aberta, AG agendada, PG paga). Removida com a tela nova. */
+/** Situação no formato da planilha de contas ('' aberta, AG agendada, PG paga); só entrada da importação. */
 export type LegacyBillStatus = '' | 'AG' | 'PG';
 
 export type BillPaymentOrigin = 'manual' | 'import_match' | 'migration';
@@ -54,8 +54,6 @@ export interface BillDto {
   dueDate: string;
   state: BillState;
   displayStatus: BillDisplayStatus;
-  /** @deprecated compatibilidade com a tela atual. */
-  status: LegacyBillStatus;
   scheduledFor: string | null;
   paidAt: string | null;
   paidCents: number | null;
@@ -67,8 +65,6 @@ export interface BillDto {
   paymentMethodName: string | null;
   notes: string | null;
   payments: BillPaymentDto[];
-  /** @deprecated repetição manual legada. */
-  repeatedFromId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,10 +76,6 @@ export interface BillSummary {
   paidCents: number;
   overdueCents: number;
   statusCounts: Record<BillDisplayStatus, number>;
-  /** @deprecated = openCents; compatibilidade com a tela atual. */
-  unpaidCents: number;
-  /** @deprecated contagem por situação legada; compatibilidade com a tela atual. */
-  counts: { '': number; AG: number; PG: number };
 }
 
 export type BillRow = typeof scheduledBills.$inferSelect;
@@ -122,13 +114,6 @@ export function displayStatusOf(
   if (bill.dueDate === today) return 'due_today';
   if (bill.scheduledFor) return 'scheduled';
   return 'upcoming';
-}
-
-export function legacyStatusOf(bill: Pick<BillRow, 'state' | 'scheduledFor'>): LegacyBillStatus {
-  const state = billState(bill.state);
-  if (state === 'paid') return 'PG';
-  if (state === 'open' && bill.scheduledFor) return 'AG';
-  return '';
 }
 
 export function loadPayments(db: AppDatabase, billIds: number[]): Map<number, BillPaymentDto[]> {
@@ -177,7 +162,6 @@ export function toBillDto(
     dueDate: bill.dueDate,
     state: billState(bill.state),
     displayStatus: displayStatusOf(bill, today),
-    status: legacyStatusOf(bill),
     scheduledFor: bill.scheduledFor ?? null,
     paidAt: bill.paidAt ?? null,
     paidCents: bill.paidCents ?? null,
@@ -188,7 +172,6 @@ export function toBillDto(
     paymentMethodName: row.paymentMethodName ?? null,
     notes: bill.notes ?? null,
     payments,
-    repeatedFromId: bill.repeatedFromId ?? null,
     createdAt: bill.createdAt,
     updatedAt: bill.updatedAt,
   };
@@ -210,8 +193,6 @@ export function emptySummary(): BillSummary {
     paidCents: 0,
     overdueCents: 0,
     statusCounts: { overdue: 0, due_today: 0, scheduled: 0, upcoming: 0, paid: 0, skipped: 0 },
-    unpaidCents: 0,
-    counts: { '': 0, AG: 0, PG: 0 },
   };
 }
 
@@ -219,7 +200,6 @@ export function summarize(bills: BillDto[]): BillSummary {
   const summary = emptySummary();
   for (const bill of bills) {
     summary.statusCounts[bill.displayStatus] += 1;
-    summary.counts[bill.status] += 1;
     if (bill.state === 'skipped') continue;
     summary.totalCents += bill.amountCents;
     if (bill.state === 'paid') {
@@ -229,6 +209,5 @@ export function summarize(bills: BillDto[]): BillSummary {
     summary.openCents += bill.amountCents;
     if (bill.displayStatus === 'overdue') summary.overdueCents += bill.amountCents;
   }
-  summary.unpaidCents = summary.openCents;
   return summary;
 }

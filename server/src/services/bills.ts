@@ -8,7 +8,6 @@
  *  - guards.ts       proteções do vínculo conta ↔ lançamento (usadas pelo Módulo 2)
  *  - queries.ts      listagem por período e agenda (atrasadas/hoje/próximas)
  *  - dto.ts          tipos e derivação de status
- *  - legacy.ts       compatibilidade temporária com a tela atual
  */
 export * from './bills/dto';
 export * from './bills/recurrence';
@@ -17,5 +16,4 @@ export * from './bills/payments';
 export * from './bills/guards';
 export * from './bills/templates';
 export * from './bills/queries';
-export * from './bills/legacy';
 
