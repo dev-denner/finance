@@ -400,7 +400,9 @@ export const api = {
     amountCents: number;
     dueDate: string;
     categoryId: number;
-    status?: '' | 'AG' | 'PG';
+    paymentMethodId?: number | null;
+    notes?: string | null;
+    scheduledFor?: string | null;
   }) =>
     request<{ bill: Bill }>('/bills', { method: 'POST', body: JSON.stringify(input) }),
 
@@ -411,23 +413,14 @@ export const api = {
       amountCents?: number;
       dueDate?: string;
       categoryId?: number;
-      status?: '' | 'AG' | 'PG';
+      paymentMethodId?: number | null;
+      notes?: string | null;
+      scheduledFor?: string | null;
     },
   ) => request<{ bill: Bill }>(`/bills/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
 
-  /** Conta avulsa é apagada; ocorrência de recorrência vira pulada. */
   deleteBill: (id: number) =>
     request<{ removed: boolean; skipped: boolean }>(`/bills/${id}`, { method: 'DELETE' }),
-
-  /** @deprecated use payBill/unpayBill/scheduleBill; sai com a tela nova. */
-  setBillStatus: (id: number, status: '' | 'AG' | 'PG') =>
-    request<{ bill: Bill; promptRepeat: boolean; existingRepeatId: number | null }>(
-      `/bills/${id}/status`,
-      { method: 'POST', body: JSON.stringify({ status }) },
-    ),
-
-  /** @deprecated use recorrências (createBillTemplate); sai com a tela nova. */
-  repeatBill: (id: number) => request<{ bill: Bill; created: boolean }>(`/bills/${id}/repeat`, { method: 'POST' }),
 
   listMappingTemplates: () =>
     request<{ templates: ImportMappingTemplate[] }>('/imports/mappings'),
