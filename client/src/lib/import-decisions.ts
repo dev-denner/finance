@@ -1,4 +1,6 @@
 import type {
+  BillDecision,
+  BillPaymentCandidate,
   CategoryDecisionsPayload,
   CategorySuggestionGroup,
   ColumnMapping,
@@ -160,4 +162,68 @@ export function resolveIncludedDuplicateRows(
     result.add(row.rowNumber);
   }
   return [...result].sort((a, b) => a - b);
+}
+
+// ---------------------------------------------------------------------------
+// Pagamentos de contas a pagar sugeridos na importação
+// ---------------------------------------------------------------------------
+
+/**
+ * Pares de alta confiança e sem disputa já vêm marcados como confirmados na
+ * revisão (o usuário vê e pode mudar); o resto fica pendente. O servidor
+ * nunca vincula sem decisão enviada.
+ */
+export function defaultBillDecisions(candidates: BillPaymentCandidate[]): Record<string, BillDecision> {
+  const decisions: Record<string, BillDecision> = {};
+  for (const candidate of candidates) {
+    decisions[candidate.key] = candidate.confidence === 'high' && !candidate.ambiguous ? 'confirm' : 'pending';
+  }
+  return decisions;
+}
+
+/** Mantém decisões já tomadas para candidatos que continuam na prévia nova. */
+export function mergeBillDecisions(
+  candidates: BillPaymentCandidate[],
+  current: Record<string, BillDecision>,
+): Record<string, BillDecision> {
+  const next = defaultBillDecisions(candidates);
+  for (const [key, decision] of Object.entries(current)) {
+    if (Object.prototype.hasOwnProperty.call(next, key)) next[key] = decision;
+  }
+  return next;
+}
+
+/**
+ * Aplica uma decisão. Confirmar um par devolve a pendente qualquer outro par
+ * confirmado que use a mesma linha ou a mesma conta: uma linha paga uma conta
+ * e uma conta é paga por uma linha.
+ */
+export function applyBillDecision(
+  candidates: BillPaymentCandidate[],
+  current: Record<string, BillDecision>,
+  candidate: BillPaymentCandidate,
+  decision: BillDecision,
+): Record<string, BillDecision> {
+  const next = { ...current, [candidate.key]: decision };
+  if (decision !== 'confirm') return next;
+  for (const other of candidates) {
+    if (other.key === candidate.key || next[other.key] !== 'confirm') continue;
+    if (other.party.key === candidate.party.key || other.bill.id === candidate.bill.id) next[other.key] = 'pending';
+  }
+  return next;
+}
+
+/** Só as decisões de candidatos cujas linhas ainda serão importadas. */
+export function billDecisionsForImport(
+  candidates: BillPaymentCandidate[],
+  decisions: Record<string, BillDecision>,
+  rejectedRows: Set<number>,
+): Record<string, BillDecision> {
+  const result: Record<string, BillDecision> = {};
+  for (const candidate of candidates) {
+    if (candidate.party.rowNumber !== null && rejectedRows.has(candidate.party.rowNumber)) continue;
+    const decision = decisions[candidate.key];
+    if (decision) result[candidate.key] = decision;
+  }
+  return result;
 }

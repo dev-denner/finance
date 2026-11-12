@@ -30,6 +30,7 @@ interface MultipartData {
   includedDuplicateRows?: unknown;
   toleranceDays?: number;
   transferDecisions?: unknown;
+  billDecisions?: unknown;
   templateId?: number;
   destinationPaymentMethodId?: number;
   categoryDecisions?: unknown;
@@ -256,6 +257,9 @@ async function readMultipart(request: FastifyRequest): Promise<MultipartData> {
       case 'transferDecisions':
         if (value) data.transferDecisions = parseJson(value, 'Decisões de transferência');
         break;
+      case 'billDecisions':
+        if (value) data.billDecisions = parseJson(value, 'Decisões de contas a pagar');
+        break;
       case 'templateId': {
         if (value === '' || value === undefined) break;
         const parsed = Number(value);
@@ -334,6 +338,9 @@ export function registerImportRoutes(app: FastifyInstance, db: AppDatabase): voi
         data.transferDecisions === undefined
           ? undefined
           : sanitizeTransferDecisions(data.transferDecisions),
+      // Mesmo domínio de valores das transferências: confirm | reject | pending.
+      billDecisions:
+        data.billDecisions === undefined ? undefined : sanitizeTransferDecisions(data.billDecisions),
       templateId: data.templateId,
       destinationPaymentMethodId: sanitizeDestinationPaymentMethodId(data.destinationPaymentMethodId),
       categoryDecisions: sanitizeCategoryDecisions(data.categoryDecisions),

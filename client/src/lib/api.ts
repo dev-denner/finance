@@ -2,6 +2,7 @@ import type {
   AccountCashFlowResult,
   Bill,
   BillAgenda,
+  BillDecision,
   BillForecast,
   BillListFilters,
   BillListResponse,
@@ -308,6 +309,7 @@ export const api = {
       includedDuplicateRows?: number[];
       toleranceDays?: number;
       transferDecisions?: Record<string, TransferDecision>;
+      billDecisions?: Record<string, BillDecision>;
       templateId?: number;
       destinationPaymentMethodId?: number | null;
       categoryDecisions?: CategoryDecisionsPayload;
@@ -327,6 +329,9 @@ export const api = {
     }
     if (options.transferDecisions) {
       form.append('transferDecisions', JSON.stringify(options.transferDecisions));
+    }
+    if (options.billDecisions) {
+      form.append('billDecisions', JSON.stringify(options.billDecisions));
     }
     if (options.templateId !== undefined) {
       form.append('templateId', String(options.templateId));

@@ -28,6 +28,14 @@ import {
   type TransferCandidate,
 } from './transfer-detection';
 import { insertTransferRecord } from './transfers';
+import {
+  confirmedBillCandidates,
+  detectBillPaymentCandidates,
+  loadOpenBillsForMatch,
+  type BillDecision,
+  type BillPaymentCandidate,
+} from './bill-payment-detection';
+import { payBill } from './bills/payments';
 
 export const IMPORT_FIELDS = [
   'purchaseDate',
@@ -212,6 +220,8 @@ export interface ImportPreview {
   rows: PreviewRow[];
   transferToleranceDays: number;
   transferCandidates: TransferCandidate[];
+  /** Saídas do arquivo que parecem pagar uma conta a pagar em aberto (Módulo 1). */
+  billCandidates: BillPaymentCandidate[];
   categorySuggestions: {
     sourceCategory: string;
     sourceNormalized: string;
@@ -258,6 +268,11 @@ export interface ImportOptions {
   includedDuplicateRows?: number[];
   transferToleranceDays?: number;
   transferDecisions?: Record<string, TransferDecision>;
+  /**
+   * Decisões sobre os pagamentos de contas sugeridos na prévia. Sem decisão
+   * explícita, nada é vinculado.
+   */
+  billDecisions?: Record<string, BillDecision>;
   /** Modelo de mapeamento aplicado nesta importação (registra no lote). */
   templateId?: number;
 }
@@ -279,6 +294,12 @@ export interface ImportSummary {
   confirmedTransfers: number;
   pendingTransfers: number;
   rejectedTransfers: number;
+  billCandidates: number;
+  linkedBillPayments: number;
+  pendingBillPayments: number;
+  rejectedBillPayments: number;
+  /** Confirmações que não puderam virar vínculo, com o motivo. */
+  skippedBillPayments: { rowNumber: number | null; billDescription: string; reason: string }[];
   ignoredRows: number;
   firstDueDate: string | null;
   lastDueDate: string | null;
@@ -1002,6 +1023,15 @@ function detectCandidates(
   return detectTransferCandidates([...fileParties, ...databaseParties], { toleranceDays });
 }
 
+function detectBillCandidates(
+  db: AppDatabase,
+  fileRows: { rowNumber: number; values: ParsedImportValues }[],
+): BillPaymentCandidate[] {
+  const parties = buildFileParties(fileRows, new Map());
+  if (parties.length === 0) return [];
+  return detectBillPaymentCandidates(parties, loadOpenBillsForMatch(db, parties));
+}
+
 export interface PreviewOptions {
   destinationPaymentMethodId?: number | null;
   categoryDecisions?: CategoryDecisions | CategoryDecision[];
@@ -1242,6 +1272,12 @@ export function previewImport(
         .map((row) => ({ rowNumber: row.rowNumber, values: row.values })),
       toleranceDays,
     ),
+    billCandidates: detectBillCandidates(
+      db,
+      rows
+        .filter((row) => row.errors.length === 0)
+        .map((row) => ({ rowNumber: row.rowNumber, values: row.values })),
+    ),
   };
 }
 
@@ -1398,6 +1434,35 @@ export function importWorkbook(
 
   let confirmedTransfers = 0;
 
+  // Pagamentos de contas: só o que foi confirmado explicitamente na revisão.
+  // Calculados sobre todas as linhas válidas, como na prévia, para as chaves
+  // coincidirem; linha confirmada que não for gravada sai como pulada.
+  const billCandidates = detectBillCandidates(
+    db,
+    parsedRows
+      .filter((row) => row.parsed.errors.length === 0)
+      .map((row) => ({ rowNumber: row.rowNumber, values: row.parsed.values })),
+  );
+  const billDecisions = options.billDecisions ?? {};
+  const { confirmed: confirmedBills, conflicts: billConflicts } = confirmedBillCandidates(billCandidates, billDecisions);
+  if (billConflicts.length > 0) {
+    throw badRequest(
+      'Decisões de contas a pagar inconsistentes.',
+      billConflicts.map((message) => ({ message })),
+    );
+  }
+  const candidateKeys = new Set(billCandidates.map((candidate) => candidate.key));
+  const skippedBillPayments: ImportSummary['skippedBillPayments'] = Object.entries(billDecisions)
+    .filter(([key, decision]) => decision === 'confirm' && !candidateKeys.has(key))
+    .map(([key]) => ({
+      rowNumber: Number(/^file:(\d+):/.exec(key)?.[1]) || null,
+      billDescription: '',
+      reason: 'A sugestão não vale mais: a conta ou a linha mudou desde a prévia.',
+    }));
+  const rejectedBillPayments = billCandidates.filter((candidate) => billDecisions[candidate.key] === 'reject').length;
+  const pendingBillPayments = billCandidates.length - confirmedBills.length - rejectedBillPayments;
+  let linkedBillPayments = 0;
+
   const batchId = db.transaction((tx) => {
     const batch = tx
       .insert(importBatches)
@@ -1521,6 +1586,7 @@ export function importWorkbook(
     const resolveId = (party: TransferCandidate['outgoing']): number | undefined =>
       party.transactionId ?? (party.rowNumber !== null ? insertedIds.get(party.rowNumber) : undefined);
 
+    const transferLinked = new Set<number>();
     for (const candidate of confirmedCandidates) {
       const outgoingId = resolveId(candidate.outgoing);
       const incomingId = resolveId(candidate.incoming);
@@ -1533,11 +1599,39 @@ export function importWorkbook(
           origin: 'import',
         });
         confirmedTransfers += 1;
+        transferLinked.add(outgoingId);
+        transferLinked.add(incomingId);
       } catch (error) {
         // Apenas rejeições de regra de negócio (conta igual, valor divergente)
         // contam como transferência rejeitada; erro inesperado deve abortar.
         if (!(error instanceof HttpError)) throw error;
         rejectedTransfers += 1;
+      }
+    }
+
+    for (const candidate of confirmedBills) {
+      const transactionId = resolveId(candidate.party);
+      const skip = (reason: string) =>
+        skippedBillPayments.push({ rowNumber: candidate.party.rowNumber, billDescription: candidate.bill.description, reason });
+      if (!transactionId) {
+        skip('A linha não foi importada (duplicada ou rejeitada).');
+        continue;
+      }
+      if (transferLinked.has(transactionId)) {
+        skip('A linha foi vinculada como transferência.');
+        continue;
+      }
+      try {
+        // Transação aninhada (savepoint): uma recusa desfaz só este vínculo.
+        payBill(tx as unknown as AppDatabase, candidate.bill.id, {
+          mode: 'link',
+          transactionId,
+          origin: 'import_match',
+        });
+        linkedBillPayments += 1;
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        skip(error.message);
       }
     }
 
@@ -1563,6 +1657,11 @@ export function importWorkbook(
     confirmedTransfers,
     pendingTransfers,
     rejectedTransfers,
+    billCandidates: billCandidates.length,
+    linkedBillPayments,
+    pendingBillPayments,
+    rejectedBillPayments,
+    skippedBillPayments,
     ignoredRows: parsedRows.length - accepted.length,
     firstDueDate: dates[0] ?? null,
     lastDueDate: dates[dates.length - 1] ?? null,

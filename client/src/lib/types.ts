@@ -522,6 +522,21 @@ export interface PreviewRow {
   categorySuggestion: CategorySuggestion;
 }
 
+export type BillDecision = 'confirm' | 'reject' | 'pending';
+
+/** Saída do arquivo que parece pagar uma conta a pagar em aberto. */
+export interface BillPaymentCandidate {
+  /** `file:<linha>:bill:<id>` — chave das decisões. */
+  key: string;
+  confidence: 'high' | 'possible';
+  ambiguous: boolean;
+  reasons: string[];
+  dayDistance: number;
+  amountDiffCents: number;
+  party: TransferParty;
+  bill: { id: number; description: string; amountCents: number; dueDate: string; categoryName: string };
+}
+
 export interface ImportPreview {
   filename: string;
   sheetName: string;
@@ -539,6 +554,8 @@ export interface ImportPreview {
   rows: PreviewRow[];
   transferToleranceDays: number;
   transferCandidates: TransferCandidate[];
+  /** Opcional só para compatibilidade com prévias antigas em testes; o servidor sempre envia. */
+  billCandidates?: BillPaymentCandidate[];
   categorySuggestions: CategorySuggestionGroup[];
 }
 
@@ -574,6 +591,11 @@ export interface ImportSummary {
   confirmedTransfers: number;
   pendingTransfers: number;
   rejectedTransfers: number;
+  billCandidates?: number;
+  linkedBillPayments?: number;
+  pendingBillPayments?: number;
+  rejectedBillPayments?: number;
+  skippedBillPayments?: { rowNumber: number | null; billDescription: string; reason: string }[];
   ignoredRows: number;
   firstDueDate: string | null;
   lastDueDate: string | null;

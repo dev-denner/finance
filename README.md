@@ -385,6 +385,7 @@ Formatos aceitos: `.csv`, `.txt`, `.xls`, `.xlsx` e `.xlsm` (primeira planilha d
 3. Se alguma linha ficar sem conta/pagamento (arquivo sem a coluna ou célula vazia), escolha a **conta de destino do lote** antes de confirmar.
 4. Revise a prévia. Linhas com erro podem ser corrigidas ou rejeitadas individualmente.
 5. Se houver pares candidatos de transferência, revise cada par lado a lado e escolha **Confirmar**, **Rejeitar** ou **Pendente**.
+   Na aba **Contas a pagar**, confira as saídas do arquivo que parecem pagar uma conta em aberto (valor igual ao previsto, ou dentro da faixa mín./máx. da recorrência, e até 5 dias do vencimento). Confirmar marca a conta como paga com aquele lançamento; nada é vinculado sem confirmação. Pares de alta confiança (valor exato e descrição parecida) e sem disputa já vêm confirmados; uma linha só paga uma conta e uma conta só é paga por uma linha.
 6. Revise as **sugestões de categoria** agrupadas por categoria de origem.
 7. Escolha o tratamento de duplicidades e confirme a importação.
 

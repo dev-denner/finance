@@ -372,3 +372,11 @@ Casos obrigatórios de borda: dia 31 em fevereiro; `interval=2`; `endDate` antes
 - Sem dependência nova: os testes de página usam `react-dom/client` + `act` + jsdom (`client/src/pages/bills-page.test.tsx`, 8). Mutação manual (toggle ligado por padrão) faz o teste de AC18 falhar.
 - Verificado no navegador com uma cópia do banco real (servidor de produção em porta livre, `DATABASE_PATH` apontando para a cópia): agenda, pagar, desfazer, badge e prévia de recorrência.
 - Baseline: 562 testes (489 server + 73 client).
+
+### PR5 (2026-11-12) — concluído em `feat/bills-import-match` (base `master`)
+
+- `server/src/services/bill-payment-detection.ts`: `detectBillPaymentCandidates` (puro) compara saídas do arquivo com ocorrências abertas e sem pagamento: valor igual ou dentro da faixa do template, até 5 dias (pela data de compra ou de vencimento da linha), semelhança de descrição ignorando termos de extrato ("PAG", "BOLETO", "DEB"…). Alta confiança só com valor exato e descrição parecida; disputa de linha ou de conta vira ambígua (AC14, AC15). `loadOpenBillsForMatch` busca a janela no banco; `confirmedBillCandidates` recusa uma linha para duas contas ou uma conta para duas linhas.
+- `previewImport` devolve `billCandidates`; `importWorkbook` aceita `billDecisions` e, dentro da mesma transação, chama `payBill` em modo `link` com origem `import_match` (savepoint por vínculo). Sem decisão explícita nada é vinculado no servidor. Linha confirmada que não foi gravada (duplicada/rejeitada), que virou transferência ou cuja sugestão deixou de existir aparece em `skippedBillPayments` com o motivo (AC16).
+- Tela de importação ganha a aba **Contas a pagar** (`TransactionsImportPage.tsx`), com as decisões em `client/src/lib/import-decisions.ts` (`defaultBillDecisions`, `mergeBillDecisions`, `applyBillDecision`, `billDecisionsForImport`) e o resumo final com vinculadas, pendentes, rejeitadas e puladas.
+- Verificado ponta a ponta pela API com uma cópia do banco real: extrato com Vivo Fibra e Darf gerou dois candidatos de alta confiança; confirmar a Vivo a marcou paga com o lançamento importado e rejeitar a Darf a manteve em aberto. A tela não foi verificada no navegador porque o painel não anexa arquivos; está coberta por `transactions-import-page.test.tsx`.
+- Baseline: 594 testes (511 server + 83 client).

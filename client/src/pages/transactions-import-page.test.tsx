@@ -317,4 +317,59 @@ describe('TransactionsImportPage - laco de previa', () => {
 
     expect(importButton().disabled).toBe(false);
   });
+
+  it('contas a pagar encontradas: vêm confirmadas, podem ser rejeitadas e a decisão vai na importação', async () => {
+    const candidate = {
+      key: 'file:2:bill:7',
+      confidence: 'high' as const,
+      ambiguous: false,
+      reasons: ['Valor igual ao previsto (R$ 20,00)', 'Mesmo dia do vencimento', 'Descrição parecida'],
+      dayDistance: 0,
+      amountDiffCents: 0,
+      party: {
+        key: 'file:2',
+        source: 'file' as const,
+        rowNumber: 2,
+        transactionId: null,
+        dueDate: '2024-02-01',
+        purchaseDate: '2024-02-01',
+        description: 'Compra A',
+        amountCents: -2000,
+        paymentMethod: '',
+        transfer: null,
+      },
+      bill: { id: 7, description: 'Assinatura A', amountCents: 2000, dueDate: '2024-02-01', categoryName: 'Serviços' },
+    };
+    previewImport.mockImplementation(() => Promise.resolve(previewResponse({ billCandidates: [candidate] })));
+    importFile.mockResolvedValue({
+      batchId: 1, filename: 'teste.csv', totalRows: 1, importedRows: 1, rejectedRows: 0, duplicateRows: 0,
+      skippedDuplicates: 0, invalidRows: 0, explicitRejections: 0, createdCategories: [], createdPaymentMethods: [],
+      duplicateRowsInPreview: 0, transferCandidates: 0, confirmedTransfers: 0, pendingTransfers: 0, rejectedTransfers: 0,
+      billCandidates: 1, linkedBillPayments: 0, pendingBillPayments: 0, rejectedBillPayments: 1, skippedBillPayments: [],
+      ignoredRows: 0, firstDueDate: '2024-02-01', lastDueDate: '2024-02-01', errors: [],
+    });
+    await mountAndSelectFile();
+    await settle();
+    const [select] = selectsByCard('Conta de destino do lote');
+    await selectOption(select, '1');
+    await settle();
+
+    const tab = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Contas a pagar'));
+    expect(tab?.textContent).toContain('1');
+    await act(async () => tab!.click());
+    expect(container.textContent).toContain('Contas a pagar encontradas');
+    expect(container.textContent).toContain('Assinatura A');
+    const decisionButton = (label: string) =>
+      [...container.querySelectorAll('button[aria-pressed]')].find((button) => button.textContent === label) as HTMLButtonElement;
+    expect(decisionButton('Confirmar').getAttribute('aria-pressed')).toBe('true');
+
+    await act(async () => decisionButton('Rejeitar').click());
+    expect(decisionButton('Rejeitar').getAttribute('aria-pressed')).toBe('true');
+
+    await act(async () => importButton().click());
+    await settle();
+    expect(importFile).toHaveBeenCalledTimes(1);
+    expect(importFile.mock.calls[0][1]).toMatchObject({ billDecisions: { 'file:2:bill:7': 'reject' } });
+    expect(document.body.textContent).toContain('0 paga(s) com lançamento deste arquivo · 0 pendente(s) · 1 rejeitada(s)');
+  });
 });
