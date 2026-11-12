@@ -345,3 +345,11 @@ Casos obrigatórios de borda: dia 31 em fevereiro; `interval=2`; `endDate` antes
 - Excluir uma ocorrência de recorrência a marca como **pulada** (`skipped`) em vez de apagar: a geração idempotente a recriaria. Conta avulsa é apagada de verdade.
 - `payBill` aceita só `mode: 'external'` neste PR; `transaction` e `link` respondem 400 até o PR2.
 - Baseline após o PR1: 409 testes (383 server + 26 client).
+
+### PR2 (2026-11-11) — concluído em `feat/bills-payments` (empilhada sobre `feat/bills-recurrence`)
+
+- `services/bills/payments.ts`: `payBill` com `mode: 'external' | 'transaction' | 'link'` (AC4, AC4a, AC5) e `unpayBill` (AC6). Tudo em uma transação SQLite; o modo `transaction` usa `createTransaction` com `purchaseDate` = vencimento da conta (competência) e `dueDate` = data do pagamento (caixa). O modo `link` aceita `origin: 'import_match'` para o PR5.
+- `services/bills/guards.ts` importa só o schema (evita ciclo `transactions` ↔ `bills`): bloqueia excluir (individual e em massa, AC7), transformar em entrada e vincular como transferência um lançamento que paga conta.
+- `TransactionDto.billPayment` (`{ billId, description, dueDate }`) na leitura individual e na listagem; tipo opcional no client.
+- Testes: `tests/bills-payments.test.ts` (17). Mutação manual confirmou que os testes de AC7 falham sem os guards.
+- Baseline após o PR2: 426 testes (400 server + 26 client).
