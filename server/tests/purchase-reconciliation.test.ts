@@ -103,7 +103,8 @@ describe('conciliação manual de compras', () => {
       const originalMovement = handle.sqlite.prepare('SELECT category_id, amount_cents, purchase_date FROM transactions WHERE id = ?').get(movement.id);
 
       const result = reconcilePurchaseWithTransaction(handle.db, purchaseId, movement.id);
-      expect(result).toMatchObject({ transactionId: movement.id, categoryId: destination.id, reconciledAt: expect.any(String) });
+      expect(result).toMatchObject({ categoryId: destination.id, reconciledAt: expect.any(String) });
+      expect(result).not.toHaveProperty('transactionId');
       expect(result.items).toMatchObject([
         { id: itemIds[0], categoryId: previousItem.id, categoryName: 'Categoria anterior do item' },
         { id: itemIds[1], categoryId: destination.id, categoryName: 'Categoria da movimentação' },
@@ -116,7 +117,7 @@ describe('conciliação manual de compras', () => {
       const manual = ensureLookup(handle.db, 'category', 'Categoria manual pós conciliação');
       updatePurchaseItemsCategory(handle.db, purchaseId, [itemIds[1]!], manual.id);
       const undone = undoPurchaseReconciliation(handle.db, purchaseId);
-      expect(undone).toMatchObject({ transactionId: null, categoryId: previousPurchase.id });
+      expect(undone).toMatchObject({ reconciledAt: null, categoryId: previousPurchase.id });
       expect(undone.items).toMatchObject([
         { id: itemIds[0], categoryId: previousItem.id },
         { id: itemIds[1], categoryId: manual.id },
@@ -242,7 +243,7 @@ describe('conciliação manual de compras', () => {
       reconcilePurchaseWithTransaction(handle.db, first, movement.id);
       expect(getPurchaseReconciliationCandidates(handle.db, second).candidates).toHaveLength(0);
       expect(() => reconcilePurchaseWithTransaction(handle.db, second, movement.id)).toThrow(/não corresponde/i);
-      expect(getPurchase(handle.db, second).transactionId).toBeNull();
+      expect(getPurchase(handle.db, second).reconciledAt).toBeNull();
     } finally { handle.sqlite.close(); }
   });
   it("blocks transaction edits while a purchase settlement is active, then permits deletion after undo", () => {

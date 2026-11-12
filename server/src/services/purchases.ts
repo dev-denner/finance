@@ -20,7 +20,6 @@ export function listPurchases(db: AppDatabase) {
       categoryId: purchases.categoryId,
       categoryName: categories.name,
       categoryColor: categories.color,
-      transactionId: purchases.transactionId,
       reconciledAt: purchases.reconciledAt,
       itemCount: sql<number>`count(${purchaseItems.id})`,
     })
@@ -37,7 +36,7 @@ export function getPurchase(db: AppDatabase, id: number) {
     id: purchases.id, accessKey: purchases.accessKey, supplierName: purchases.supplierName,
     supplierCnpj: purchases.supplierCnpj, invoiceNumber: purchases.invoiceNumber, series: purchases.series,
     issuedAt: purchases.issuedAt, totalCents: purchases.totalCents, invoiceDiscountCents: purchases.invoiceDiscountCents,
-    paymentMethod: purchases.paymentMethod, categoryId: purchases.categoryId, transactionId: purchases.transactionId,
+    paymentMethod: purchases.paymentMethod, categoryId: purchases.categoryId,
     reconciledAt: purchases.reconciledAt, importedAt: purchases.importedAt,
   }).from(purchases).where(eq(purchases.id, id)).get();
   if (!purchase) throw notFound('Compra não encontrada.');

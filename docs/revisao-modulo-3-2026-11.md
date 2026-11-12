@@ -44,6 +44,8 @@ Funciona hoje e o código é cuidadoso, mas é o caminho frágil: depende do lay
 ### R4 — `purchases.transaction_id` redundante
 Com `purchase_settlements` como fonte da verdade, `transaction_id` guarda só o primeiro movimento e tem índice único, o que impede duas compras parciais pagas pelo mesmo lançamento mesmo quando as liquidações permitiriam. **Recomendação:** remover a coluna (ou renomear para "movimento principal" e tirar a unicidade) em uma migração própria.
 
+**Resolvido (2026-11-12):** a migração `0016_drop_purchases_transaction_id` remove a coluna e o índice único. Como a reconstrução da tabela roda dentro da transação do migrator, itens, liquidações e ajustes de saldo da compra passam por tabelas auxiliares e voltam com os mesmos ids; `purchases-migration.test.ts` cobre isso. `purchase_settlements` é a única fonte do vínculo com movimentações.
+
 ### R5 — Migração `0014` repete o padrão frágil de rebuild
 `PRAGMA foreign_keys=OFF` dentro do migrator do Drizzle não tem efeito (roda em transação). Aqui não há dano porque nada referencia `purchase_settlements`, mas o mesmo padrão derrubaria filhos com `ON DELETE CASCADE` em outra tabela. A migração `0007` da branch de contas a pagar documenta o contorno (tabelas auxiliares).
 
