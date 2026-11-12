@@ -6,7 +6,9 @@ import {
   centsToInput,
   daysBetween,
   emptyBillForm,
+  futureEditPlan,
   monthLabel,
+  nextDayIso,
   parseBillsView,
   parseCentsInput,
   recurrenceFrom,
@@ -193,5 +195,54 @@ describe('formulário', () => {
     const form = billFormFrom(bill({ templateId: 7, sequence: 3, notes: 'x', paymentMethodId: 2 }), template());
     expect(form).toMatchObject({ amount: '782,00', repeat: true, endMode: 'count', occurrenceCount: '6', paymentMethodId: 2, notes: 'x' });
     expect(billFormFrom(bill()).repeat).toBe(false);
+  });
+});
+
+describe('futureEditPlan ("esta e as futuras")', () => {
+  const day31 = template({
+    description: 'Aluguel',
+    amountCents: 150000,
+    recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: 31, weekday: null, monthOfYear: null },
+    startDate: '2026-01-31',
+    occurrenceCount: null,
+  });
+  const february = bill({ templateId: 7, sequence: 2, description: 'Aluguel', amountCents: 150000, dueDate: '2026-02-28' });
+
+  it('só o valor mudou: mantém a âncora do dia 31 e não manda data inicial', () => {
+    const form = { ...billFormFrom(february, day31), amount: '1.600,00' };
+    const plan = futureEditPlan(form, february, day31);
+    expect(plan.from).toBe('2026-02-28');
+    expect(plan.update.recurrence).toEqual({ interval: 1 });
+    expect(plan.update).not.toHaveProperty('startDate');
+    expect(plan.update.amountCents).toBe(160000);
+    expect(plan.preview).toMatchObject({ startDate: '2026-02-28', recurrence: { frequency: 'monthly', dayOfMonth: 31 } });
+  });
+
+  it('ocorrência paga ou pulada: a regra nova começa no dia seguinte', () => {
+    const paid = { ...february, state: 'paid' as const, paidAt: '2026-02-20', paidCents: 150000, displayStatus: 'paid' as const };
+    expect(futureEditPlan(billFormFrom(paid, day31), paid, day31).from).toBe('2026-03-01');
+    const skipped = { ...february, state: 'skipped' as const, displayStatus: 'skipped' as const };
+    expect(futureEditPlan(billFormFrom(skipped, day31), skipped, day31).from).toBe('2026-03-01');
+    const linkedButOpen = { ...february, payments: [{ id: 1, transactionId: 9, amountCents: 1, paidAt: '2026-02-20', origin: 'manual' as const, createdTransaction: true, paymentMethodName: null, transactionDescription: 'x' }] };
+    expect(futureEditPlan(billFormFrom(linkedButOpen, day31), linkedButOpen, day31).from).toBe('2026-03-01');
+  });
+
+  it('data alterada: re-ancora a série na data nova e corta na menor das duas', () => {
+    const later = { ...billFormFrom(february, day31), dueDate: '2026-03-05' };
+    const plan = futureEditPlan(later, february, day31);
+    expect(plan.from).toBe('2026-02-28');
+    expect(plan.update).toMatchObject({ startDate: '2026-03-05', recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: 5 } });
+    const earlier = { ...billFormFrom(february, day31), dueDate: '2026-02-20' };
+    expect(futureEditPlan(earlier, february, day31).from).toBe('2026-02-20');
+  });
+
+  it('frequência alterada sem mudar a data: deriva a regra nova da data exibida', () => {
+    const weekly = { ...billFormFrom(february, day31), frequency: 'weekly' as const };
+    expect(futureEditPlan(weekly, february, day31).update.recurrence).toEqual({ frequency: 'weekly', interval: 1, weekday: null });
+  });
+
+  it('nextDayIso vira mês e ano', () => {
+    expect(nextDayIso('2026-02-28')).toBe('2026-03-01');
+    expect(nextDayIso('2026-12-31')).toBe('2027-01-01');
   });
 });

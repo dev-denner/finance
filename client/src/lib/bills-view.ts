@@ -10,6 +10,7 @@ import type {
   BillState,
   BillTemplate,
   BillTemplateInput,
+  BillTemplateUpdate,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,10 @@ export function monthLabel(year: number, month: number): string {
     timeZone: 'UTC',
   });
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+export function nextDayIso(iso: string): string {
+  return new Date(toUtc(iso) + 86_400_000).toISOString().slice(0, 10);
 }
 
 function shortDate(iso: string): string {
@@ -325,3 +330,66 @@ export const FREQUENCY_LABELS: Record<BillFrequency, { singular: string; plural:
   weekly: { singular: 'semana', plural: 'semanas', adjective: 'Semanal' },
   yearly: { singular: 'ano', plural: 'anos', adjective: 'Anual' },
 };
+
+// ---------------------------------------------------------------------------
+// Edição "esta e as futuras" de uma ocorrência recorrente
+// ---------------------------------------------------------------------------
+
+export interface FutureEditPlan {
+  /** A partir de quando a regra nova vale (`?from=` do PUT). */
+  from: string;
+  /** Corpo do PUT com `scope=future`. */
+  update: BillTemplateUpdate;
+  /** Mesma regra no formato de criação, para a prévia de datas. */
+  preview: BillTemplateInput;
+}
+
+/**
+ * Traduz o formulário de uma ocorrência em uma divisão da série.
+ *
+ * - Sem mudar a data nem a frequência, a regra mantém a âncora original
+ *   (dia 31 continua 31, mesmo editando pela ocorrência de 28/02): só o
+ *   intervalo vai na atualização e o servidor preserva o resto.
+ * - Ocorrência paga ou pulada continua no histórico; a regra nova começa no
+ *   dia seguinte para não recriar a mesma data como conta aberta.
+ * - Mudando a data, a série é re-ancorada na data nova.
+ */
+export function futureEditPlan(form: BillForm, bill: Bill, template: BillTemplate): FutureEditPlan {
+  const base = templateInputFrom({ ...form, repeat: true });
+  const dateChanged = form.dueDate !== bill.dueDate;
+  const retained = bill.state !== 'open' || bill.payments.length > 0;
+  const from = dateChanged
+    ? form.dueDate < bill.dueDate
+      ? form.dueDate
+      : bill.dueDate
+    : retained
+      ? nextDayIso(bill.dueDate)
+      : bill.dueDate;
+  const keepAnchor = !dateChanged && form.frequency === template.recurrence.frequency;
+  const interval = Number(form.interval) || 1;
+  const fullRecurrence: BillTemplateInput['recurrence'] = keepAnchor
+    ? {
+        frequency: template.recurrence.frequency,
+        interval,
+        dayOfMonth: template.recurrence.dayOfMonth,
+        weekday: template.recurrence.weekday,
+        monthOfYear: template.recurrence.monthOfYear,
+      }
+    : recurrenceFrom(form);
+
+  return {
+    from,
+    update: {
+      description: base.description,
+      amountCents: base.amountCents,
+      categoryId: base.categoryId,
+      paymentMethodId: base.paymentMethodId,
+      notes: base.notes,
+      recurrence: keepAnchor ? { interval } : fullRecurrence,
+      ...(dateChanged ? { startDate: form.dueDate } : {}),
+      endDate: base.endDate,
+      occurrenceCount: base.occurrenceCount,
+    },
+    preview: { ...base, recurrence: fullRecurrence, startDate: dateChanged ? form.dueDate : from },
+  };
+}

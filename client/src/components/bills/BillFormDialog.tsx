@@ -11,7 +11,7 @@ import {
   billFormFrom,
   billInputFrom,
   emptyBillForm,
-  recurrenceFrom,
+  futureEditPlan,
   templateInputFrom,
   validateBillForm,
   type BillForm,
@@ -79,9 +79,13 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
       return;
     }
     const requestId = ++previewRequest.current;
+    const previewInput =
+      target.kind === 'edit' && target.template
+        ? futureEditPlan(candidate, target.bill, target.template).preview
+        : templateInputFrom(candidate);
     const timer = window.setTimeout(() => {
       api
-        .previewBillTemplate(templateInputFrom(candidate))
+        .previewBillTemplate(previewInput)
         .then((result) => {
           if (requestId === previewRequest.current) setPreview(result.dates);
         })
@@ -90,7 +94,7 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
         });
     }, PREVIEW_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [form, showRecurrence]);
+  }, [form, showRecurrence, target]);
 
   const persist = async (scope?: 'this' | 'future') => {
     setSaving(true);
@@ -111,24 +115,10 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
         onSaved(scope === 'this' ? 'Só esta ocorrência foi alterada.' : 'Conta atualizada.');
         return;
       }
-      const input = templateInputFrom({ ...form, repeat: true });
-      const from = form.dueDate < bill.dueDate ? form.dueDate : bill.dueDate;
-      await api.updateBillTemplate(
-        bill.templateId,
-        {
-          description: input.description,
-          amountCents: input.amountCents,
-          categoryId: input.categoryId,
-          paymentMethodId: input.paymentMethodId,
-          notes: input.notes,
-          recurrence: recurrenceFrom(form),
-          startDate: form.dueDate,
-          endDate: input.endDate,
-          occurrenceCount: input.occurrenceCount,
-        },
-        { scope: 'future', from },
-      );
-      onSaved(`Alteração aplicada a partir de ${formatDateBR(from)}.`);
+      const template = target.template ?? (await api.getBillTemplate(bill.templateId)).template;
+      const plan = futureEditPlan(form, bill, template);
+      await api.updateBillTemplate(bill.templateId, plan.update, { scope: 'future', from: plan.from });
+      onSaved(`Alteração aplicada a partir de ${formatDateBR(plan.from)}.`);
     } catch (error) {
       showToast(errorMessage(error), 'error');
     } finally {

@@ -250,9 +250,11 @@ describe('tela de contas a pagar', () => {
     await click(buttons('Esta e as futuras')[0]);
     expect(apiMock.updateBillTemplate).toHaveBeenCalledWith(
       9,
-      expect.objectContaining({ amountCents: 10990, startDate: '2026-03-12', occurrenceCount: 6, recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: 12 } }),
+      expect.objectContaining({ amountCents: 10990, occurrenceCount: 6, recurrence: { interval: 1 } }),
       { scope: 'future', from: '2026-03-12' },
     );
+    // Só o valor mudou: a âncora da regra (dia 12) fica com o servidor.
+    expect(apiMock.updateBillTemplate.mock.calls[0][1]).not.toHaveProperty('startDate');
     expect(apiMock.updateBill).not.toHaveBeenCalled();
   });
 
