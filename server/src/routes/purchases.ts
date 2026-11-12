@@ -7,6 +7,7 @@ import { importNfceBatch, inspectNfceBatch, MAX_BATCH_FILE_BYTES, previewNfceBat
 import { importPreviewedNfceForPurchase, previewNfceForPurchase } from '../services/nfce-adapters';
 import { importCopiedNfceText, MAX_COPIED_NFCE_BLOCKS, MAX_COPIED_NFCE_TEXT_BYTES, previewCopiedNfceText } from '../services/nfce-copied-text';
 import { extractNfcePdf, MAX_NFCE_PDF_BYTES } from '../services/nfce-pdf';
+import { nfcePortalQueryDisabledError } from '../services/nfce-portal-config';
 import { getPaymentBalanceHistory, getPurchaseReconciliationCandidates, reconcilePurchase, undoPurchaseReconciliation } from '../services/purchase-reconciliation';
 import { findPurchaseByAccessKey, getPurchase, importPurchase, listPurchases, updatePurchaseCategory, updatePurchaseItemsCategory } from '../services/purchases';
 
@@ -113,7 +114,11 @@ async function readBatchMultipart(request: FastifyRequest): Promise<BatchMultipa
   return data;
 }
 
-export function registerPurchaseRoutes(app: FastifyInstance, db: AppDatabase) {
+export function registerPurchaseRoutes(app: FastifyInstance, db: AppDatabase, options: { nfcePortalQueryEnabled: boolean }) {
+  const requirePortalQuery = () => {
+    if (!options.nfcePortalQueryEnabled) throw nfcePortalQueryDisabledError();
+  };
+
   app.get('/api/purchases', async () => listPurchases(db));
 
   app.patch('/api/purchases/:id/items/category', async (request) => {
@@ -172,6 +177,7 @@ export function registerPurchaseRoutes(app: FastifyInstance, db: AppDatabase) {
   });
 
   app.post('/api/purchases/preview', async (request) => {
+    requirePortalQuery();
     const parsed = qrBody.safeParse(request.body);
     if (!parsed.success) throw badRequest('Informe a URL do QR Code da NFC-e.');
     return previewNfceForPurchase(db, parsed.data.url);
@@ -209,18 +215,21 @@ export function registerPurchaseRoutes(app: FastifyInstance, db: AppDatabase) {
   });
 
   app.post('/api/purchases/batch/inspect', async (request) => {
+    requirePortalQuery();
     const data = await readBatchMultipart(request);
     if (!data.buffer) throw badRequest('Envie um arquivo CSV ou TXT.');
     return { inspection: inspectNfceBatch(data.buffer, data.filename) };
   });
 
   app.post('/api/purchases/batch/preview', async (request) => {
+    requirePortalQuery();
     const data = await readBatchMultipart(request);
     if (!data.buffer) throw badRequest('Envie um arquivo CSV ou TXT.');
     return previewNfceBatch(db, data.buffer, data.filename, { column: data.column });
   });
 
   app.post('/api/purchases/batch/import', async (request) => {
+    requirePortalQuery();
     const data = await readBatchMultipart(request);
     if (!data.buffer) throw badRequest('Envie um arquivo CSV ou TXT.');
     if (!data.lines) throw badRequest('Selecione ao menos uma linha para importar.');

@@ -12,6 +12,7 @@ import { formatBRL, formatDateTimeBR } from '../lib/format';
 import type { Purchase } from '../lib/types';
 import { NfceCopiedTextImport } from '../components/NfceCopiedTextImport';
 import { NfceBatchImport } from '../components/NfceBatchImport';
+import { useMeta } from '../context/MetaContext';
 import { Button } from '../components/ui/Button';
 import { PageHeader } from '../components/ui/Page';
 
@@ -20,6 +21,8 @@ function errorText(error: unknown): string {
 }
 
 export function NfceImportPage() {
+  const { meta } = useMeta();
+  const portalQuery = meta?.features.nfcePortalQuery === true;
   const [url, setUrl] = useState('');
   const [previewedUrl, setPreviewedUrl] = useState('');
   const [previewToken, setPreviewToken] = useState<string | null>(null);
@@ -131,7 +134,7 @@ export function NfceImportPage() {
     <div>
       <PageHeader
         title="Importar NFC-e"
-        subtitle="Importe NFC-e por QR Code, PDF ou arquivo CSV/TXT."
+        subtitle={portalQuery ? 'Importe NFC-e por QR Code, PDF, texto copiado ou arquivo CSV/TXT.' : 'Importe NFC-e pelo PDF ou pelo texto copiado da consulta fiscal.'}
         actions={
           <>
             <Link to="/compras" className="btn-secondary">
@@ -146,30 +149,40 @@ export function NfceImportPage() {
         }
       />
 
-      <h2 className="mb-3 text-base font-semibold">Importar uma NFC-e</h2>
-      <form onSubmit={previewUrl} className="card mb-2 flex flex-col gap-3 p-4 sm:flex-row">
-        <label className="sr-only" htmlFor="nfce-url">
-          URL do QR Code da NFC-e
-        </label>
-        <input
-          id="nfce-url"
-          type="url"
-          required
-          maxLength={2048}
-          value={url}
-          onChange={(event) => { setUrl(event.target.value); setPreview(null); setPreviewToken(null); setPreviewedUrl(''); }}
-          placeholder="Cole a URL do QR Code da NFC-e do RJ, de SP ou de TO"
-          className="input min-w-0 flex-1"
-        />
-        <Button type="submit" variant="primary" loading={loading}>
-          <Search className="h-4 w-4" />
-          Buscar prévia
-        </Button>
-      </form>
-      <p className="mb-5 text-xs text-ink-400">
-        A consulta usa o portal oficial do estado detectado pela URL (RJ, SP ou TO). Nenhuma movimentação financeira é criada
-        ou alterada.
-      </p>
+      {portalQuery ? (
+        <>
+          <h2 className="mb-3 text-base font-semibold">Importar uma NFC-e</h2>
+          <form onSubmit={previewUrl} className="card mb-2 flex flex-col gap-3 p-4 sm:flex-row">
+            <label className="sr-only" htmlFor="nfce-url">
+              URL do QR Code da NFC-e
+            </label>
+            <input
+              id="nfce-url"
+              type="url"
+              required
+              maxLength={2048}
+              value={url}
+              onChange={(event) => { setUrl(event.target.value); setPreview(null); setPreviewToken(null); setPreviewedUrl(''); }}
+              placeholder="Cole a URL do QR Code da NFC-e do RJ, de SP ou de TO"
+              className="input min-w-0 flex-1"
+            />
+            <Button type="submit" variant="primary" loading={loading}>
+              <Search className="h-4 w-4" />
+              Buscar prévia
+            </Button>
+          </form>
+          <p className="mb-5 text-xs text-ink-400">
+            A consulta usa o portal oficial do estado detectado pela URL (RJ, SP ou TO) e pode parar se o portal mudar. Nenhuma
+            movimentação financeira é criada ou alterada.
+          </p>
+        </>
+      ) : (
+        <p role="note" className="mb-5 rounded-lg bg-ink-50 p-3 text-sm text-ink-600 dark:bg-ink-800/50 dark:text-ink-300">
+          A consulta pelo QR Code e o lote de URLs estão desligados, porque dependem do layout dos portais da SEFAZ e podem parar
+          sem aviso. Importe pelo PDF ou pelo texto copiado da nota. Para ligar, defina <code>NFCE_PORTAL_QUERY_ENABLED=true</code> no{' '}
+          <code>.env</code> e reinicie o servidor.
+        </p>
+      )}
 
       <section className="card mb-5 p-4" aria-labelledby="nfce-pdf-title">
         <h2 id="nfce-pdf-title" className="mb-1 text-base font-semibold">Importar uma NFC-e em PDF</h2>
@@ -283,7 +296,7 @@ export function NfceImportPage() {
       )}
 
       <NfceCopiedTextImport />
-      <NfceBatchImport />
+      {portalQuery && <NfceBatchImport />}
     </div>
   );
 }
