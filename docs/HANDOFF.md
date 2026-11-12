@@ -22,7 +22,7 @@ Stack: TypeScript strict, Fastify 5, React 19 + Vite 7, Tailwind 3, SQLite (`bet
 
 ## 2. Estado das branches (2026-11-12)
 
-Em 2026-11-12 foram mesclados em `master` o **PR #5** (Módulo 3, `7acb54f`) o **PR #6** (modelo de recorrência e migração `0015`, `c012364`) e o **PR #7** (pagamento com lançamento, `82614de`). Seguem empilhados: **#8** (base `master`) → **#9**. Com o #6, o CI (`.github/workflows/ci.yml`) passou a rodar: o GitHub só registrou o workflow quando ele chegou ao branch padrão. Trocar a base de um PR não dispara o CI; ele roda no próximo push da branch. Ao mesclar um PR, apagar a branch dele faz o GitHub trocar a base do seguinte para `master`; se a branch não for apagada, troque a base manualmente.
+Em 2026-11-12 foram mesclados em `master` o **PR #5** (Módulo 3, `7acb54f`) o **PR #6** (modelo de recorrência e migração `0015`, `c012364`), o **PR #7** (pagamento com lançamento, `82614de`) e o **PR #8** (API validada, `9805aff`). Falta o **#9** (tela nova), com base em `master`; o `master` foi mesclado na branch dele para resolver o conflito nos testes de recorrência. Com o #6, o CI (`.github/workflows/ci.yml`) passou a rodar: o GitHub só registrou o workflow quando ele chegou ao branch padrão. Trocar a base de um PR não dispara o CI; ele roda no próximo push da branch. Ao mesclar um PR, apagar a branch dele faz o GitHub trocar a base do seguinte para `master`; se a branch não for apagada, troque a base manualmente.
 
 | Branch | Onde | Estado |
 |---|---|---|
@@ -30,8 +30,8 @@ Em 2026-11-12 foram mesclados em `master` o **PR #5** (Módulo 3, `7acb54f`) o *
 | `feat/module3-purchases` (5c03ee6) | PR #5, **mesclado** | Módulo 3 (compras/NFC-e), migrações `0007`–`0014`. Ressalvas R2–R7 da revisão (`docs/revisao-modulo-3-2026-11.md`) continuam pendentes. A branch remota não foi apagada |
 | `feat/bills-recurrence` | PR #6, **mesclado** | CI, imagens movidas, análise, plano, modelo de recorrência/ocorrência/pagamento com migração **`0015_bill_templates_and_payments`**, revisão do M3, este HANDOFF. 465 + 53 testes |
 | `feat/bills-payments` | PR #7, **mesclado** | Pagar com lançamento ou vínculo, guards no Módulo 2. 482 + 53 testes |
-| `feat/bills-api` | PR #8 (base: `master`) | Rotas Zod de ocorrências e recorrências, multipart compartilhado, cliente tipado. 494 + 53 testes |
-| `feat/bills-ui` | PR #9 (base: `feat/bills-api`) | Tela nova de contas a pagar (agenda, pagar/desfazer, recorrência com prévia, escopo de edição, badge) e remoção do legado. 489 + 73 testes |
+| `feat/bills-api` | PR #8, **mesclado** | Rotas Zod de ocorrências e recorrências, multipart compartilhado, cliente tipado. 494 + 53 testes |
+| `feat/bills-ui` | PR #9 (base: `master`) | Tela nova de contas a pagar (agenda, pagar/desfazer, recorrência com prévia, escopo de edição, badge) e remoção do legado. 489 + 73 testes |
 | `feat/bills-recurrence-oldbase`, `feat/import-installments-category-matching` | local | Bases antigas, sem uso. Podem ser apagadas |
 
 O usuário autorizou (2026-11-12) **publicar cada PR assim que concluído** (push da branch e abertura do PR); merge continua sendo decisão dele.
@@ -93,7 +93,7 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562). O PR1 ganhou +5 testes com a correção do review (470 + 53).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 
