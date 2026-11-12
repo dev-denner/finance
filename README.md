@@ -194,7 +194,7 @@ API (JSON; datas `AAAA-MM-DD`; valores em centavos):
 
 As rotas `POST /api/bills/:id/status` e `/repeat` continuam disponíveis para a tela atual e serão removidas com a tela nova.
 
-Na migração `0007`, contas com situação `PG` viraram pagas na data de vencimento, sem lançamento vinculado (`migratedPayment`); `AG` virou agendada para o vencimento.
+Na migração `0015`, contas com situação `PG` viraram pagas na data de vencimento, sem lançamento vinculado (`migratedPayment`); `AG` virou agendada para o vencimento.
 
 ## Lembretes por e-mail
 

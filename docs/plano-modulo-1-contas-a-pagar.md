@@ -361,4 +361,4 @@ Casos obrigatórios de borda: dia 31 em fevereiro; `interval=2`; `endDate` antes
 - `getForecast` (resumo por mês) implementado em `services/bills/queries.ts`, que o PR1 não tinha.
 - `routes/multipart.ts` (`readMultipartForm`, `parseJsonField`) substitui os dois leitores duplicados; contas e importação de movimentações usam o mesmo. Sem `any`.
 - Cliente: tipos `Bill` (com campos novos e legados), `BillAgenda`, `BillForecast`, `BillTemplate`, `PayBillInput` e métodos de API correspondentes; a tela atual compila sem mudança.
-- Testes: `tests/bills-routes.test.ts` (12, via `app.inject`, datas relativas ao dia real). Baseline: 438 (412 server + 26 client).
+- Testes: `tests/bills-routes.test.ts` (12, via `app.inject`, datas relativas ao dia real). Baseline sobre o Módulo 3: 547 (494 server + 53 client).
