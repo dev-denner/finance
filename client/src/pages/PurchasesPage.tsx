@@ -321,12 +321,13 @@ function PurchaseDetail({ rawId }: { rawId: string }) {
           <div className="space-y-3 text-sm">
             <p>Total da compra: <strong>{formatBRL(purchase.totalCents)}</strong></p>
             <p>Movimentações selecionadas: {selectedTransactionIds.size}; carteiras: {Object.values(walletAmounts).filter((amount) => Number(amount) > 0).length}</p>
-            <label className="block">Categoria a aplicar na compra e nos itens
+            <label className="block">Categoria da compra e dos itens sem categoria
               <select className="select mt-1" value={reconciliationCategoryId} onChange={(event) => setReconciliationCategoryId(event.target.value)}>
                 <option value="">Selecione explicitamente</option>
                 {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
               </select>
             </label>
+            <p className="text-xs text-ink-500">Itens já classificados mantêm a categoria deles. Depois de conciliar, cada item ainda pode receber outra categoria nos detalhes da compra.</p>
             <p className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">As movimentações originais permanecem intactas. Ajustes retroativos confirmados permanecem no histórico mesmo se a conciliação for desfeita.</p>
           </div>
         </Modal>
