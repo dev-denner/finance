@@ -18,20 +18,27 @@ export function decodeCsv(buffer: Buffer): string {
   }
 }
 
-function detectDelimiter(text: string): string {
-  const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? '';
+function countDelimiters(line: string): { ';': number; ',': number; '\t': number } {
   const counts = { ';': 0, ',': 0, '\t': 0 };
   let quoted = false;
-  for (let i = 0; i < firstLine.length; i += 1) {
-    const char = firstLine[i];
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
     if (char === '"') {
-      if (quoted && firstLine[i + 1] === '"') i += 1;
+      if (quoted && line[i + 1] === '"') i += 1;
       else quoted = !quoted;
     } else if (!quoted && (char === ';' || char === ',' || char === '\t')) {
       counts[char] += 1;
     }
   }
-  const entries = Object.entries(counts) as [string, number][];
+  return counts;
+}
+
+function detectDelimiter(text: string): string {
+  // A primeira linha com algum delimitador: extratos de banco podem abrir com um título solto.
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0).slice(0, 20);
+  const firstLine =
+    lines.find((line) => Object.values(countDelimiters(line)).some((count) => count > 0)) ?? lines[0] ?? '';
+  const entries = Object.entries(countDelimiters(firstLine)) as [string, number][];
   entries.sort((a, b) => b[1] - a[1] || (a[0] === ';' ? -1 : 1));
   return entries[0][1] > 0 ? entries[0][0] : ',';
 }
@@ -96,8 +103,11 @@ export function readWorkbook(buffer: Buffer, filename: string): ParsedWorkbook {
 
   if (matrix.length === 0) throw badRequest('A planilha está vazia.');
 
-  let headerIndex = -1;
-  for (let i = 0; i < matrix.length; i += 1) {
+  // Cabeçalho de um banco conhecido, mesmo depois de linhas de preâmbulo (conta, período, saldo).
+  let headerIndex = matrix
+    .slice(0, 30)
+    .findIndex((row) => detectCsvProfile((row ?? []).map((cell) => cellText(cell))) !== null);
+  for (let i = 0; headerIndex < 0 && i < matrix.length; i += 1) {
     const filled = (matrix[i] ?? []).filter((cell) => cellText(cell) !== '').length;
     if (filled >= 2 || (matrix[0].length === 1 && filled === 1)) {
       headerIndex = i;
@@ -147,8 +157,11 @@ export function readWorkbook(buffer: Buffer, filename: string): ParsedWorkbook {
     const descriptionIndex = match.mapping.description;
     for (const row of rows) {
       if (descriptionIndex === null || descriptionIndex === undefined) break;
-      const cell = row.cells[descriptionIndex];
-      if (typeof cell === 'string') row.cells[descriptionIndex] = match.cleanDescription(cell);
+      // Alguns bancos separam o tipo ("Pix enviado") do favorecido: a descrição junta os dois.
+      const text = match.combineDescription
+        ? match.combineDescription.map((index) => cellText(row.cells[index])).filter(Boolean).join(' - ')
+        : row.cells[descriptionIndex];
+      if (typeof text === 'string') row.cells[descriptionIndex] = match.cleanDescription(text);
     }
     return { filename, sheetName, headers, rows, mapping: match.mapping, profile: match.profile };
   }

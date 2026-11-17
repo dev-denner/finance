@@ -22,6 +22,8 @@ interface ProfileDefinition extends FileProfile {
   ofx?: { kind: 'bank' | 'credit_card'; bankIds: string[]; org: RegExp };
   /** Resumo da descrição do banco; devolve o texto original quando não reconhece o padrão. */
   cleanDescription?: (text: string) => string;
+  /** Colunas juntadas (com " - ") na descrição, quando o banco separa o tipo do favorecido. */
+  combineDescription?: number[];
 }
 
 /** CPF mascarado (•••.123.456-••) ou CNPJ (12.345.678/0001-90) que o Nubank põe depois do nome. */
@@ -52,6 +54,25 @@ export function cleanNubankDescription(text: string): string {
   return value;
 }
 
+/**
+ * Inter: "Pix enviado: \"Cp :12345678-FULANO\"" (OFX) e "Pix enviado - FULANO" (CSV, já
+ * juntando Histórico e Descrição) viram "Pix enviado - FULANO"; "Pagamento efetuado"
+ * vira "Pagamento".
+ */
+export function cleanInterDescription(text: string): string {
+  const value = text.replace(/\s+/g, ' ').trim();
+  const quoted = /^([^:"]+):\s*"(?:Cp\s*:\s*\d+-)?(.+?)"$/.exec(value);
+  const [kind, party] = quoted
+    ? [quoted[1].trim(), quoted[2].trim()]
+    : (() => {
+        const split = /^(.+?) - (.+)$/.exec(value);
+        return split ? [split[1].trim(), split[2].trim()] : [value, ''];
+      })();
+  if (!party) return value;
+  const label = /^pagamento efetuado$/i.test(kind) ? 'Pagamento' : kind;
+  return `${label} - ${party}`;
+}
+
 const PROFILES: ProfileDefinition[] = [
   {
     id: 'nubank-checking',
@@ -72,6 +93,26 @@ const PROFILES: ProfileDefinition[] = [
     ofx: { kind: 'bank', bankIds: ['0260', '260'], org: /NU PAGAMENTOS/i },
     cleanDescription: cleanNubankDescription,
   },
+  {
+    id: 'inter-checking',
+    label: 'Inter · conta corrente',
+    accountKind: 'checking',
+    // Preâmbulo (conta, período, saldo) e depois: Data Lançamento;Histórico;Descrição;Valor;Saldo.
+    csvHeaders: ['data lancamento', 'historico', 'descricao', 'valor', 'saldo'],
+    csvMapping: {
+      purchaseDate: null,
+      dueDate: 0,
+      description: 2,
+      amount: 3,
+      paymentMethod: null,
+      installments: null,
+      category: null,
+      transfer: null,
+    },
+    combineDescription: [1, 2],
+    ofx: { kind: 'bank', bankIds: ['077', '0077', '77'], org: /INTERMEDIUM|BANCO INTER/i },
+    cleanDescription: cleanInterDescription,
+  },
 ];
 
 function publicProfile(profile: ProfileDefinition): FileProfile {
@@ -82,11 +123,16 @@ export interface CsvProfileMatch {
   profile: FileProfile;
   mapping: ColumnMapping;
   cleanDescription: (text: string) => string;
+  combineDescription: number[] | null;
 }
 
 /** Perfil pelo cabeçalho exato do CSV/planilha. */
 export function detectCsvProfile(headers: string[]): CsvProfileMatch | null {
   const normalized = headers.map((header) => normalizeName(header).replace(/\s+/g, ' ').trim());
+  // Colunas vazias no fim (ou geradas como "Coluna F") não contam.
+  while (normalized.length > 0 && (normalized[normalized.length - 1] === '' || /^coluna [a-z]+$/.test(normalized[normalized.length - 1]))) {
+    normalized.pop();
+  }
   const profile = PROFILES.find(
     (candidate) =>
       candidate.csvHeaders &&
@@ -99,6 +145,7 @@ export function detectCsvProfile(headers: string[]): CsvProfileMatch | null {
     profile: publicProfile(profile),
     mapping: profile.csvMapping,
     cleanDescription: profile.cleanDescription ?? ((text) => text),
+    combineDescription: profile.combineDescription ?? null,
   };
 }
 

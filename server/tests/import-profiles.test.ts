@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DatabaseHandle } from '../src/db/client';
-import { cleanNubankDescription, detectCsvProfile, importWorkbook, parseOfx, previewImport } from '../src/services/import';
+import { cleanInterDescription, cleanNubankDescription, detectCsvProfile, importWorkbook, parseOfx, previewImport } from '../src/services/import';
 import { ensureLookup } from '../src/services/lookups';
 import { createTestDatabase } from './helpers';
 
@@ -100,5 +100,76 @@ describe('perfil Nubank — importação', () => {
     const preview = previewImport(handle.db, Buffer.from(NUBANK_CSV, 'utf8'), 'NU_extrato.csv');
     expect(preview.appliedTemplate?.name).toBe('Meu Nubank');
     expect(preview.mapping.purchaseDate).toBe(0);
+  });
+});
+
+// Dados fictícios no formato do extrato do Inter: preâmbulo, depois o cabeçalho, valores no formato brasileiro.
+const INTER_CSV = [
+  ' Extrato Conta Corrente ',
+  'Conta ;123456789',
+  'Período ;01/10/2026 a 31/10/2026',
+  'Saldo ;593,95',
+  '',
+  'Data Lançamento;Histórico;Descrição;Valor;Saldo',
+  '12/10/2026;Pix enviado ;Fulano de Tal;-262,33;590,32',
+  '05/10/2026;Pix recebido;Empresa Exemplo Ltda;2.618,00;1.741,85',
+  '05/10/2026;Pagamento efetuado;PLANO EXEMPLO S A;-2.793,84;-876,15',
+  '',
+].join('\n');
+
+const INTER_OFX = `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+ENCODING:USASCII
+CHARSET:1252
+
+<OFX>
+<SIGNONMSGSRSV1><SONRS><STATUS><CODE>0</CODE></STATUS><FI><ORG>Banco Intermedium S/A</ORG><FID>077</FID></FI></SONRS></SIGNONMSGSRSV1>
+<BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>BRL</CURDEF>
+<BANKACCTFROM><BANKID>077</BANKID><ACCTID>123456789</ACCTID><ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTFROM>
+<BANKTRANLIST>
+<STMTTRN><TRNTYPE>PAYMENT</TRNTYPE><DTPOSTED>20261012</DTPOSTED><TRNAMT>-262.33</TRNAMT><FITID>202610120771</FITID><MEMO>Pix enviado: "Cp :11111111-Fulano de Tal"</MEMO><NAME>Fulano de Tal</NAME></STMTTRN>
+<STMTTRN><TRNTYPE>PAYMENT</TRNTYPE><DTPOSTED>20261005</DTPOSTED><TRNAMT>-2793.84</TRNAMT><FITID>202610050775</FITID><MEMO>Pagamento efetuado: "PLANO EXEMPLO S A"</MEMO><NAME>PLANO EXEMPLO S A</NAME></STMTTRN>
+</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1>
+</OFX>`;
+
+describe('perfil Inter', () => {
+  let handle: DatabaseHandle;
+  beforeEach(() => {
+    handle = createTestDatabase();
+  });
+  afterEach(() => handle.sqlite.close());
+
+  it('descrições do OFX e do CSV no mesmo padrão', () => {
+    expect(cleanInterDescription('Pix enviado: "Cp :11111111-Fulano de Tal"')).toBe('Pix enviado - Fulano de Tal');
+    expect(cleanInterDescription('Pix recebido - Empresa Exemplo Ltda')).toBe('Pix recebido - Empresa Exemplo Ltda');
+    expect(cleanInterDescription('Pagamento efetuado: "PLANO EXEMPLO S A"')).toBe('Pagamento - PLANO EXEMPLO S A');
+    expect(cleanInterDescription('Pagamento efetuado - PLANO EXEMPLO S A')).toBe('Pagamento - PLANO EXEMPLO S A');
+    expect(cleanInterDescription('Tarifa mensal')).toBe('Tarifa mensal');
+  });
+
+  it('CSV: acha o cabeçalho depois do preâmbulo, junta Histórico e Descrição e lê o valor brasileiro', () => {
+    const preview = previewImport(handle.db, Buffer.from(INTER_CSV, 'utf8'), 'Extrato-CSV.csv');
+    expect(preview.profile?.id).toBe('inter-checking');
+    expect(preview.headers).toEqual(['Data Lançamento', 'Histórico', 'Descrição', 'Valor', 'Saldo']);
+    expect(preview.mappingErrors).toEqual([]);
+    expect(preview.rows.map((row) => [row.values.description, row.values.amountCents, row.values.dueDate])).toEqual([
+      ['Pix enviado - Fulano de Tal', -26233, '2026-10-12'],
+      ['Pix recebido - Empresa Exemplo Ltda', 261800, '2026-10-05'],
+      ['Pagamento - PLANO EXEMPLO S A', -279384, '2026-10-05'],
+    ]);
+  });
+
+  it('OFX do Inter (Windows-1252, ORG Intermedium) resume no mesmo padrão', () => {
+    expect(parseOfx(Buffer.from(INTER_OFX, 'latin1'))).toMatchObject({ org: 'Banco Intermedium S/A', fid: '077', bankId: '077' });
+    const preview = previewImport(handle.db, Buffer.from(INTER_OFX, 'latin1'), 'Extrato-OFX.ofx');
+    expect(preview.profile?.id).toBe('inter-checking');
+    expect(preview.rows.map((row) => row.values.description)).toEqual(['Pix enviado - Fulano de Tal', 'Pagamento - PLANO EXEMPLO S A']);
+  });
+
+  it('o delimitador vem da primeira linha que tem um (o título solto não confunde)', () => {
+    const csv = ['Relatório', 'Data;Compra;Valor', '01/10/2026;Padaria, centro;-10,50'].join('\n');
+    const preview = previewImport(handle.db, Buffer.from(csv, 'utf8'), 'r.csv');
+    expect(preview.rows[0].values).toMatchObject({ description: 'Padaria, centro', amountCents: -1050 });
   });
 });
