@@ -1,4 +1,4 @@
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { readPdfTextLines, type PdfTextLine } from '../lib/pdf-text';
 import { badRequest } from '../lib/errors';
 import { itemCodeFrom, paymentsFromText, type PurchaseInput } from './purchase-input';
 
@@ -6,7 +6,7 @@ export const MAX_NFCE_PDF_BYTES = 5 * 1024 * 1024;
 export const MAX_NFCE_PDF_PAGES = 5;
 const MAX_NFCE_PDF_TEXT = 200_000;
 
-interface TextLine { y: number; parts: Array<{ x: number; text: string }> }
+type TextLine = PdfTextLine;
 
 function normalizeLines(lines: TextLine[]): string[] {
   return lines
@@ -133,32 +133,16 @@ export async function extractNfcePdf(buffer: Buffer): Promise<{ state: 'RJ' | 'M
   if (buffer.length === 0 || buffer.length > MAX_NFCE_PDF_BYTES || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
     throw badRequest('Envie um PDF de NFC-e válido de até 5 MB.');
   }
-  const loadingTask = getDocument({ data: new Uint8Array(buffer) });
-  const document = await loadingTask.promise;
-  try {
-    if (document.numPages < 1 || document.numPages > MAX_NFCE_PDF_PAGES) throw badRequest('O PDF deve ter no máximo cinco páginas.');
-    const lines: TextLine[] = [];
-    let totalChars = 0;
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      for (const item of content.items) {
-        if (!('str' in item) || !item.str.trim()) continue;
-        totalChars += item.str.length;
-        if (totalChars > MAX_NFCE_PDF_TEXT) throw badRequest('O texto extraído do PDF excede o limite permitido.');
-        const y = Math.round(item.transform[5]! * 2) / 2;
-        let line = lines.find((candidate) => Math.abs(candidate.y - y) < 1);
-        if (!line) { line = { y, parts: [] }; lines.push(line); }
-        line.parts.push({ x: item.transform[4]!, text: item.str });
-      }
-    }
-    const normalized = normalizeLines(lines);
-    const text = normalized.join('\n');
-    const state = /www4?\.fazenda\.rj\.gov\.br|RIO\s+DE\s+JANEIRO/i.test(text) ? 'RJ' :
-      /SEF\/MG|MINAS\s+GERAIS|portalsped\.fazenda\.mg\.gov\.br/i.test(text) ? 'MG' : null;
-    if (!state) throw badRequest('O PDF não corresponde a um dos layouts de NFC-e suportados (RJ ou MG).');
-    return { state, purchase: state === 'RJ' ? parseRj(normalized, text) : parseMg(normalized, text) };
-  } finally {
-    await loadingTask.destroy();
-  }
+  const lines = await readPdfTextLines(buffer, {
+    maxPages: MAX_NFCE_PDF_PAGES,
+    maxChars: MAX_NFCE_PDF_TEXT,
+    pagesError: 'O PDF deve ter no máximo cinco páginas.',
+    textError: 'O texto extraído do PDF excede o limite permitido.',
+  });
+  const normalized = normalizeLines(lines);
+  const text = normalized.join('\n');
+  const state = /www4?\.fazenda\.rj\.gov\.br|RIO\s+DE\s+JANEIRO/i.test(text) ? 'RJ' :
+    /SEF\/MG|MINAS\s+GERAIS|portalsped\.fazenda\.mg\.gov\.br/i.test(text) ? 'MG' : null;
+  if (!state) throw badRequest('O PDF não corresponde a um dos layouts de NFC-e suportados (RJ ou MG).');
+  return { state, purchase: state === 'RJ' ? parseRj(normalized, text) : parseMg(normalized, text) };
 }

@@ -650,6 +650,10 @@ export type BarcodeParseResult =
     }
   | { valid: false; error: string };
 
+export type BarcodeFromPdfResult =
+  | ({ found: true } & Omit<Extract<BarcodeParseResult, { valid: true }>, 'valid'>)
+  | { found: false };
+
 export interface BillPayment {
   id: number;
   /** null quando o pagamento foi registrado sem lançamento. */

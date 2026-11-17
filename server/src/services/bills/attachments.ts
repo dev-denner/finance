@@ -6,7 +6,9 @@
 import { and, count, eq } from 'drizzle-orm';
 import type { AppDatabase } from '../../db/client';
 import { billAttachments } from '../../db/schema';
+import { findBarcodeInText, type BarcodeDetails } from '../../lib/barcode';
 import { badRequest, conflict, notFound } from '../../lib/errors';
+import { readPdfTextLines } from '../../lib/pdf-text';
 import type { BillAttachmentDto } from './dto';
 import { loadBillRow } from './occurrences';
 
@@ -86,4 +88,34 @@ export function deleteBillAttachment(db: AppDatabase, billId: number, attachment
     .run();
   if (result.changes === 0) throw notFound('Anexo não encontrado nesta conta.');
   return { ok: true };
+}
+
+/**
+ * Lê a linha digitável no texto do PDF anexado. Devolve null quando o PDF não
+ * tem texto (boleto escaneado) ou nenhuma sequência passa nos dígitos
+ * verificadores.
+ */
+export async function readBarcodeFromAttachment(
+  db: AppDatabase,
+  billId: number,
+  attachmentId: number,
+  today: string,
+): Promise<BarcodeDetails | null> {
+  const file = getBillAttachmentFile(db, billId, attachmentId);
+  if (file.contentType !== 'application/pdf') throw badRequest('Só dá para ler a linha digitável de um PDF.');
+  const lines = await readPdfTextLines(file.data, {
+    maxPages: 10,
+    maxChars: 200_000,
+    pagesError: 'O PDF deve ter no máximo dez páginas para a leitura da linha digitável.',
+    textError: 'O texto do PDF passa do limite para a leitura da linha digitável.',
+  });
+  // Cada linha com as partes em ordem horizontal; depois o texto todo, para códigos quebrados em duas linhas.
+  const texts = lines
+    .sort((a, b) => b.y - a.y)
+    .map((line) => line.parts.sort((a, b) => a.x - b.x).map((part) => part.text).join(' '));
+  for (const text of [...texts, texts.join(' ')]) {
+    const found = findBarcodeInText(text, today);
+    if (found) return found;
+  }
+  return null;
 }

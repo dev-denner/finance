@@ -18,6 +18,7 @@ import {
   createTemplate,
   deleteBill,
   deleteBillAttachment,
+  readBarcodeFromAttachment,
   getBillAttachmentFile,
   deleteTemplate,
   getAgenda,
@@ -184,6 +185,13 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
       .header('X-Content-Type-Options', 'nosniff')
       .header('Cache-Control', 'private, no-store')
       .send(file.data);
+  });
+
+  /** Procura a linha digitável no texto do PDF anexado (não grava; a tela confirma). */
+  app.post('/api/bills/:id/attachments/:attachmentId/barcode', async (request) => {
+    const params = parseWith(billAttachmentParamSchema, request.params, 'Identificador inválido.');
+    const found = await readBarcodeFromAttachment(db, params.id, params.attachmentId, todayIso());
+    return found ? { found: true, ...found } : { found: false };
   });
 
   app.delete('/api/bills/:id/attachments/:attachmentId', async (request) => {

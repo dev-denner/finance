@@ -1,6 +1,7 @@
 import type {
   AccountCashFlowResult,
   Bill,
+  BarcodeFromPdfResult,
   BarcodeParseResult,
   BillAgenda,
   BillAttachment,
@@ -412,6 +413,10 @@ export const api = {
     form.append('file', file);
     return request<{ attachment: BillAttachment }>(`/bills/${id}/attachments`, { method: 'POST', body: form });
   },
+
+  /** Procura a linha digitável no texto do PDF anexado; não grava. */
+  readBarcodeFromAttachment: (id: number, attachmentId: number) =>
+    request<BarcodeFromPdfResult>(`/bills/${id}/attachments/${attachmentId}/barcode`, { method: 'POST' }),
 
   deleteBillAttachment: (id: number, attachmentId: number) =>
     request<{ ok: true }>(`/bills/${id}/attachments/${attachmentId}`, { method: 'DELETE' }),
