@@ -90,7 +90,7 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 - Anexos (boleto em PDF) e linha digitável.
 - Visão em calendário do mês.
 - ~~Previsão dos próximos meses na tela~~ (cartões "Próximos meses" na tela de contas, usando `GET /api/bills/forecast`).
-- Ações em massa (marcar várias como pagas ou puladas) e atalhos de teclado (N nova conta, P pagar).
+- ~~Ações em massa (marcar várias como pagas ou puladas) e atalhos de teclado (N nova conta, P pagar)~~ (seleção na lista do mês, `POST /api/bills/bulk-pay` e `/bulk-skip`, tudo ou nada; pagar em massa é sempre externo, sem lançamento).
 - Sugerir recorrências pelo histórico de lançamentos ("find schedules"); depende das regras do Módulo 2.
 - Recorrência na importação de contas por planilha (hoje cria só contas avulsas).
 - M1-06: cálculo de duplicidade repetido em `bills-import.ts` (prévia e importação).
@@ -150,7 +150,7 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 

@@ -191,6 +191,12 @@ export const billForecastQuerySchema = z.object({
   months: z.coerce.number().int().min(1).max(12).default(3),
 });
 
+export const bulkBillIdsSchema = z.array(z.number().int().positive()).min(1).max(500);
+
+export const bulkPayBillsSchema = z.object({ ids: bulkBillIdsSchema, paidAt: isoDateSchema }).strict();
+
+export const bulkSkipBillsSchema = z.object({ ids: bulkBillIdsSchema }).strict();
+
 export const payBillSchema = z.discriminatedUnion('mode', [
   z
     .object({

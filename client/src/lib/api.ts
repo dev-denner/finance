@@ -361,6 +361,15 @@ export const api = {
   payBill: (id: number, input: PayBillInput) =>
     request<{ bill: Bill }>(`/bills/${id}/pay`, { method: 'POST', body: JSON.stringify(input) }),
 
+  bulkPayBills: (ids: number[], paidAt: string) =>
+    request<{ updated: number; paidCents: number }>('/bills/bulk-pay', {
+      method: 'POST',
+      body: JSON.stringify({ ids, paidAt }),
+    }),
+
+  bulkSkipBills: (ids: number[]) =>
+    request<{ updated: number }>('/bills/bulk-skip', { method: 'POST', body: JSON.stringify({ ids }) }),
+
   unpayBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/unpay`, { method: 'POST' }),
 
   skipBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/skip`, { method: 'POST' }),

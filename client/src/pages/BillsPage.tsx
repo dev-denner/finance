@@ -20,6 +20,7 @@ import {
 import { Button } from '../components/ui/Button';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Page';
 import { BillFormDialog, type BillFormTarget } from '../components/bills/BillFormDialog';
+import { BulkBillsDialog } from '../components/bills/BulkBillsDialog';
 import { ForecastStrip } from '../components/bills/ForecastStrip';
 import { PayDialog } from '../components/bills/PayDialog';
 import { DeleteBillDialog, ScheduleDialog } from '../components/bills/SmallBillDialogs';
@@ -30,6 +31,9 @@ import { useToast } from '../context/ToastContext';
 import { api, errorMessage } from '../lib/api';
 import {
   billNote,
+  billsShortcut,
+  bulkSelection,
+  isBulkSelectable,
   forecastCards,
   billsViewParams,
   monthLabel,
@@ -47,7 +51,8 @@ type Dialog =
   | { kind: 'form'; target: BillFormTarget }
   | { kind: 'pay'; bill: Bill }
   | { kind: 'schedule'; bill: Bill }
-  | { kind: 'delete'; bill: Bill };
+  | { kind: 'delete'; bill: Bill }
+  | { kind: 'bulk'; action: 'pay' | 'skip' };
 
 const STATE_OPTIONS: { value: BillStateFilter; label: string }[] = [
   { value: 'all', label: 'Todas' },
@@ -114,7 +119,9 @@ export function BillsPage() {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [draftQuery, setDraftQuery] = useState(view.q);
   const [showAllAttention, setShowAllAttention] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const loadRequest = useRef(0);
+  const headerCheckbox = useRef<HTMLInputElement>(null);
 
   const categories = meta?.categories ?? [];
   const paymentMethods = meta?.paymentMethods ?? [];
@@ -164,6 +171,46 @@ export function BillsPage() {
     return () => window.clearTimeout(timer);
   }, [draftQuery, setView, view.q]);
 
+  // A seleção vale para o mês e os filtros exibidos.
+  useEffect(() => setSelectedIds(new Set()), [view]);
+
+  const selection = useMemo(() => bulkSelection(month?.bills ?? [], selectedIds), [month, selectedIds]);
+  const selectableIds = useMemo(() => (month?.bills ?? []).filter(isBulkSelectable).map((bill) => bill.id), [month]);
+  const allSelected = selectableIds.length > 0 && selection.bills.length === selectableIds.length;
+
+  useEffect(() => {
+    if (headerCheckbox.current) headerCheckbox.current.indeterminate = selection.bills.length > 0 && !allSelected;
+  }, [allSelected, selection.bills.length]);
+
+  const toggleSelected = (id: number, selected: boolean) =>
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (selected) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const openPay = useCallback(() => {
+    if (selection.bills.length === 1) setDialog({ kind: 'pay', bill: selection.bills[0] });
+    else if (selection.bills.length > 1) setDialog({ kind: 'bulk', action: 'pay' });
+    else showToast('Marque na lista do mês as contas a pagar.', 'info');
+  }, [selection, showToast]);
+
+  // Atalhos: N abre "Nova conta"; P paga as contas marcadas. Desligados com um diálogo aberto ou digitando.
+  useEffect(() => {
+    if (dialog) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.defaultPrevented) return;
+      const shortcut = billsShortcut(event);
+      if (!shortcut) return;
+      event.preventDefault();
+      if (shortcut === 'new') setDialog({ kind: 'form', target: { kind: 'create' } });
+      else openPay();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [dialog, openPay]);
+
   const afterChange = useCallback(
     async (message?: string, options?: Parameters<typeof showToast>[2]) => {
       setDialog(null);
@@ -207,6 +254,23 @@ export function BillsPage() {
             }
           : undefined,
       );
+    } catch (err) {
+      showToast(errorMessage(err), 'error');
+    }
+  };
+
+  const runBulk = async (action: 'pay' | 'skip', paidAt: string) => {
+    const ids = selection.bills.map((bill) => bill.id);
+    try {
+      if (action === 'pay') {
+        const result = await api.bulkPayBills(ids, paidAt);
+        setSelectedIds(new Set());
+        await afterChange(`${plural(result.updated, 'conta marcada', 'contas marcadas')} como paga${result.updated === 1 ? '' : 's'} (${formatBRL(result.paidCents)}).`);
+      } else {
+        const result = await api.bulkSkipBills(ids);
+        setSelectedIds(new Set());
+        await afterChange(`${plural(result.updated, 'conta pulada', 'contas puladas')}.`);
+      }
     } catch (err) {
       showToast(errorMessage(err), 'error');
     }
@@ -347,7 +411,12 @@ export function BillsPage() {
         title="Contas a pagar"
         subtitle="Agenda do que vence, do que já foi agendado no banco e do que foi pago."
         actions={
-          <Button variant="primary" onClick={() => setDialog({ kind: 'form', target: { kind: 'create' } })}>
+          <Button
+            variant="primary"
+            title="Nova conta (atalho N)"
+            aria-keyshortcuts="N"
+            onClick={() => setDialog({ kind: 'form', target: { kind: 'create' } })}
+          >
             <Plus className="h-4 w-4" />
             Nova conta
           </Button>
@@ -536,6 +605,37 @@ export function BillsPage() {
         )}
 
         <div className="card overflow-hidden">
+          {selection.bills.length > 0 && (
+            <div
+              role="region"
+              aria-label="Contas selecionadas"
+              className="flex flex-wrap items-center gap-2.5 border-b border-blue-200 bg-blue-50/80 px-4 py-2.5 dark:border-blue-900/50 dark:bg-blue-950/30"
+            >
+              <div className="mr-1 flex items-center gap-2 text-[12px]">
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-semibold text-white">
+                  {selection.bills.length}
+                </span>
+                <span className="font-medium text-blue-900 dark:text-blue-200">
+                  {selection.bills.length === 1 ? 'selecionada' : 'selecionadas'} · {formatBRL(selection.remainingCents)}
+                </span>
+              </div>
+              <Button size="sm" variant="primary" title="Pagar as selecionadas (atalho P)" aria-keyshortcuts="P" onClick={openPay}>
+                <CircleCheck className="h-3.5 w-3.5" />
+                Marcar como pagas
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: 'bulk', action: 'skip' })}>
+                <SkipForward className="h-3.5 w-3.5" />
+                Pular
+              </Button>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="ml-auto text-[12px] font-medium text-blue-700 underline-offset-2 hover:underline dark:text-blue-300"
+              >
+                Limpar seleção
+              </button>
+            </div>
+          )}
           {loading ? (
             <Spinner />
           ) : !month || month.bills.length === 0 ? (
@@ -561,6 +661,17 @@ export function BillsPage() {
               <table className="w-full min-w-[760px] border-collapse">
                 <thead className="sticky top-0 z-10">
                   <tr>
+                    <th className="th w-10">
+                      <input
+                        ref={headerCheckbox}
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer rounded border-ink-300 accent-blue-600"
+                        checked={allSelected}
+                        disabled={selectableIds.length === 0}
+                        onChange={(e) => setSelectedIds(e.target.checked ? new Set(selectableIds) : new Set())}
+                        aria-label="Selecionar as contas em aberto do mês"
+                      />
+                    </th>
                     <th className="th w-[110px]">Vencimento</th>
                     <th className="th">Descrição</th>
                     <th className="th">Categoria</th>
@@ -575,10 +686,23 @@ export function BillsPage() {
                   {month.bills.map((bill) => (
                     <tr
                       key={bill.id}
-                      className={`transition hover:bg-ink-50/70 dark:hover:bg-ink-800/30 ${
-                        bill.state === 'skipped' ? 'opacity-60' : ''
-                      }`}
+                      className={`transition ${
+                        selectedIds.has(bill.id)
+                          ? 'bg-blue-50/70 dark:bg-blue-950/20'
+                          : 'hover:bg-ink-50/70 dark:hover:bg-ink-800/30'
+                      } ${bill.state === 'skipped' ? 'opacity-60' : ''}`}
                     >
+                      <td className="td">
+                        {isBulkSelectable(bill) && (
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer rounded border-ink-300 accent-blue-600"
+                            checked={selectedIds.has(bill.id)}
+                            onChange={(e) => toggleSelected(bill.id, e.target.checked)}
+                            aria-label={`Selecionar ${bill.description}`}
+                          />
+                        )}
+                      </td>
                       <td className="td whitespace-nowrap tabular-nums">{formatDateBR(bill.dueDate)}</td>
                       <td className="td max-w-[320px]">{describe(bill)}</td>
                       <td className="td text-[12px] text-ink-500 dark:text-ink-400">{bill.categoryName}</td>
@@ -618,6 +742,15 @@ export function BillsPage() {
           paymentMethods={paymentMethods}
           onClose={() => setDialog(null)}
           onConfirm={(input) => pay(dialog.bill, input)}
+        />
+      )}
+      {dialog?.kind === 'bulk' && (
+        <BulkBillsDialog
+          action={dialog.action}
+          selection={selection}
+          today={today}
+          onClose={() => setDialog(null)}
+          onConfirm={(paidAt) => runBulk(dialog.action, paidAt)}
         />
       )}
       {dialog?.kind === 'schedule' && (
