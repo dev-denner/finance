@@ -34,6 +34,8 @@ Ambas as branches criam uma `0007`. Simulação de merge (`git merge-tree`): `sc
 ### R2 — Consulta aos portais com navegador headless
 Funciona hoje e o código é cuidadoso, mas é o caminho frágil: depende do layout de três portais, já registrou bloqueio por reputação de IP no RJ (o código trata explicitamente) e pode esbarrar em termos de uso. **Recomendação:** manter como canal opcional atrás de configuração (desligado por padrão), com texto colado e PDF como caminhos principais na interface; registrar no README que o canal pode parar sem aviso.
 
+**Resolvido (2026-11-12, decisão do usuário):** a consulta pelo QR Code e o lote de URLs ficam atrás de `NFCE_PORTAL_QUERY_ENABLED=true`, desligados por padrão. Desligado, a API responde 403 nessas rotas, `/api/meta` informa `features.nfcePortalQuery = false` e a tela mostra só PDF e texto copiado.
+
 ### R3 — Conciliar sobrescreve a categoria de todos os itens
 `reconcilePurchase` aplica a categoria da compra a **todos** os `purchase_items`, guardando a anterior em `reconciliation_previous_category_id` e restaurando no desfazer. Isso apaga a classificação item a item feita antes de conciliar, contrariando o README ("essa classificação é independente da categoria geral da compra"). **Recomendação:** aplicar só aos itens sem categoria, ou tornar a propagação uma escolha explícita no payload.
 
@@ -41,6 +43,8 @@ Funciona hoje e o código é cuidadoso, mas é o caminho frágil: depende do lay
 
 ### R4 — `purchases.transaction_id` redundante
 Com `purchase_settlements` como fonte da verdade, `transaction_id` guarda só o primeiro movimento e tem índice único, o que impede duas compras parciais pagas pelo mesmo lançamento mesmo quando as liquidações permitiriam. **Recomendação:** remover a coluna (ou renomear para "movimento principal" e tirar a unicidade) em uma migração própria.
+
+**Resolvido (2026-11-12):** a migração `0016_drop_purchases_transaction_id` remove a coluna e o índice único. Como a reconstrução da tabela roda dentro da transação do migrator, itens, liquidações e ajustes de saldo da compra passam por tabelas auxiliares e voltam com os mesmos ids; `purchases-migration.test.ts` cobre isso. `purchase_settlements` é a única fonte do vínculo com movimentações.
 
 ### R5 — Migração `0014` repete o padrão frágil de rebuild
 `PRAGMA foreign_keys=OFF` dentro do migrator do Drizzle não tem efeito (roda em transação). Aqui não há dano porque nada referencia `purchase_settlements`, mas o mesmo padrão derrubaria filhos com `ON DELETE CASCADE` em outra tabela. A migração `0007` da branch de contas a pagar documenta o contorno (tabelas auxiliares).

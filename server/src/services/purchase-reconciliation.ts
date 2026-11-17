@@ -1,5 +1,4 @@
 import { and, asc, eq, isNull, lt, lte, notExists, notInArray, or, sql } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/sqlite-core';
 import type { AppDatabase } from '../db/client';
 import { daysBetweenIso } from '../lib/dates';
 import { badRequest, conflict, notFound, nowIso } from '../lib/errors';
@@ -38,7 +37,6 @@ function loadCandidates(db: AppDatabase, purchaseId: number): PurchaseReconcilia
   if (!purchase) throw notFound('Compra não encontrada.');
   if (isSettled(db, purchaseId)) return [];
   const purchaseDate = purchase.issuedAt.slice(0, 10);
-  const linkedPurchase = alias(purchases, 'linked_purchase');
   const transferExists = db.select({ id: transfers.id }).from(transfers).where(or(
     eq(transfers.outgoingTransactionId, transactions.id), eq(transfers.incomingTransactionId, transactions.id),
   ));
@@ -54,9 +52,7 @@ function loadCandidates(db: AppDatabase, purchaseId: number): PurchaseReconcilia
   }).from(transactions)
     .innerJoin(categories, eq(categories.id, transactions.categoryId))
     .innerJoin(paymentMethods, eq(paymentMethods.id, transactions.paymentMethodId))
-    .leftJoin(linkedPurchase, eq(linkedPurchase.transactionId, transactions.id))
     .where(and(lt(transactions.amountCents, 0), lte(sql`abs(${transactions.amountCents})`, purchase.totalCents), isNull(transactions.transfer),
-      or(isNull(linkedPurchase.id), eq(linkedPurchase.id, purchaseId)),
       notExists(activeSettlementExists),
       or(isNull(categories.classification), notInArray(categories.classification, ['transfer', 'card_settlement'])),
       notExists(transferExists)))
@@ -216,7 +212,7 @@ export function reconcilePurchase(db: AppDatabase, purchaseId: number, input: Pu
       accounts.add(allocation.paymentMethodId);
     }
     for (const accountId of accounts) assertNonNegativeChronologicalBalance(tx as unknown as AppDatabase, accountId);
-    tx.update(purchases).set({ transactionId: chosen[0]?.transactionId ?? null, reconciledAt,
+    tx.update(purchases).set({ reconciledAt,
       reconciliationPreviousCategoryId: purchase.categoryId, categoryId: input.categoryId }).where(eq(purchases.id, purchaseId)).run();
     tx.update(purchaseItems).set({ reconciliationPreviousCategoryId: purchaseItems.categoryId })
       .where(eq(purchaseItems.purchaseId, purchaseId)).run();
@@ -253,7 +249,7 @@ export function undoPurchaseReconciliation(db: AppDatabase, purchaseId: number) 
     if (!isSettled(tx as unknown as AppDatabase, purchaseId)) throw conflict('Esta compra ainda não está conciliada.');
     const reversedAt = nowIso();
     tx.update(purchaseSettlements).set({ reversedAt, transactionId: null }).where(and(eq(purchaseSettlements.purchaseId, purchaseId), isNull(purchaseSettlements.reversedAt))).run();
-    tx.update(purchases).set({ transactionId: null, reconciledAt: null, categoryId: purchase.reconciliationPreviousCategoryId,
+    tx.update(purchases).set({ reconciledAt: null, categoryId: purchase.reconciliationPreviousCategoryId,
       reconciliationPreviousCategoryId: null }).where(eq(purchases.id, purchaseId)).run();
     tx.update(purchaseItems).set({ categoryId: purchaseItems.reconciliationPreviousCategoryId, reconciliationPreviousCategoryId: null })
       .where(eq(purchaseItems.purchaseId, purchaseId)).run();

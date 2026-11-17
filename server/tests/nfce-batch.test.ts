@@ -645,7 +645,7 @@ describe('rotas do lote de NFC-e (ponta a ponta, sem rede)', () => {
 
   it('inspeciona, prevê e importa pelo multipart sem revelar a URL', async () => {
     const handle = createTestDatabase();
-    const app = await buildApp({ db: handle.db, logger: false });
+    const app = await buildApp({ db: handle.db, logger: false, nfcePortalQueryEnabled: true });
     try {
       const seeded = importPurchase(handle.db, purchaseFor(1));
       const content = `url;observacao\n${urlFor(1)};ok\n`;

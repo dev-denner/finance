@@ -177,10 +177,10 @@ export function ImportsPage() {
         <FlowCard
           icon={ShoppingCart}
           title="Importar NFC-e/compras"
-          description="Importe uma NFC-e do RJ, de SP ou de TO pelo QR Code ou várias por arquivo CSV/TXT, revisando antes de salvar."
+          description="Importe NFC-e pelo PDF ou pelo texto copiado da consulta fiscal, revisando antes de salvar."
           details={[
             'Prévia do fornecedor, total e itens antes de gravar',
-            'Lote aceita CSV/TXT com URLs de QR Code e não descarta linhas inválidas em silêncio',
+            'Consulta pelo QR Code e lote de URLs opcionais, desligados por padrão',
             'Deduplicação pela chave de acesso da nota',
             'Não cria nem altera movimentações financeiras',
           ]}

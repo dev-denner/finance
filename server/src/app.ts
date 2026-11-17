@@ -12,6 +12,7 @@ import { registerImportRoutes } from './routes/imports';
 import { registerInstallmentRoutes } from './routes/installments';
 import { registerMetaRoutes } from './routes/meta';
 import { registerPurchaseRoutes } from './routes/purchases';
+import { isNfcePortalQueryEnabled } from './services/nfce-portal-config';
 import { registerReconciliationRoutes } from './routes/reconciliation';
 import { registerLookupRoutes, registerTransactionRoutes } from './routes/transactions';
 
@@ -19,6 +20,8 @@ export interface BuildAppOptions {
   db: AppDatabase;
   logger?: boolean;
   staticDir?: string;
+  /** Consulta automática aos portais da SEFAZ; padrão: `NFCE_PORTAL_QUERY_ENABLED`. */
+  nfcePortalQueryEnabled?: boolean;
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -35,8 +38,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     },
   });
 
-  registerMetaRoutes(app, options.db);
-  registerPurchaseRoutes(app, options.db);
+  const nfcePortalQueryEnabled = options.nfcePortalQueryEnabled ?? isNfcePortalQueryEnabled();
+  registerMetaRoutes(app, options.db, { nfcePortalQueryEnabled });
+  registerPurchaseRoutes(app, options.db, { nfcePortalQueryEnabled });
   registerTransactionRoutes(app, options.db);
   registerLookupRoutes(app, options.db);
   registerBillRoutes(app, options.db);
