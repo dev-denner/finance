@@ -18,6 +18,7 @@ import {
   templateInputFrom,
   validateBillForm,
   billNote,
+  forecastCards,
   remainingCents,
 } from './bills-view';
 import type { Bill, BillTemplate } from './types';
@@ -268,6 +269,28 @@ describe('pagamento parcial', () => {
     expect(billNote(bill({ state: 'paid', payments: [payment(null)], notes: 'pago no caixa' }), brl)).toBe('pago no caixa');
     expect(billNote(bill({ state: 'paid', migratedPayment: true }), brl)).toBe('Paga antes da atualização (sem lançamento)');
     expect(billNote(bill(), brl)).toBeNull();
+  });
+});
+
+describe('previsão mensal', () => {
+  const summary = (totalCents: number, paidCents: number) => ({
+    totalCents, paidCents, openCents: totalCents - paidCents, overdueCents: 0,
+    statusCounts: { overdue: 0, due_today: 0, scheduled: 0, upcoming: 0, paid: 0, skipped: 0 },
+  });
+
+  it('monta um cartão por mês com a fração paga e marca o mês aberto', () => {
+    const cards = forecastCards({
+      today: TODAY,
+      months: [
+        { year: 2026, month: 3, from: '2026-03-01', to: '2026-03-31', summary: summary(40000, 10000) },
+        { year: 2026, month: 4, from: '2026-04-01', to: '2026-04-30', summary: summary(0, 0) },
+      ],
+    }, { year: 2026, month: 4 });
+    expect(cards.map((card) => [card.label, card.paidShare, card.selected])).toEqual([
+      ['Março de 2026', 0.25, false],
+      ['Abril de 2026', 0, true],
+    ]);
+    expect(forecastCards(null, { year: 2026, month: 3 })).toEqual([]);
   });
 });
 

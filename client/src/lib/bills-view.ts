@@ -6,6 +6,7 @@
 import type {
   Bill,
   BillAgenda,
+  BillForecast,
   BillFrequency,
   BillState,
   BillTemplate,
@@ -418,5 +419,38 @@ export function billNote(
   if (linked) return `Lançamento em ${linked.paymentMethodName ?? 'Movimentações'}`;
   if (bill.migratedPayment) return 'Paga antes da atualização (sem lançamento)';
   return bill.notes;
+}
+
+// ---------------------------------------------------------------------------
+// Previsão
+// ---------------------------------------------------------------------------
+
+export interface ForecastCard {
+  year: number;
+  month: number;
+  label: string;
+  totalCents: number;
+  openCents: number;
+  paidCents: number;
+  overdueCents: number;
+  /** Fração já paga do previsto, de 0 a 1 (0 quando não há contas no mês). */
+  paidShare: number;
+  /** Mês aberto na lista abaixo. */
+  selected: boolean;
+}
+
+/** Cartões da previsão mensal, marcando o mês que está aberto na lista. */
+export function forecastCards(forecast: BillForecast | null, view: Pick<BillsView, 'year' | 'month'>): ForecastCard[] {
+  return (forecast?.months ?? []).map(({ year, month, summary }) => ({
+    year,
+    month,
+    label: monthLabel(year, month),
+    totalCents: summary.totalCents,
+    openCents: summary.openCents,
+    paidCents: summary.paidCents,
+    overdueCents: summary.overdueCents,
+    paidShare: summary.totalCents > 0 ? Math.min(1, summary.paidCents / summary.totalCents) : 0,
+    selected: year === view.year && month === view.month,
+  }));
 }
 
