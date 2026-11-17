@@ -155,6 +155,14 @@ export function parseToNfceXml(xml: string, Parser: DomParserConstructor, expect
     '19': 'Programa de fidelidade', '90': 'Sem pagamento', '99': 'Outros',
   };
   const paymentMethods = [...new Set(paymentCodes.map((code) => paymentLabels[code] ?? 'Outros'))];
+  const paymentGroup = first(infNfe ?? document, 'pag');
+  const paymentDetails = paymentGroup ? all(paymentGroup, 'detPag') : [];
+  const payments = (paymentDetails.length > 0 ? paymentDetails : paymentGroup ? [paymentGroup] : []).flatMap((detail) => {
+    const code = text(detail, 'tPag');
+    const amountCents = parseCents(text(detail, 'vPag'));
+    if (!code || code === '90' || amountCents === null || amountCents <= 0) return [];
+    return [{ method: paymentLabels[code] ?? 'Outros', amountCents }];
+  }).slice(0, 20);
   const items = detRows.map((det) => {
     const product = first(det, 'prod');
     const description = text(product ?? det, 'xProd').slice(0, 500);
@@ -166,7 +174,10 @@ export function parseToNfceXml(xml: string, Parser: DomParserConstructor, expect
     const discountText = text(product ?? det, 'vDesc');
     const discountCents = discountText ? parseCents(discountText) : null;
     if (!description || !/^\d+(?:\.\d+)?$/.test(quantity) || Number(quantity) <= 0 || !unit || unitPriceCents === null || totalItemCents === null || (discountText && discountCents === null)) return null;
-    return { description, quantity, unit, unitPriceCents, discountCents: discountCents && discountCents > 0 ? discountCents : null, totalCents: totalItemCents };
+    const code = text(product ?? det, 'cProd').slice(0, 60) || null;
+    const eanText = text(product ?? det, 'cEAN') || text(product ?? det, 'cEANTrib');
+    const ean = /^(?:\d{8}|\d{12,14})$/.test(eanText) ? eanText : null;
+    return { description, quantity, unit, unitPriceCents, discountCents: discountCents && discountCents > 0 ? discountCents : null, totalCents: totalItemCents, code, ean };
   });
   if (items.some((item) => item === null)) return { error: 'invalid-items' };
   const normalizedItems = items as NonNullable<(typeof items)[number]>[];
@@ -184,6 +195,7 @@ export function parseToNfceXml(xml: string, Parser: DomParserConstructor, expect
       invoiceDiscountCents,
       paymentMethod: paymentMethods.length > 1 ? 'Pagamento misto' : paymentMethods[0] ?? null,
       items: normalizedItems,
+      payments,
     },
   };
 }

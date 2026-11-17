@@ -35,6 +35,16 @@ export interface PurchaseItem {
   unitPriceCents: number;
   discountCents: number | null;
   totalCents: number;
+  /** Código do produto no emitente (cProd), quando a nota informa. */
+  code?: string | null;
+  /** GTIN/EAN do produto, quando a nota informa. */
+  ean?: string | null;
+}
+
+/** Forma de pagamento declarada na nota. */
+export interface PurchasePayment {
+  method: string;
+  amountCents: number;
 }
 
 export interface Purchase {
@@ -55,6 +65,7 @@ export interface Purchase {
   itemCount?: number;
   reconciledAt?: string | null;
   items?: PurchaseItem[];
+  payments?: PurchasePayment[];
 }
 
 

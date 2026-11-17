@@ -113,9 +113,10 @@ describe('adaptador NFC-e de SP', () => {
       paymentMethod: 'Pix',
     });
     expect(purchase.items).toEqual([
-      { description: 'Item Sintético A', quantity: '2', unit: 'UN', unitPriceCents: 1000, discountCents: null, totalCents: 2000 },
-      { description: 'Item Sintético B', quantity: '1', unit: 'UN', unitPriceCents: 1000, discountCents: null, totalCents: 1000 },
+      { description: 'Item Sintético A', quantity: '2', unit: 'UN', unitPriceCents: 1000, discountCents: null, totalCents: 2000, code: 'A-01' },
+      { description: 'Item Sintético B', quantity: '1', unit: 'UN', unitPriceCents: 1000, discountCents: null, totalCents: 1000, code: 'B-02' },
     ]);
+    expect(purchase.payments).toEqual([{ method: 'Pix', amountCents: 3000 }]);
     expect(JSON.stringify(purchase)).not.toMatch(/consumerCpf|card|authorization|html/i);
     dom.window.close();
   });
