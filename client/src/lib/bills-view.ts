@@ -454,3 +454,55 @@ export function forecastCards(forecast: BillForecast | null, view: Pick<BillsVie
   }));
 }
 
+
+/** Ações em massa só valem para contas em aberto. */
+export function isBulkSelectable(bill: Pick<Bill, 'state'>): boolean {
+  return bill.state === 'open';
+}
+
+export interface BulkSelection {
+  bills: Bill[];
+  /** Soma do que falta pagar nas selecionadas. */
+  remainingCents: number;
+  /** Selecionadas com pagamento parcial: não podem ser puladas. */
+  partial: Bill[];
+}
+
+/** Contas selecionadas que continuam na lista e em aberto, na ordem da lista. */
+export function bulkSelection(bills: readonly Bill[], selectedIds: ReadonlySet<number>): BulkSelection {
+  const selected = bills.filter((bill) => selectedIds.has(bill.id) && isBulkSelectable(bill));
+  return {
+    bills: selected,
+    remainingCents: selected.reduce((sum, bill) => sum + remainingCents(bill), 0),
+    partial: selected.filter((bill) => bill.partialPaidCents > 0),
+  };
+}
+
+/** Atalho de teclado da tela de contas, ou null quando a tecla não é atalho. */
+export type BillsShortcut = 'new' | 'pay';
+
+export function billsShortcut(event: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  target: EventTarget | null;
+}): BillsShortcut | null {
+  if (event.ctrlKey || event.metaKey || event.altKey) return null;
+  if (isTypingTarget(event.target)) return null;
+  const key = event.key.toLowerCase();
+  if (key === 'n') return 'new';
+  if (key === 'p') return 'pay';
+  return null;
+}
+
+/** Campos de input que não recebem texto: com o foco neles (ex.: a caixa recém-marcada), o atalho vale. */
+const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'color', 'range', 'image']);
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as { tagName?: unknown }).tagName !== 'string') return false;
+  const element = target as HTMLElement & { type?: unknown };
+  const tag = element.tagName.toLowerCase();
+  if (tag === 'input') return !NON_TEXT_INPUTS.has(String(element.type ?? 'text').toLowerCase());
+  return tag === 'textarea' || tag === 'select' || element.isContentEditable === true;
+}

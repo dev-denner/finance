@@ -8,6 +8,8 @@ import {
   type BillImportField,
 } from '../services/bills-import';
 import {
+  bulkPayBills,
+  bulkSkipBills,
   createBill,
   createTemplate,
   deleteBill,
@@ -38,6 +40,8 @@ import {
   billTemplateUpdateQuerySchema,
   billTemplateUpdateSchema,
   billUpdateSchema,
+  bulkPayBillsSchema,
+  bulkSkipBillsSchema,
   idParamSchema,
   parseWith,
   payBillSchema,
@@ -125,6 +129,17 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
   app.get('/api/bills/forecast', async (request) => {
     const query = parseWith(billForecastQuerySchema, request.query, 'Parâmetros da previsão inválidos.');
     return getForecast(db, { months: query.months });
+  });
+
+  /** Ações em massa: tudo ou nada; o erro cita a conta que impediu. */
+  app.post('/api/bills/bulk-pay', async (request) => {
+    const body = parseWith(bulkPayBillsSchema, request.body, 'Dados do pagamento em massa inválidos.');
+    return bulkPayBills(db, body.ids, { paidAt: body.paidAt });
+  });
+
+  app.post('/api/bills/bulk-skip', async (request) => {
+    const body = parseWith(bulkSkipBillsSchema, request.body, 'Seleção de contas inválida.');
+    return bulkSkipBills(db, body.ids);
   });
 
   app.get('/api/bills/:id', async (request) => ({ bill: getBill(db, idOf(request)) }));

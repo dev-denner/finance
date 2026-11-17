@@ -26,6 +26,8 @@ const apiMock = {
   listBillTemplates: vi.fn(),
   getBillTemplate: vi.fn(),
   payBill: vi.fn(),
+  bulkPayBills: vi.fn(),
+  bulkSkipBills: vi.fn(),
   unpayBill: vi.fn(),
   skipBill: vi.fn(),
   unskipBill: vi.fn(),
@@ -205,7 +207,7 @@ describe('tela de contas a pagar', () => {
     await render();
 
     await click(buttons('Pagar')[0]);
-    const toggle = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const toggle = document.querySelector('[role="dialog"] input[type="checkbox"]') as HTMLInputElement;
     expect(toggle.checked).toBe(false);
     await click(buttons('Confirmar pagamento')[0]);
 
@@ -226,7 +228,7 @@ describe('tela de contas a pagar', () => {
     await render('/contas', [bill({ paymentMethodId: 2, paymentMethodName: 'Nubank' })]);
 
     await click(buttons('Pagar')[0]);
-    expect((document.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
+    expect((document.querySelector('[role="dialog"] input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
     expect((document.getElementById('pay-account') as HTMLSelectElement).value).toBe('2');
     await type(document.getElementById('pay-amount') as HTMLInputElement, '790,10');
     await click(buttons('Confirmar pagamento')[0]);
@@ -365,5 +367,82 @@ describe('tela de contas a pagar', () => {
     await click(buttons('Pular só esta')[0]);
     expect(apiMock.deleteBill).toHaveBeenCalledWith(4);
     expect(apiMock.deleteBillTemplate).not.toHaveBeenCalled();
+  });
+});
+
+describe('contas — ações em massa e atalhos', () => {
+  const monthBills = () => [
+    bill({ id: 1, description: 'Luz', amountCents: 18000 }),
+    bill({ id: 2, description: 'Água', amountCents: 9000, partialPaidCents: 4000 }),
+    bill({ id: 3, description: 'Paga', state: 'paid', displayStatus: 'paid', paidAt: TODAY, paidCents: 5000 }),
+  ];
+
+  const checkbox = (label: string) => document.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement | null;
+
+  async function press(key: string, target: EventTarget = document.body) {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+  }
+
+  it('seleciona só as contas em aberto e paga todas pelo valor que falta', async () => {
+    apiMock.bulkPayBills.mockResolvedValue({ updated: 2, paidCents: 23000 });
+    await render('/contas', monthBills());
+
+    expect(checkbox('Selecionar Paga')).toBeNull();
+    await click(checkbox('Selecionar as contas em aberto do mês') as HTMLInputElement);
+    expect(document.body.textContent).toContain('selecionadas · R$ 230,00');
+
+    await click(buttons('Marcar como pagas')[0]);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.getAttribute('aria-label')).toBe('Marcar 2 contas como pagas');
+    expect(dialog.textContent).toContain('R$ 50,00');
+    await type(document.getElementById('bulk-paid-at') as HTMLInputElement, '2026-03-04');
+    await click([...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Marcar como pagas') as HTMLButtonElement);
+
+    expect(apiMock.bulkPayBills).toHaveBeenCalledWith([1, 2], '2026-03-04');
+    expect(showToast).toHaveBeenCalledWith('2 contas marcadas como pagas (R$ 230,00).', 'success', undefined);
+    expect(document.body.textContent).not.toContain('selecionadas ·');
+  });
+
+  it('pular em massa é bloqueado com conta de pagamento parcial e envia as demais', async () => {
+    apiMock.bulkSkipBills.mockResolvedValue({ updated: 1 });
+    await render('/contas', monthBills());
+
+    await click(checkbox('Selecionar Luz') as HTMLInputElement);
+    await click(checkbox('Selecionar Água') as HTMLInputElement);
+    await click(buttons('Pular')[0]);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Água tem pagamento parcial');
+    const confirm = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Pular') as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    await click(buttons('Cancelar')[0]);
+
+    await click(checkbox('Selecionar Água') as HTMLInputElement);
+    await click(buttons('Pular')[0]);
+    await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Pular') as HTMLButtonElement);
+    expect(apiMock.bulkSkipBills).toHaveBeenCalledWith([1]);
+    expect(showToast).toHaveBeenCalledWith('1 conta pulada.', 'success', undefined);
+  });
+
+  it('N abre nova conta; P paga a selecionada; atalhos ignoram campos de texto', async () => {
+    await render('/contas', monthBills());
+
+    await press('p');
+    expect(showToast).toHaveBeenCalledWith('Marque na lista do mês as contas a pagar.', 'info');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    await press('n', document.querySelector('input[placeholder="Buscar"]') as HTMLInputElement);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    await press('n');
+    expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Nova conta a pagar');
+    await click(buttons('Cancelar')[0]);
+
+    await click(checkbox('Selecionar Luz') as HTMLInputElement);
+    await press('P', checkbox('Selecionar Luz') as HTMLInputElement);
+    expect(document.getElementById('pay-amount')).not.toBeNull();
+    // Com um diálogo aberto, N não troca o diálogo.
+    await press('n');
+    expect(document.getElementById('pay-amount')).not.toBeNull();
   });
 });

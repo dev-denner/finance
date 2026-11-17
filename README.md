@@ -189,6 +189,7 @@ API (JSON; datas `AAAA-MM-DD`; valores em centavos):
 | `GET/POST /api/bills`, `PUT/DELETE /api/bills/:id` | Conta avulsa |
 | `POST /api/bills/:id/pay` | `{ mode: 'external', paidAt, paidCents }`, `{ mode: 'transaction', paidAt, paidCents, paymentMethodId }` ou `{ mode: 'link', transactionId }` |
 | `POST /api/bills/:id/unpay` · `/skip` · `/unskip` | Desfazer todos os pagamentos (inclusive parciais), pular, voltar a abrir |
+| `POST /api/bills/bulk-pay` · `/bulk-skip` | `{ ids, paidAt }` quita as contas em aberto pelo valor que falta, sem lançamento; `{ ids }` pula. Tudo ou nada: com uma conta paga, pulada ou (ao pular) com pagamento parcial, nenhuma muda e o erro 409 cita a conta |
 | `POST /api/bills/:id/schedule` | `{ scheduledFor }` registra (ou limpa, com `null`) o agendamento no banco |
 | `GET/POST /api/bill-templates`, `GET/PUT/DELETE /api/bill-templates/:id` | Recorrências; `PUT ?scope=future&from=AAAA-MM-DD` divide a série |
 | `POST /api/bill-templates/preview` | Próximas datas que a regra geraria, sem gravar |
@@ -199,6 +200,8 @@ Na tela **Contas a pagar**:
 - **Próximos meses**: três cartões com o mês corrente e os dois seguintes mostram o total previsto (já com as ocorrências das recorrências), o que está em aberto, o pago e o atrasado, com uma barra da parte já paga. Clicar num cartão abre aquele mês na lista.
 - Abaixo fica o mês, com navegação, busca, filtro por situação e por categoria e o resumo do mês (em aberto, atrasado, agendado, pago). Mês e filtros ficam no endereço da página, então voltar de outra tela mantém o que estava aberto.
 - **Pagar** pede data e valor. "Registrar lançamento em Movimentações" vem desligado, a menos que a conta tenha conta padrão; ligado, cria a saída na conta escolhida. A opção **Pagamento parcial** mantém a conta em aberto; a linha mostra quanto já foi pago e quanto falta, e o próximo pagamento já sugere o restante. O aviso de confirmação tem **Desfazer** por alguns segundos quando é o primeiro pagamento da conta, e a linha paga ou parcialmente paga mantém o botão de desfazer, que remove todos os pagamentos. O resumo do mês conta os parciais como pagos e só o restante como em aberto ou atrasado.
+- **Ações em massa**: marque as contas em aberto na lista do mês (a caixa do cabeçalho marca todas) e use **Marcar como pagas** (escolhe a data; cada conta é quitada pelo valor que falta, sem lançamento) ou **Pular**. Uma conta com pagamento parcial não pode ser pulada. A seleção é limpa ao trocar de mês ou de filtro.
+- **Atalhos**: **N** abre "Nova conta"; **P** paga as contas marcadas (uma só abre o diálogo de pagamento completo). Não valem enquanto se digita num campo ou com um diálogo aberto.
 - **Nova conta** com **Repetir** mostra as próximas datas calculadas pelo servidor antes de salvar. Editar uma conta recorrente pergunta se a alteração vale **só para esta** ou **para esta e as futuras**; mudar a repetição só é possível no segundo caso.
 - **Excluir** uma conta recorrente oferece **pular só esta** ou **excluir a recorrência** (as já pagas ficam no histórico).
 

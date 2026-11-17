@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  billsShortcut,
+  bulkSelection,
   badgeCount,
   billFormFrom,
   billsViewParams,
@@ -294,3 +296,30 @@ describe('previsão mensal', () => {
   });
 });
 
+
+describe('ações em massa e atalhos', () => {
+  it('a seleção ignora contas fora da lista ou que deixaram de estar em aberto e soma o que falta', () => {
+    const bills = [
+      bill({ id: 1, amountCents: 1000 }),
+      bill({ id: 2, amountCents: 5000, partialPaidCents: 2000 }),
+      bill({ id: 3, state: 'paid' }),
+    ];
+    const selection = bulkSelection(bills, new Set([1, 2, 3, 99]));
+    expect(selection.bills.map((item) => item.id)).toEqual([1, 2]);
+    expect(selection.remainingCents).toBe(4000);
+    expect(selection.partial.map((item) => item.id)).toEqual([2]);
+  });
+
+  it('N e P são atalhos só fora de campos e sem modificadores', () => {
+    const base = { ctrlKey: false, metaKey: false, altKey: false, target: null };
+    expect(billsShortcut({ ...base, key: 'n' })).toBe('new');
+    expect(billsShortcut({ ...base, key: 'P' })).toBe('pay');
+    expect(billsShortcut({ ...base, key: 'x' })).toBeNull();
+    expect(billsShortcut({ ...base, key: 'n', ctrlKey: true })).toBeNull();
+    expect(billsShortcut({ ...base, key: 'n', target: { tagName: 'INPUT' } as unknown as EventTarget })).toBeNull();
+    expect(billsShortcut({ ...base, key: 'p', target: { tagName: 'DIV', isContentEditable: true } as unknown as EventTarget })).toBeNull();
+    expect(billsShortcut({ ...base, key: 'p', target: { tagName: 'BUTTON' } as unknown as EventTarget })).toBe('pay');
+    expect(billsShortcut({ ...base, key: 'p', target: { tagName: 'INPUT', type: 'checkbox' } as unknown as EventTarget })).toBe('pay');
+    expect(billsShortcut({ ...base, key: 'p', target: { tagName: 'INPUT', type: 'date' } as unknown as EventTarget })).toBeNull();
+  });
+});
