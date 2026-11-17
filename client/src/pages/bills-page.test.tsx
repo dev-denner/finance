@@ -29,6 +29,7 @@ const apiMock = {
   bulkPayBills: vi.fn(),
   bulkSkipBills: vi.fn(),
   unpayBill: vi.fn(),
+  undoBillPayment: vi.fn(),
   skipBill: vi.fn(),
   unskipBill: vi.fn(),
   scheduleBill: vi.fn(),
@@ -475,5 +476,35 @@ describe('contas — calendário do mês', () => {
     await click(buttons('Lista')[0]);
     expect(document.querySelector('caption')).toBeNull();
     expect(rows()).toHaveLength(3);
+  });
+});
+
+describe('contas — pagamentos um a um', () => {
+  const payment = (id: number, amountCents: number, paidAt: string) => ({
+    id, transactionId: null, amountCents, paidAt, origin: 'manual' as const, createdTransaction: false, paymentMethodName: null, transactionDescription: null,
+  });
+
+  it('com mais de um pagamento, o desfazer abre a lista e desfaz só o escolhido', async () => {
+    const paid = bill({
+      state: 'paid', displayStatus: 'paid', paidAt: '2026-03-06', paidCents: 78200,
+      payments: [payment(10, 30000, '2026-03-02'), payment(11, 48200, '2026-03-06')],
+    });
+    apiMock.undoBillPayment.mockResolvedValue({
+      bill: bill({ partialPaidCents: 30000, payments: [payment(10, 30000, '2026-03-02')] }),
+    });
+    await render('/contas', [paid]);
+
+    await click(buttons('Pagamentos de Condomínio')[0]);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.getAttribute('aria-label')).toBe('Pagamentos da conta');
+    expect(dialog.textContent).toContain('pago R$ 782,00');
+    expect(dialog.textContent).toContain('Desfazer o último pagamento');
+
+    await click(buttons('Desfazer pagamento de R$ 482,00 em 06/03/2026')[0]);
+    expect(apiMock.undoBillPayment).toHaveBeenCalledWith(1, 11);
+    expect(apiMock.unpayBill).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('Pagamento desfeito; faltam R$ 482,00.', 'success', undefined);
+    // Sobrou um pagamento: o diálogo fecha.
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 });

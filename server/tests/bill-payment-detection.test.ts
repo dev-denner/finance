@@ -36,6 +36,7 @@ function bill(id: number, overrides: Partial<OpenBillForMatch> = {}): OpenBillFo
     categoryName: 'TV / Internet / Telefone',
     amountMinCents: null,
     amountMaxCents: null,
+    paidCents: 0,
     ...overrides,
   };
 }
@@ -97,6 +98,17 @@ describe('detecção de pagamento de contas (AC14, AC15)', () => {
     expect(descriptionSimilarity('', 'x')).toBe(0);
   });
 
+  it('conta com parcial casa só com o valor exato do que falta, sem usar a faixa', () => {
+    const partial = bill(1, { amountCents: 20000, paidCents: 5713, amountMinCents: 10000, amountMaxCents: 30000 });
+    const [candidate] = detectBillPaymentCandidates([party(2)], [partial]);
+    expect(candidate).toMatchObject({ confidence: 'high', amountDiffCents: 0, bill: { amountCents: 20000, paidCents: 5713 } });
+    expect(candidate.reasons[0]).toBe('Valor igual ao que falta (R$ 142,87; já pago R$ 57,13 de R$ 200,00)');
+    // O valor cheio, ou outro dentro da faixa do template, não serve mais.
+    expect(detectBillPaymentCandidates([party(2, { amountCents: -20000 })], [partial])).toEqual([]);
+    expect(detectBillPaymentCandidates([party(2, { amountCents: -15000 })], [partial])).toEqual([]);
+    expect(detectBillPaymentCandidates([party(2)], [bill(1, { paidCents: 14287 })])).toEqual([]);
+  });
+
   it('decisões confirmadas não podem repetir linha nem conta', () => {
     const candidates = detectBillPaymentCandidates([party(2), party(3)], [bill(1)]);
     expect(confirmedBillCandidates(candidates, { [candidates[0].key]: 'confirm' }).conflicts).toEqual([]);
@@ -106,13 +118,16 @@ describe('detecção de pagamento de contas (AC14, AC15)', () => {
 });
 
 describe('contas candidatas no banco', () => {
-  it('só ocorrências em aberto, sem pagamento, na janela das datas; com faixa do template', () => {
+  it('só ocorrências em aberto na janela das datas, com a soma dos parciais e a faixa do template', () => {
     const handle = createTestDatabase();
     const db = handle.db;
     const category = ensureLookup(db, 'category', 'Contas');
     const open = createBill(db, { description: 'Água', amountCents: 9000, dueDate: '2026-03-10', categoryId: category.id }, '2026-03-01');
     const paid = createBill(db, { description: 'Gás', amountCents: 5000, dueDate: '2026-03-11', categoryId: category.id }, '2026-03-01');
     payBill(db, paid.id, { mode: 'external', paidAt: '2026-03-11', paidCents: 5000 }, '2026-03-01');
+    const partial = createBill(db, { description: 'Escola', amountCents: 70000, dueDate: '2026-03-12', categoryId: category.id }, '2026-03-01');
+    payBill(db, partial.id, { mode: 'external', paidAt: '2026-03-02', paidCents: 20000, partial: true }, '2026-03-01');
+    payBill(db, partial.id, { mode: 'external', paidAt: '2026-03-03', paidCents: 10000, partial: true }, '2026-03-01');
     createBill(db, { description: 'Longe', amountCents: 100, dueDate: '2026-06-10', categoryId: category.id }, '2026-03-01');
     createTemplate(
       db,
@@ -130,7 +145,9 @@ describe('contas candidatas no banco', () => {
     );
 
     const bills = loadOpenBillsForMatch(db, [party(2, { dueDate: '2026-03-09', purchaseDate: '2026-03-09' })], 5);
-    expect(bills.map((b) => b.description).sort()).toEqual(['Luz', 'Água']);
+    expect(bills.map((b) => b.description).sort()).toEqual(['Escola', 'Luz', 'Água']);
+    expect(bills.find((b) => b.id === partial.id)?.paidCents).toBe(30000);
+    expect(bills.find((b) => b.id === open.id)?.paidCents).toBe(0);
     expect(bills.find((b) => b.description === 'Luz')).toMatchObject({ amountMinCents: 30000, amountMaxCents: 45000 });
     expect(bills.find((b) => b.id === open.id)?.amountMinCents).toBeNull();
     expect(loadOpenBillsForMatch(db, [])).toEqual([]);

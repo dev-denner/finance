@@ -10,7 +10,7 @@
  * de valor variável). Com `partial`, a conta continua em aberto até a soma dos
  * pagamentos alcançar o valor previsto.
  */
-import { eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../../db/client';
 import { billPayments, scheduledBills, transactions } from '../../db/schema';
 import { parseDateValue, todayIso } from '../../lib/dates';
@@ -186,6 +186,57 @@ export function unpayBill(db: AppDatabase, id: number, today = todayIso()): Bill
     }
     db.update(scheduledBills)
       .set({ state: 'open', paidAt: null, paidCents: null, migratedPayment: 0, updatedAt: nowIso() })
+      .where(eq(scheduledBills.id, id))
+      .run();
+  });
+
+  return getBill(db, id, today);
+}
+
+/**
+ * Desfaz um único pagamento. A conta paga só continua paga quando o pagamento
+ * removido não é o último (o que a quitou); nesse caso o valor pago passa a
+ * ser a soma dos que ficaram. Remover o último reabre a conta, que volta a ter
+ * pagamento parcial se ainda restarem pagamentos. O lançamento só é apagado
+ * quando foi criado pelo próprio pagamento.
+ */
+export function undoBillPayment(db: AppDatabase, id: number, paymentId: number, today = todayIso()): BillDto {
+  const existing = loadBillRow(db, id);
+  const payment = db
+    .select()
+    .from(billPayments)
+    .where(and(eq(billPayments.id, paymentId), eq(billPayments.billId, id)))
+    .get();
+  if (!payment) throw notFound('Pagamento não encontrado nesta conta.');
+
+  db.transaction(() => {
+    const latest = db
+      .select({ id: billPayments.id })
+      .from(billPayments)
+      .where(eq(billPayments.billId, id))
+      .orderBy(desc(billPayments.id))
+      .limit(1)
+      .get();
+    db.delete(billPayments).where(eq(billPayments.id, payment.id)).run();
+    if (payment.createdTransaction === 1 && payment.transactionId !== null) deleteTransaction(db, payment.transactionId);
+
+    const remaining = db
+      .select({
+        count: sql<number>`count(*)`,
+        total: sql<number>`coalesce(sum(${billPayments.amountCents}), 0)`,
+        lastPaidAt: sql<string | null>`max(${billPayments.paidAt})`,
+      })
+      .from(billPayments)
+      .where(eq(billPayments.billId, id))
+      .get();
+    const stillPaid = billState(existing.state) === 'paid' && latest?.id !== payment.id && (remaining?.count ?? 0) > 0;
+    db.update(scheduledBills)
+      .set({
+        ...(stillPaid
+          ? { paidAt: remaining?.lastPaidAt ?? existing.paidAt, paidCents: remaining?.total ?? 0 }
+          : { state: 'open', paidAt: null, paidCents: null, migratedPayment: 0 }),
+        updatedAt: nowIso(),
+      })
       .where(eq(scheduledBills.id, id))
       .run();
   });

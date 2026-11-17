@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DatabaseHandle } from '../src/db/client';
-import { createBill, createTemplate, deleteBill, getBill, listBills, payBill, skipBill, unpayBill, updateBill } from '../src/services/bills';
+import { createBill, createTemplate, deleteBill, getBill, listBills, payBill, skipBill, undoBillPayment, unpayBill, updateBill } from '../src/services/bills';
 import { ensureLookup } from '../src/services/lookups';
 import { buildApp } from '../src/app';
 import { createTestDatabase } from './helpers';
@@ -134,5 +134,60 @@ describe('pagamento parcial de contas', () => {
     const updated = updateBill(handle.db, target.id, { description: 'Condomínio', amountCents: 120000, dueDate: '2026-03-10', categoryId }, TODAY);
     expect(updated).toMatchObject({ state: 'paid', amountCents: 120000, paidCents: 100000 });
     expect(updated.payments.map((payment) => payment.amountCents)).toEqual([100000]);
+  });
+});
+
+describe('desfazer um pagamento de cada vez', () => {
+  it('remover um parcial de conta em aberto mantém os demais e atualiza o que falta', () => {
+    const target = bill();
+    payBill(handle.db, target.id, { mode: 'external', paidAt: '2026-03-02', paidCents: 30000, partial: true }, TODAY);
+    const second = payBill(handle.db, target.id, { mode: 'external', paidAt: '2026-03-03', paidCents: 20000, partial: true }, TODAY);
+    const after = undoBillPayment(handle.db, target.id, second.payments[0].id, TODAY);
+    expect(after).toMatchObject({ state: 'open', partialPaidCents: 20000 });
+    expect(after.payments.map((payment) => payment.amountCents)).toEqual([20000]);
+  });
+
+  it('remover um pagamento anterior ao que quitou mantém a conta paga com a nova soma', () => {
+    const target = bill();
+    const first = payBill(handle.db, target.id, { mode: 'external', paidAt: '2026-03-02', paidCents: 40000, partial: true }, TODAY);
+    payBill(handle.db, target.id, { mode: 'transaction', paidAt: '2026-03-06', paidCents: 60000, paymentMethodId, partial: true }, TODAY);
+    const after = undoBillPayment(handle.db, target.id, first.payments[0].id, TODAY);
+    expect(after).toMatchObject({ state: 'paid', paidAt: '2026-03-06', paidCents: 60000, partialPaidCents: 0 });
+    expect(after.payments).toHaveLength(1);
+    expect(count('transactions')).toBe(1);
+  });
+
+  it('remover o pagamento que quitou reabre a conta, apaga o lançamento criado e deixa os parciais', () => {
+    const target = bill();
+    payBill(handle.db, target.id, { mode: 'external', paidAt: '2026-03-02', paidCents: 40000, partial: true }, TODAY);
+    const paid = payBill(handle.db, target.id, { mode: 'transaction', paidAt: '2026-03-06', paidCents: 60000, paymentMethodId, partial: true }, TODAY);
+    expect(count('transactions')).toBe(1);
+    const after = undoBillPayment(handle.db, target.id, paid.payments[1].id, TODAY);
+    expect(after).toMatchObject({ state: 'open', paidAt: null, paidCents: null, partialPaidCents: 40000 });
+    expect(count('transactions')).toBe(0);
+
+    const last = undoBillPayment(handle.db, target.id, after.payments[0].id, TODAY);
+    expect(last).toMatchObject({ state: 'open', partialPaidCents: 0, payments: [] });
+  });
+
+  it('pagamento de outra conta ou inexistente é recusado; a rota devolve a conta', async () => {
+    const a = bill();
+    const b = bill();
+    const paidA = payBill(handle.db, a.id, { mode: 'external', paidAt: TODAY, paidCents: 1000, partial: true }, TODAY);
+    expect(() => undoBillPayment(handle.db, b.id, paidA.payments[0].id, TODAY)).toThrow(/não encontrado/);
+    expect(getBill(handle.db, a.id, TODAY).payments).toHaveLength(1);
+
+    const app = await buildApp({ db: handle.db, logger: false });
+    try {
+      const bad = await app.inject({ method: 'DELETE', url: `/api/bills/${a.id}/payments/x` });
+      expect(bad.statusCode).toBe(400);
+      const missing = await app.inject({ method: 'DELETE', url: `/api/bills/${a.id}/payments/9999` });
+      expect(missing.statusCode).toBe(404);
+      const ok = await app.inject({ method: 'DELETE', url: `/api/bills/${a.id}/payments/${paidA.payments[0].id}` });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json().bill).toMatchObject({ state: 'open', payments: [] });
+    } finally {
+      await app.close();
+    }
   });
 });

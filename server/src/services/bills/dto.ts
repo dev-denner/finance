@@ -132,6 +132,7 @@ export function loadPayments(db: AppDatabase, billIds: number[]): Map<number, Bi
     .leftJoin(transactions, eq(billPayments.transactionId, transactions.id))
     .leftJoin(paymentMethods, eq(transactions.paymentMethodId, paymentMethods.id))
     .where(inArray(billPayments.billId, billIds))
+    .orderBy(billPayments.id)
     .all();
   for (const row of rows) {
     const list = result.get(row.payment.billId) ?? [];

@@ -546,7 +546,8 @@ export interface BillPaymentCandidate {
   dayDistance: number;
   amountDiffCents: number;
   party: TransferParty;
-  bill: { id: number; description: string; amountCents: number; dueDate: string; categoryName: string };
+  /** `paidCents`: parciais já pagos; a sugestão casa com o que falta. */
+  bill: { id: number; description: string; amountCents: number; dueDate: string; categoryName: string; paidCents: number };
 }
 
 export interface ImportPreview {

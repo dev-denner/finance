@@ -1,11 +1,11 @@
 /**
  * Detecção de pagamentos de contas a pagar em lançamentos importados.
  *
- * Compara cada saída do arquivo com as ocorrências em aberto e sem pagamento
- * vinculado. A detecção só sugere: o vínculo acontece apenas com decisão
+ * Compara cada saída do arquivo com as ocorrências em aberto. Uma conta com
+ * pagamento parcial é comparada pelo valor que falta. A detecção só sugere: o vínculo acontece apenas com decisão
  * explícita na revisão da importação (`billDecisions`).
  */
-import { and, eq, gte, lte, notInArray, sql } from 'drizzle-orm';
+import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
 import { billPayments, billTemplates, categories, scheduledBills } from '../db/schema';
 import { normalizeName } from '../lib/normalize';
@@ -28,6 +28,8 @@ export interface OpenBillForMatch {
   /** Faixa do template para contas de valor variável (água, luz). */
   amountMinCents: number | null;
   amountMaxCents: number | null;
+  /** Soma dos pagamentos parciais já registrados (0 sem pagamento). */
+  paidCents: number;
 }
 
 export interface BillPaymentCandidate {
@@ -37,10 +39,10 @@ export interface BillPaymentCandidate {
   ambiguous: boolean;
   reasons: string[];
   dayDistance: number;
-  /** |valor do lançamento| − valor previsto da conta. */
+  /** |valor do lançamento| − valor que falta pagar (o previsto, sem parcial). */
   amountDiffCents: number;
   party: TransferParty;
-  bill: Pick<OpenBillForMatch, 'id' | 'description' | 'amountCents' | 'dueDate' | 'categoryName'>;
+  bill: Pick<OpenBillForMatch, 'id' | 'description' | 'amountCents' | 'dueDate' | 'categoryName' | 'paidCents'>;
 }
 
 /** Palavras comuns em extratos que não identificam o credor. */
@@ -96,9 +98,14 @@ export function detectBillPaymentCandidates(
     if (party.amountCents >= 0) continue; // só saídas pagam contas
     const paid = -party.amountCents;
     for (const bill of bills) {
-      const exact = paid === bill.amountCents;
+      // Com parcial, só o valor exato do restante: a faixa vale para a conta inteira.
+      const partial = bill.paidCents > 0;
+      const target = bill.amountCents - bill.paidCents;
+      if (target <= 0) continue;
+      const exact = paid === target;
       const inRange =
         !exact &&
+        !partial &&
         bill.amountMinCents !== null &&
         bill.amountMaxCents !== null &&
         paid >= bill.amountMinCents &&
@@ -114,7 +121,9 @@ export function detectBillPaymentCandidates(
       const similarity = descriptionSimilarity(bill.description, party.description);
       const similar = similarity >= DESCRIPTION_MATCH_THRESHOLD;
       const reasons = [
-        exact
+        exact && partial
+          ? `Valor igual ao que falta (${formatCents(target)}; já pago ${formatCents(bill.paidCents)} de ${formatCents(bill.amountCents)})`
+          : exact
           ? `Valor igual ao previsto (${formatCents(bill.amountCents)})`
           : `Valor dentro da faixa prevista (${formatCents(bill.amountMinCents as number)} a ${formatCents(bill.amountMaxCents as number)})`,
         dayDistance === 0 ? 'Mesmo dia do vencimento' : `A ${dayDistance} dia(s) do vencimento`,
@@ -126,7 +135,7 @@ export function detectBillPaymentCandidates(
         ambiguous: false,
         reasons,
         dayDistance,
-        amountDiffCents: paid - bill.amountCents,
+        amountDiffCents: paid - target,
         party,
         bill: {
           id: bill.id,
@@ -134,6 +143,7 @@ export function detectBillPaymentCandidates(
           amountCents: bill.amountCents,
           dueDate: bill.dueDate,
           categoryName: bill.categoryName,
+          paidCents: bill.paidCents,
         },
       });
     }
@@ -170,8 +180,8 @@ function shiftDays(iso: string, days: number): string {
 }
 
 /**
- * Ocorrências em aberto, sem pagamento vinculado, com vencimento dentro da
- * janela das datas do arquivo (± tolerância). Garante antes as ocorrências
+ * Ocorrências em aberto (inclusive com pagamento parcial, com a soma já paga)
+ * e vencimento dentro da janela das datas do arquivo (± tolerância). Garante antes as ocorrências
  * das recorrências.
  */
 export function loadOpenBillsForMatch(
@@ -193,6 +203,7 @@ export function loadOpenBillsForMatch(
       categoryName: categories.name,
       amountMinCents: billTemplates.amountMinCents,
       amountMaxCents: billTemplates.amountMaxCents,
+      paidCents: sql<number>`coalesce((select sum(${billPayments.amountCents}) from ${billPayments} where ${billPayments.billId} = ${scheduledBills.id}), 0)`,
     })
     .from(scheduledBills)
     .innerJoin(categories, eq(scheduledBills.categoryId, categories.id))
@@ -202,7 +213,6 @@ export function loadOpenBillsForMatch(
         eq(scheduledBills.state, 'open'),
         gte(scheduledBills.dueDate, from),
         lte(scheduledBills.dueDate, to),
-        notInArray(scheduledBills.id, sql`(select ${billPayments.billId} from ${billPayments})`),
       ),
     )
     .all()
@@ -210,6 +220,7 @@ export function loadOpenBillsForMatch(
       ...row,
       amountMinCents: row.amountMinCents ?? null,
       amountMaxCents: row.amountMaxCents ?? null,
+      paidCents: Number(row.paidCents) || 0,
     }));
 }
 
