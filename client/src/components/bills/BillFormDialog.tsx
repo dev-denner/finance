@@ -73,9 +73,9 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
     setReadingBoleto(true);
     try {
       const reading = await api.readBoleto(file);
-      const applied = applyBoletoReading(form, reading, formatDateBR);
-      setForm(applied.form);
-      setBoleto({ file, barcode: reading.barcode?.digits ?? null, notes: applied.notes });
+      // Sobre o formulário atual: o que foi digitado durante a leitura não se perde.
+      setForm((current) => applyBoletoReading(current, reading, formatDateBR).form);
+      setBoleto({ file, barcode: reading.barcode?.digits ?? null, notes: applyBoletoReading(form, reading, formatDateBR).notes });
     } catch (error) {
       showToast(errorMessage(error), 'error');
     } finally {
@@ -156,6 +156,8 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
   };
 
   const submit = () => {
+    // Salvar durante a leitura criaria a conta sem a linha digitável e sem o anexo.
+    if (readingBoleto) return;
     const candidate = showRecurrence ? { ...form, repeat: true } : form;
     const next = validateBillForm(candidate);
     setErrors(next);
@@ -182,7 +184,7 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
             <Button variant="secondary" onClick={onClose} disabled={saving}>
               Cancelar
             </Button>
-            <Button variant="primary" onClick={submit} loading={saving && !askScope}>
+            <Button variant="primary" onClick={submit} loading={saving && !askScope} disabled={readingBoleto}>
               Salvar
             </Button>
           </>

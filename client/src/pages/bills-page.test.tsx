@@ -733,3 +733,22 @@ describe('contas — nova conta pelo boleto', () => {
     expect(showToast).toHaveBeenCalledWith('Conta criada com o boleto anexado.', 'success', undefined);
   });
 });
+
+describe('contas — salvar enquanto o boleto é lido', () => {
+  it('Salvar fica desligado até a leitura terminar', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    apiMock.readBoleto.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await render('/contas', []);
+    await click(buttons('Nova conta')[0]);
+    const input = document.querySelector('input[aria-label="Boleto em PDF"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['%PDF-1.4'], 'b.pdf', { type: 'application/pdf' })] });
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(buttons('Salvar')[0].disabled).toBe(true);
+    await click(buttons('Salvar')[0]);
+    expect(apiMock.createBill).not.toHaveBeenCalled();
+    await act(async () => finish({ barcode: null, beneficiary: null, suggestion: null }));
+    expect(buttons('Salvar')[0].disabled).toBe(false);
+  });
+});
