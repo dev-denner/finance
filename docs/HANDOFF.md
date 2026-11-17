@@ -111,7 +111,7 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 - Rateio entre categorias e tags (M2-05).
 - Regras automáticas "condição → ação" (M2-06).
 - Desfazer lote de importação (M2-07).
-- Quebrar `services/import.ts` em módulos e `TransactionsImportPage.tsx` (3 mil linhas) em assistente por etapas (M2-08).
+- Quebrar `services/import.ts` em módulos (~~feito: `services/import/*`, com `services/import.ts` só reexportando a API~~) e `TransactionsImportPage.tsx` (3 mil linhas) em assistente por etapas (M2-08). Ordem combinada em 2026-11-17 para a fase 2: quebra do serviço → OFX → perfis por banco → assistente na tela; depois contas, parcelas, regras e o resto.
 - Listagem: gráfico de tendência mensal e orçamento por categoria no consolidado.
 - Gráficos (sugestões de 2026-11-17):
   - ~~Entradas, saídas e saldo por mês~~ (Consolidado, `MonthlyFlowChart`; falta: clicar no mês abrir a listagem).
