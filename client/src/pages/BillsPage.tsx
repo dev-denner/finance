@@ -8,8 +8,10 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
+  Copy,
   FileUp,
   List,
+  Paperclip,
   Pencil,
   Plus,
   Repeat,
@@ -24,6 +26,7 @@ import { Button } from '../components/ui/Button';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Page';
 import { BillFormDialog, type BillFormTarget } from '../components/bills/BillFormDialog';
 import { BillsCalendar } from '../components/bills/BillsCalendar';
+import { BoletoDialog } from '../components/bills/BoletoDialog';
 import { BulkBillsDialog, type GroupPaymentChoice } from '../components/bills/BulkBillsDialog';
 import { ForecastStrip } from '../components/bills/ForecastStrip';
 import { PayDialog } from '../components/bills/PayDialog';
@@ -60,6 +63,7 @@ type Dialog =
   | { kind: 'schedule'; bill: Bill }
   | { kind: 'delete'; bill: Bill }
   | { kind: 'payments'; bill: Bill }
+  | { kind: 'boleto'; bill: Bill }
   | { kind: 'bulk'; action: 'pay' | 'skip' };
 
 const STATE_OPTIONS: { value: BillStateFilter; label: string }[] = [
@@ -320,6 +324,15 @@ export function BillsPage() {
     }
   };
 
+  const copyBarcode = async (bill: Bill) => {
+    try {
+      await navigator.clipboard.writeText(bill.barcode ?? '');
+      showToast('Linha digitável copiada.', 'success');
+    } catch {
+      showToast('Não foi possível copiar; abra "Boleto e anexos" e copie manualmente.', 'error');
+    }
+  };
+
   const runBulk = async (action: 'pay' | 'skip', paidAt: string, group: GroupPaymentChoice | null) => {
     const ids = selection.bills.map((bill) => bill.id);
     try {
@@ -432,6 +445,31 @@ export function BillsPage() {
           </button>
         )
       )}
+      {bill.barcode && bill.state === 'open' && (
+        <button
+          type="button"
+          className="icon-btn"
+          title="Copiar linha digitável"
+          aria-label={`Copiar linha digitável de ${bill.description}`}
+          onClick={() => void copyBarcode(bill)}
+        >
+          <Copy className="h-4 w-4" />
+        </button>
+      )}
+      <button
+        type="button"
+        className="icon-btn relative"
+        title={bill.attachments.length > 0 ? `Boleto e anexos (${bill.attachments.length})` : 'Boleto e anexos'}
+        aria-label={`Boleto e anexos de ${bill.description}`}
+        onClick={() => setDialog({ kind: 'boleto', bill })}
+      >
+        <Paperclip className="h-4 w-4" />
+        {bill.attachments.length > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-blue-600 px-0.5 text-[9px] font-semibold text-white">
+            {bill.attachments.length}
+          </span>
+        )}
+      </button>
       <button
         type="button"
         className="icon-btn"
@@ -529,7 +567,7 @@ export function BillsPage() {
             <th className="th">Categoria</th>
             <th className="th text-right">Valor</th>
             <th className="th">Situação</th>
-            <th className="th w-[220px] text-right">
+            <th className="th w-[260px] text-right">
               <span className="sr-only">Ações</span>
             </th>
           </tr>
@@ -881,6 +919,17 @@ export function BillsPage() {
           categories={categories}
           onClose={() => setDialog(null)}
           onConfirm={(paidAt, group) => runBulk(dialog.action, paidAt, group)}
+        />
+      )}
+      {dialog?.kind === 'boleto' && (
+        <BoletoDialog
+          bill={dialog.bill}
+          onClose={() => setDialog(null)}
+          onChanged={async () => {
+            await Promise.all([load(), refreshBadge()]);
+            return (await api.getBill(dialog.bill.id)).bill;
+          }}
+          notify={(message, kind) => showToast(message, kind)}
         />
       )}
       {dialog?.kind === 'payments' && (

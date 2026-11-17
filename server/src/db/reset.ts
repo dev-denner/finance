@@ -17,7 +17,7 @@ export const RESTORE_CONFIRMATION_PHRASE = 'RESTAURAR';
  * as notificações referenciam. Contas a pagar (Módulo 1) também são
  * movimentação: referenciam categorias e precisam sair antes do reset
  * completo apagar os cadastros; `bill_payments` referencia lançamentos e
- * contas, e as tabelas de compras (Módulo 3) referenciam lançamentos e
+ * contas (os anexos, `bill_attachments`, referenciam as contas), e as tabelas de compras (Módulo 3) referenciam lançamentos e
  * cadastros, por isso abrem a lista.
  */
 export const DATA_RESET_TABLES = [
@@ -27,6 +27,7 @@ export const DATA_RESET_TABLES = [
   'purchase_payments',
   'purchases',
   'bill_payments',
+  'bill_attachments',
   'transfer_rejections',
   'transfers',
   'transactions',

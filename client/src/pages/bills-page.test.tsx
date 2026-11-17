@@ -26,6 +26,11 @@ const apiMock = {
   listBillTemplates: vi.fn(),
   getBillTemplate: vi.fn(),
   payBill: vi.fn(),
+  getBill: vi.fn(),
+  parseBarcode: vi.fn(),
+  uploadBillAttachment: vi.fn(),
+  deleteBillAttachment: vi.fn(),
+  billAttachmentUrl: vi.fn((id: number, attachmentId: number) => `/api/bills/${id}/attachments/${attachmentId}`),
   bulkPayBills: vi.fn(),
   bulkSkipBills: vi.fn(),
   payBillsGroup: vi.fn(),
@@ -85,7 +90,10 @@ function bill(overrides: Partial<Bill> = {}): Bill {
     paymentMethodId: null,
     paymentMethodName: null,
     notes: null,
+    barcode: null,
+    barcodeFormatted: null,
     payments: [],
+    attachments: [],
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -573,5 +581,98 @@ describe('contas — pagamentos um a um', () => {
     expect(showToast).toHaveBeenCalledWith('Pagamento desfeito; faltam R$ 482,00.', 'success', undefined);
     // Sobrou um pagamento: o diálogo fecha.
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
+describe('contas — boleto e anexos', () => {
+  const LINE = '00190000090123456789012345678901234567890123456';
+
+  it('confere a linha digitável, oferece usar valor e vencimento do boleto e salva', async () => {
+    const target = bill({ amountCents: 78200, dueDate: '2026-03-10' });
+    const withLine = bill({ amountCents: 80000, dueDate: '2026-03-12', barcode: LINE, barcodeFormatted: '00190.00009 …' });
+    apiMock.parseBarcode.mockImplementation((value: string) =>
+      Promise.resolve(
+        value.replace(/\D/g, '').length === 47
+          ? { valid: true, digits: LINE, kind: 'bank', amountCents: 80000, dueDate: '2026-03-12', formatted: '00190.00009 …' }
+          : { valid: false, error: 'A linha digitável tem 47 dígitos (boleto) ou 48 (conta de consumo ou tributo).' },
+      ),
+    );
+    apiMock.updateBill.mockResolvedValue({ bill: withLine });
+    apiMock.getBill.mockResolvedValue({ bill: withLine });
+    await render('/contas', [target]);
+
+    await click(buttons('Boleto e anexos de Condomínio')[0]);
+    const input = document.getElementById('boleto-barcode') as HTMLInputElement;
+    vi.useFakeTimers();
+    try {
+      await type(input, '123');
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('47 dígitos');
+      await type(input, LINE);
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain('Boleto bancário válido · R$ 800,00 · vence 12/03/2026');
+
+    // Editar o código esconde o resultado anterior até a nova conferência voltar.
+    vi.useFakeTimers();
+    try {
+      await type(input, `${LINE.slice(0, 46)}9`);
+      expect(dialog.textContent).not.toContain('Boleto bancário válido');
+      expect(buttons('Usar R$ 800,00 e vencimento 12/03/2026')).toHaveLength(0);
+      await type(input, LINE);
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await click(buttons('Usar R$ 800,00 e vencimento 12/03/2026')[0]);
+    expect(apiMock.updateBill).toHaveBeenCalledWith(1, { barcode: LINE, amountCents: 80000, dueDate: '2026-03-12' });
+    expect(apiMock.getBill).toHaveBeenCalledWith(1);
+    expect(showToast).toHaveBeenCalledWith('Conta atualizada com o valor e o vencimento do boleto.', 'success');
+  });
+
+  it('anexa, lista com link para abrir e exclui; a linha mostra quantos anexos há', async () => {
+    const attachment = { id: 5, filename: 'boleto.pdf', contentType: 'application/pdf', sizeBytes: 2048, createdAt: '2026-03-01T00:00:00Z' };
+    const withFile = bill({ attachments: [attachment] });
+    apiMock.uploadBillAttachment.mockResolvedValue({ attachment });
+    apiMock.deleteBillAttachment.mockResolvedValue({ ok: true });
+    apiMock.getBill.mockResolvedValueOnce({ bill: withFile }).mockResolvedValueOnce({ bill: bill() });
+    await render('/contas', [bill()]);
+
+    await click(buttons('Boleto e anexos de Condomínio')[0]);
+    const fileInput = document.querySelector('input[aria-label="Arquivo do anexo"]') as HTMLInputElement;
+    const file = new File(['%PDF-1.4'], 'boleto.pdf', { type: 'application/pdf' });
+    Object.defineProperty(fileInput, 'files', { configurable: true, value: [file] });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(apiMock.uploadBillAttachment).toHaveBeenCalledWith(1, file);
+    const link = document.querySelector('[role="dialog"] a') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/api/bills/1/attachments/5');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('2 KB');
+
+    await click(buttons('Excluir anexo boleto.pdf')[0]);
+    expect(apiMock.deleteBillAttachment).toHaveBeenCalledWith(1, 5);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Nenhum anexo');
+  });
+
+  it('copia a linha digitável direto da linha da conta', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    await render('/contas', [bill({ barcode: LINE, barcodeFormatted: 'x' }), bill({ id: 2, description: 'Sem boleto' })]);
+    expect(buttons('Copiar linha digitável de Sem boleto')).toHaveLength(0);
+    await click(buttons('Copiar linha digitável de Condomínio')[0]);
+    expect(writeText).toHaveBeenCalledWith(LINE);
+    expect(showToast).toHaveBeenCalledWith('Linha digitável copiada.', 'success');
   });
 });

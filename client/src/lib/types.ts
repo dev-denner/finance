@@ -631,6 +631,25 @@ export type BillState = 'open' | 'paid' | 'skipped';
 /** Derivado no servidor a partir do estado e das datas. */
 export type BillDisplayStatus = 'overdue' | 'due_today' | 'scheduled' | 'upcoming' | 'paid' | 'skipped';
 
+export interface BillAttachment {
+  id: number;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export type BarcodeParseResult =
+  | {
+      valid: true;
+      digits: string;
+      kind: 'bank' | 'utility';
+      amountCents: number | null;
+      dueDate: string | null;
+      formatted: string;
+    }
+  | { valid: false; error: string };
+
 export interface BillPayment {
   id: number;
   /** null quando o pagamento foi registrado sem lançamento. */
@@ -667,7 +686,11 @@ export interface Bill {
   paymentMethodId: number | null;
   paymentMethodName: string | null;
   notes: string | null;
+  /** Linha digitável (só dígitos) e a mesma formatada para leitura. */
+  barcode: string | null;
+  barcodeFormatted: string | null;
   payments: BillPayment[];
+  attachments: BillAttachment[];
   createdAt: string;
   updatedAt: string;
 }

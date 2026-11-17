@@ -7,13 +7,18 @@ import {
   previewBillsImport,
   type BillImportField,
 } from '../services/bills-import';
+import { parseBarcode } from '../lib/barcode';
+import { todayIso } from '../lib/dates';
 import {
+  addBillAttachment,
   bulkPayBills,
   bulkSkipBills,
   payBillsWithOneTransaction,
   createBill,
   createTemplate,
   deleteBill,
+  deleteBillAttachment,
+  getBillAttachmentFile,
   deleteTemplate,
   getAgenda,
   getBill,
@@ -33,7 +38,9 @@ import {
 } from '../services/bills';
 import { parseJsonField, readMultipartForm } from './multipart';
 import {
+  barcodeParseSchema,
   billAgendaQuerySchema,
+  billAttachmentParamSchema,
   billCreateSchema,
   billForecastQuerySchema,
   billListQuerySchema,
@@ -150,6 +157,38 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
   app.post('/api/bills/bulk-skip', async (request) => {
     const body = parseWith(bulkSkipBillsSchema, request.body, 'Seleção de contas inválida.');
     return bulkSkipBills(db, body.ids);
+  });
+
+  /** Confere a linha digitável e devolve o tipo, o valor e o vencimento que ela traz. */
+  app.post('/api/bills/barcode/parse', async (request) => {
+    const body = parseWith(barcodeParseSchema, request.body, 'Linha digitável inválida.');
+    const parsed = parseBarcode(body.barcode, todayIso());
+    return parsed.ok ? { valid: true, ...parsed.value } : { valid: false, error: parsed.error };
+  });
+
+  // ---- Anexos ------------------------------------------------------------
+
+  app.post('/api/bills/:id/attachments', async (request, reply) => {
+    const id = idOf(request);
+    const form = await readMultipartForm(request);
+    if (!form.file) throw badRequest('Envie o arquivo do anexo.');
+    return reply.status(201).send({ attachment: addBillAttachment(db, id, form.file) });
+  });
+
+  app.get('/api/bills/:id/attachments/:attachmentId', async (request, reply) => {
+    const params = parseWith(billAttachmentParamSchema, request.params, 'Identificador inválido.');
+    const file = getBillAttachmentFile(db, params.id, params.attachmentId);
+    return reply
+      .type(file.contentType)
+      .header('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.filename)}`)
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Cache-Control', 'private, no-store')
+      .send(file.data);
+  });
+
+  app.delete('/api/bills/:id/attachments/:attachmentId', async (request) => {
+    const params = parseWith(billAttachmentParamSchema, request.params, 'Identificador inválido.');
+    return deleteBillAttachment(db, params.id, params.attachmentId);
   });
 
   app.get('/api/bills/:id', async (request) => ({ bill: getBill(db, idOf(request)) }));

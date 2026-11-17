@@ -87,7 +87,8 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 ### Módulo 1 — Contas a pagar
 - ~~Pagamento parcial na tela~~ (#20, migração `0018`).
 - Notificações locais (navegador/celular) com antecedência configurável; hoje só há o contador no menu e o e-mail. Depende da PWA.
-- Anexos (boleto em PDF) e linha digitável.
+- ~~Anexos (boleto em PDF) e linha digitável~~ (migração `0021`: `scheduled_bills.barcode` e `bill_attachments` com o arquivo no banco; diálogo "Boleto e anexos"; `lib/barcode.ts` confere os DVs e lê valor e vencimento).
+- Ler a linha digitável do PDF anexado (hoje ela é digitada ou colada).
 - ~~Visão em calendário do mês~~ (alternância Lista/Calendário na tela de contas, `layout=calendar` na URL; o dia escolhido mostra as contas dele com as ações da lista).
 - ~~Previsão dos próximos meses na tela~~ (cartões "Próximos meses" na tela de contas, usando `GET /api/bills/forecast`).
 - ~~Ações em massa (marcar várias como pagas ou puladas) e atalhos de teclado (N nova conta, P pagar)~~ (seleção na lista do mês, `POST /api/bills/bulk-pay` e `/bulk-skip`, tudo ou nada; pagar em massa é sempre externo, sem lançamento).
@@ -136,7 +137,7 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 
 ## 6. Armadilhas aprendidas (evite repetir)
 
-- **Migrator do Drizzle roda em transação**: `PRAGMA foreign_keys=OFF` gerado pelo drizzle-kit **não tem efeito**. Um rebuild de tabela (`__new_x` + `DROP` + `RENAME`) dispara `ON DELETE SET NULL/CASCADE` nos filhos e na auto-referência. Solução usada na `0015` e na `0016`: copiar filhos/colunas auto-referentes para tabelas auxiliares antes do `DROP` e restaurar após o `RENAME`; filhos com `ON DELETE RESTRICT` (como `payment_balance_adjustments.purchase_id`) precisam ser apagados antes do `DROP` e reinseridos depois. Testes de migração cobrem isso.
+- **Migrator do Drizzle roda em transação**: `PRAGMA foreign_keys=OFF` gerado pelo drizzle-kit **não tem efeito**. Um rebuild de tabela (`__new_x` + `DROP` + `RENAME`) dispara `ON DELETE SET NULL/CASCADE` nos filhos e na auto-referência. Solução usada na `0015` e na `0016`: copiar filhos/colunas auto-referentes para tabelas auxiliares antes do `DROP` e restaurar após o `RENAME`; filhos com `ON DELETE RESTRICT` (como `payment_balance_adjustments.purchase_id`) precisam ser apagados antes do `DROP` e reinseridos depois. Testes de migração cobrem isso. Desde a `0021`, `scheduled_bills` tem como filhos também `bill_attachments` (com o arquivo do anexo, `ON DELETE CASCADE`): um rebuild de `scheduled_bills` precisa preservá-los da mesma forma.
 - **`drizzle-kit generate` é interativo** quando há coluna removida + colunas adicionadas na mesma tabela (pergunta "rename ou nova?") e falha sem TTY. Contorno: gerar em dois passos (manter a coluna antiga, gerar; editar o SQL à mão para remover a coluna e fazer a cópia de dados; apagar a coluna do snapshot JSON; remover do `schema.ts`; `generate` deve responder "No schema changes").
 - **O INSERT…SELECT gerado para rebuild seleciona colunas novas da tabela antiga** (não existem): sempre revisar e reescrever o SELECT com `CASE`/`NULL`.
 - **`better-sqlite3` precisa de `npm rebuild better-sqlite3`** quando o `node_modules` veio de outro SO/Node ("Could not locate the bindings file").
@@ -152,7 +153,7 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638); calendário: 542 + 99 (641); sobras do parcial: 548 + 101 (649); último dia útil: 555 + 102 (657); repetição na planilha: 558 + 102 (660); tela da planilha: 558 + 105 (663); boleto agrupado: 563 + 107 (670).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638); calendário: 542 + 99 (641); sobras do parcial: 548 + 101 (649); último dia útil: 555 + 102 (657); repetição na planilha: 558 + 102 (660); tela da planilha: 558 + 105 (663); boleto agrupado: 563 + 107 (670); anexos e linha digitável: 574 + 110 (684).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 
