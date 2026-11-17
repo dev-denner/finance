@@ -266,6 +266,7 @@ export function ConsolidatedPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   /** Receitas e despesas do ano para o gráfico mensal, independentes da aba escolhida. */
   const [flow, setFlow] = useState<{ income: ConsolidationResponse; expenses: ConsolidationResponse } | null>(null);
+  const [flowError, setFlowError] = useState<string | null>(null);
   const [cashFlow, setCashFlow] = useState<AccountCashFlowResult | null>(null);
   const [cashFlowLoading, setCashFlowLoading] = useState(true);
   const [cashFlowError, setCashFlowError] = useState<string | null>(null);
@@ -325,13 +326,16 @@ export function ConsolidatedPage() {
 
   useEffect(() => {
     let active = true;
+    setFlowError(null);
     Promise.all([api.getConsolidation(year, dateField, 'income'), api.getConsolidation(year, dateField, 'expenses')])
       .then(([income, expenses]) => {
         if (active) setFlow({ income, expenses });
       })
-      .catch(() => {
-        // O erro do consolidado já aparece na tela; sem os dados, o gráfico mensal não é mostrado.
-        if (active) setFlow(null);
+      .catch((err) => {
+        // Erro próprio do gráfico: a aba escolhida (ex.: transferências) pode ter carregado normalmente.
+        if (!active) return;
+        setFlow(null);
+        setFlowError(errorMessage(err));
       });
     return () => {
       active = false;
@@ -491,6 +495,11 @@ export function ConsolidatedPage() {
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        {flowError && (
+          <p role="alert" className="card px-4 py-3 text-[13px] text-rose-700 dark:text-rose-300">
+            Não foi possível carregar o gráfico de entradas e saídas: {flowError}
+          </p>
+        )}
         {flowRows && flowRows.some((row) => row.inCents > 0 || row.outCents > 0) && (
           <ChartCard
             title={`Entradas e saídas por mês em ${year}`}
