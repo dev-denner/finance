@@ -73,6 +73,7 @@ function bill(overrides: Partial<Bill> = {}): Bill {
     scheduledFor: null,
     paidAt: null,
     paidCents: null,
+    partialPaidCents: 0,
     migratedPayment: false,
     categoryId: 3,
     categoryName: 'Moradia',
@@ -225,6 +226,27 @@ describe('tela de contas a pagar', () => {
 
     expect(apiMock.payBill).toHaveBeenCalledWith(1, { mode: 'transaction', paidAt: TODAY, paidCents: 79010, paymentMethodId: 2 });
     expect(showToast.mock.calls.at(-1)?.[0]).toBe('Conta paga e lançamento registrado.');
+  });
+
+  it('pagamento parcial mantém a conta em aberto e mostra quanto falta (sem Desfazer após o primeiro)', async () => {
+    const partialPayment = { id: 7, transactionId: null, amountCents: 30000, paidAt: TODAY, origin: 'manual' as const, createdTransaction: false, paymentMethodName: null, transactionDescription: null };
+    apiMock.payBill.mockResolvedValue({ bill: bill({ partialPaidCents: 30000, payments: [partialPayment] }) });
+    await render('/contas', [bill({ partialPaidCents: 30000, payments: [partialPayment] })]);
+
+    expect(document.body.textContent).toContain('Pago R$ 300,00 de R$ 782,00 · faltam R$ 482,00');
+    expect(document.querySelector('[aria-label="Desfazer pagamento de Condomínio"]')).not.toBeNull();
+
+    await click(buttons('Pagar')[0]);
+    expect((document.getElementById('pay-amount') as HTMLInputElement).value).toBe('482,00');
+    const partial = [...document.querySelectorAll('label')].find((label) => label.textContent?.includes('Pagamento parcial'))?.querySelector('input') as HTMLInputElement;
+    await click(partial);
+    await type(document.getElementById('pay-amount') as HTMLInputElement, '100,00');
+    await click(buttons('Confirmar pagamento')[0]);
+
+    expect(apiMock.payBill).toHaveBeenCalledWith(1, { mode: 'external', paidAt: TODAY, paidCents: 10000, partial: true });
+    const [message, , options] = showToast.mock.calls.at(-1) as [string, string, unknown];
+    expect(message).toBe('Pagamento parcial registrado; faltam R$ 482,00.');
+    expect(options).toBeUndefined();
   });
 
   it('valor inválido no pagamento não chama a API', async () => {

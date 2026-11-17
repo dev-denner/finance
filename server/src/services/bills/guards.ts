@@ -32,6 +32,7 @@ export function loadBillPaymentLinks(db: Reader, transactionIds: number[]): Map<
     .where(inArray(billPayments.transactionId, transactionIds))
     .all();
   for (const row of rows) {
+    if (row.transactionId === null) continue;
     result.set(row.transactionId, {
       billId: row.billId,
       description: row.description,

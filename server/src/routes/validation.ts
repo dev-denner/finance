@@ -198,6 +198,7 @@ export const payBillSchema = z.discriminatedUnion('mode', [
       paidAt: isoDateSchema,
       paidCents: positiveCentsSchema,
       notes: notesSchema,
+      partial: z.boolean().optional(),
     })
     .strict(),
   z
@@ -207,6 +208,7 @@ export const payBillSchema = z.discriminatedUnion('mode', [
       paidCents: positiveCentsSchema,
       paymentMethodId: z.number().int().positive(),
       notes: notesSchema,
+      partial: z.boolean().optional(),
     })
     .strict(),
   z
@@ -214,6 +216,7 @@ export const payBillSchema = z.discriminatedUnion('mode', [
       mode: z.literal('link'),
       transactionId: z.number().int().positive(),
       notes: notesSchema,
+      partial: z.boolean().optional(),
     })
     .strict(),
 ]);

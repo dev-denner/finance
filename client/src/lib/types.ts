@@ -632,14 +632,15 @@ export type BillDisplayStatus = 'overdue' | 'due_today' | 'scheduled' | 'upcomin
 
 export interface BillPayment {
   id: number;
-  transactionId: number;
+  /** null quando o pagamento foi registrado sem lançamento. */
+  transactionId: number | null;
   amountCents: number;
   paidAt: string;
   origin: 'manual' | 'import_match' | 'migration';
   /** true quando o lançamento foi criado pelo próprio pagamento (desfazer apaga). */
   createdTransaction: boolean;
   paymentMethodName: string | null;
-  transactionDescription: string;
+  transactionDescription: string | null;
 }
 
 export interface Bill {
@@ -655,6 +656,8 @@ export interface Bill {
   scheduledFor: string | null;
   paidAt: string | null;
   paidCents: number | null;
+  /** Soma dos pagamentos parciais de uma conta ainda em aberto; 0 nos demais casos. */
+  partialPaidCents: number;
   migratedPayment: boolean;
   categoryId: number;
   categoryName: string;
@@ -743,10 +746,14 @@ export type BillTemplateUpdate = Partial<Omit<BillTemplateInput, 'recurrence'>> 
   recurrence?: Partial<BillTemplateInput['recurrence']>;
 };
 
-export type PayBillInput =
+export type PayBillInput = (
   | { mode: 'external'; paidAt: string; paidCents: number; notes?: string | null }
   | { mode: 'transaction'; paidAt: string; paidCents: number; paymentMethodId: number; notes?: string | null }
-  | { mode: 'link'; transactionId: number; notes?: string | null };
+  | { mode: 'link'; transactionId: number; notes?: string | null }
+) & {
+  /** Pagamento parcial: a conta continua em aberto até a soma alcançar o valor previsto. */
+  partial?: boolean;
+};
 
 export interface BillListFilters {
   state?: 'all' | BillState;

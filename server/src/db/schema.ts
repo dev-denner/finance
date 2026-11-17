@@ -339,8 +339,8 @@ export const billPayments = sqliteTable(
     billId: integer('bill_id')
       .notNull()
       .references(() => scheduledBills.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    /** Lançamento que pagou; null quando o pagamento foi registrado sem lançamento. */
     transactionId: integer('transaction_id')
-      .notNull()
       .references(() => transactions.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     amountCents: integer('amount_cents').notNull(),
     paidAt: text('paid_at').notNull(),

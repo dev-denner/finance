@@ -28,9 +28,11 @@ import { useMeta } from '../context/MetaContext';
 import { useToast } from '../context/ToastContext';
 import { api, errorMessage } from '../lib/api';
 import {
+  billNote,
   billsViewParams,
   monthLabel,
   parseBillsView,
+  remainingCents,
   sequenceLabel,
   shiftMonth,
   type BillStateFilter,
@@ -178,16 +180,25 @@ export function BillsPage() {
 
   const pay = async (bill: Bill, input: PayBillInput) => {
     try {
-      await api.payBill(bill.id, input);
+      const { bill: updated } = await api.payBill(bill.id, input);
+      const message =
+        updated.state === 'open'
+          ? `Pagamento parcial registrado; faltam ${formatBRL(remainingCents(updated))}.`
+          : input.mode === 'transaction'
+            ? 'Conta paga e lançamento registrado.'
+            : 'Conta marcada como paga.';
+      // "Desfazer" remove todos os pagamentos da conta: só é oferecido quando este foi o primeiro.
       await afterChange(
-        input.mode === 'transaction' ? 'Conta paga e lançamento registrado.' : 'Conta marcada como paga.',
-        {
-          durationMs: UNDO_MS,
-          action: {
-            label: 'Desfazer',
-            onClick: () => void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.'),
-          },
-        },
+        message,
+        bill.payments.length === 0
+          ? {
+              durationMs: UNDO_MS,
+              action: {
+                label: 'Desfazer',
+                onClick: () => void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.'),
+              },
+            }
+          : undefined,
       );
     } catch (err) {
       showToast(errorMessage(err), 'error');
@@ -234,11 +245,11 @@ export function BillsPage() {
           Pagar
         </Button>
       )}
-      {bill.state === 'paid' && (
+      {(bill.state === 'paid' || bill.partialPaidCents > 0) && (
         <button
           type="button"
           className="icon-btn"
-          title="Desfazer pagamento"
+          title={bill.payments.length > 1 ? 'Desfazer todos os pagamentos' : 'Desfazer pagamento'}
           aria-label={`Desfazer pagamento de ${bill.description}`}
           onClick={() => void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.')}
         >
@@ -303,6 +314,7 @@ export function BillsPage() {
   const describe = (bill: Bill) => {
     const template = bill.templateId !== null ? templates.get(bill.templateId) : undefined;
     const sequence = sequenceLabel(bill, template);
+    const note = billNote(bill, formatBRL);
     return (
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
@@ -317,15 +329,7 @@ export function BillsPage() {
             </span>
           )}
         </div>
-        {(bill.notes || bill.payments.length > 0 || bill.migratedPayment) && (
-          <p className="truncate text-[11px] text-ink-400">
-            {bill.payments.length > 0
-              ? `Lançamento em ${bill.payments[0].paymentMethodName ?? 'Movimentações'}`
-              : bill.migratedPayment
-                ? 'Paga antes da atualização (sem lançamento)'
-                : bill.notes}
-          </p>
-        )}
+        {note && <p className="truncate text-[11px] text-ink-400">{note}</p>}
       </div>
     );
   };

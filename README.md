@@ -175,6 +175,7 @@ O módulo é uma **agenda de pagamentos**: registra o que vence, o que foi agend
 - **Conta avulsa** vale para uma data. **Recorrência** (`bill_templates`) gera ocorrências mensais, semanais ou anuais a partir de uma data inicial, terminando por data, por quantidade ("repetir 6 vezes") ou no que acabar primeiro. Sem término, as ocorrências são materializadas até 12 meses à frente e o horizonte avança sozinho.
 - O estado gravado é só **aberta**, **paga** ou **pulada**. **Atrasada**, **vence hoje**, **agendada** e **futura** são calculados na leitura a partir das datas.
 - **Pagar** tem três modos: só marcar como paga; criar o lançamento de saída; ou vincular um lançamento já existente (ex.: importado do extrato). As regras do vínculo estão em **Regras de negócio**.
+- **Pagamento parcial** (`partial: true`): registra o valor e mantém a conta em aberto até a soma dos pagamentos alcançar o valor previsto. Sem a opção, o pagamento quita a conta com qualquer valor (contas de valor variável) e soma os parciais anteriores.
 - **Excluir** uma ocorrência de recorrência a marca como pulada, para que a série não a recrie. Conta avulsa é excluída de fato. Conta com pagamento vinculado não pode ser excluída.
 - **Alterar uma recorrência** "em todas" muda descrição, valor, categoria e conta das ocorrências abertas sem pagamento; mudar a frequência ou o dia exige "desta data em diante", que encerra a regra atual na véspera e inicia uma nova.
 
@@ -187,7 +188,7 @@ API (JSON; datas `AAAA-MM-DD`; valores em centavos):
 | `GET /api/bills/forecast?months=3` | Resumo por mês a partir do mês corrente |
 | `GET/POST /api/bills`, `PUT/DELETE /api/bills/:id` | Conta avulsa |
 | `POST /api/bills/:id/pay` | `{ mode: 'external', paidAt, paidCents }`, `{ mode: 'transaction', paidAt, paidCents, paymentMethodId }` ou `{ mode: 'link', transactionId }` |
-| `POST /api/bills/:id/unpay` · `/skip` · `/unskip` | Desfazer pagamento, pular, voltar a abrir |
+| `POST /api/bills/:id/unpay` · `/skip` · `/unskip` | Desfazer todos os pagamentos (inclusive parciais), pular, voltar a abrir |
 | `POST /api/bills/:id/schedule` | `{ scheduledFor }` registra (ou limpa, com `null`) o agendamento no banco |
 | `GET/POST /api/bill-templates`, `GET/PUT/DELETE /api/bill-templates/:id` | Recorrências; `PUT ?scope=future&from=AAAA-MM-DD` divide a série |
 | `POST /api/bill-templates/preview` | Próximas datas que a regra geraria, sem gravar |
@@ -196,7 +197,7 @@ Na tela **Contas a pagar**:
 
 - O topo lista as contas **atrasadas**, as que **vencem hoje** e as dos **próximos 7 dias**, sempre em relação a hoje; o menu lateral mostra quantas estão atrasadas ou vencem hoje.
 - Abaixo fica o mês, com navegação, busca, filtro por situação e por categoria e o resumo do mês (em aberto, atrasado, agendado, pago). Mês e filtros ficam no endereço da página, então voltar de outra tela mantém o que estava aberto.
-- **Pagar** pede data e valor. "Registrar lançamento em Movimentações" vem desligado, a menos que a conta tenha conta padrão; ligado, cria a saída na conta escolhida. O aviso de confirmação tem **Desfazer** por alguns segundos, e a linha paga mantém o botão de desfazer.
+- **Pagar** pede data e valor. "Registrar lançamento em Movimentações" vem desligado, a menos que a conta tenha conta padrão; ligado, cria a saída na conta escolhida. A opção **Pagamento parcial** mantém a conta em aberto; a linha mostra quanto já foi pago e quanto falta, e o próximo pagamento já sugere o restante. O aviso de confirmação tem **Desfazer** por alguns segundos quando é o primeiro pagamento da conta, e a linha paga ou parcialmente paga mantém o botão de desfazer, que remove todos os pagamentos. O resumo do mês conta os parciais como pagos e só o restante como em aberto ou atrasado.
 - **Nova conta** com **Repetir** mostra as próximas datas calculadas pelo servidor antes de salvar. Editar uma conta recorrente pergunta se a alteração vale **só para esta** ou **para esta e as futuras**; mudar a repetição só é possível no segundo caso.
 - **Excluir** uma conta recorrente oferece **pular só esta** ou **excluir a recorrência** (as já pagas ficam no histórico).
 
@@ -508,7 +509,7 @@ Transferências internas movimentam dinheiro entre contas próprias e **não** s
   - o relatório é calculado diretamente dos lançamentos, sem tabela de resumo.
 - **Seleção em massa** é mantida ao navegar entre páginas e ao mudar filtros. A barra de ações mostra a quantidade total selecionada, inclusive itens fora da página atual.
 - **Categorias e formas de pagamento** não podem ser excluídas deixando referências inválidas. A tela oferece reatribuição dos lançamentos para outro cadastro. Reatribuir a forma de pagamento é bloqueado se quebrar uma transferência confirmada.
-- **Pagamento de conta a pagar**: a conta pode ser marcada como paga sem lançamento (modo externo), criar o lançamento de saída (data da compra = vencimento da conta; vencimento = data do pagamento) ou vincular um lançamento de saída já existente. Um lançamento que paga uma conta não pode ser excluído, virar entrada nem ser vinculado como transferência; desfaça o pagamento antes. Desfazer apaga só o lançamento criado pelo próprio pagamento; um lançamento vinculado volta a ficar livre.
+- **Pagamento de conta a pagar**: a conta pode ser marcada como paga sem lançamento (modo externo), criar o lançamento de saída (data da compra = vencimento da conta; vencimento = data do pagamento) ou vincular um lançamento de saída já existente. Um lançamento que paga uma conta não pode ser excluído, virar entrada nem ser vinculado como transferência; desfaça o pagamento antes. Desfazer apaga só o lançamento criado pelo próprio pagamento; um lançamento vinculado volta a ficar livre. Uma conta com pagamento parcial não aparece como sugestão na importação de extrato.
 
 ## Scripts
 
@@ -549,7 +550,7 @@ Tabelas:
 - `transfers`: vínculo entre uma saída e uma entrada (`outgoing_transaction_id`, `incoming_transaction_id`), com confiança e origem. Índices únicos e gatilhos impedem que um lançamento participe de duas transferências ou que o par tenha contas/valores inválidos.
 - `bill_templates`: regra de recorrência de uma conta a pagar (frequência, intervalo, dia, início, término por data ou por quantidade, conta padrão). Gera ocorrências até 12 meses à frente; nunca cria lançamento.
 - `scheduled_bills`: ocorrências de contas a pagar (avulsas ou geradas por `bill_templates`, com `template_id` + `sequence`). Grava só `state` (`open`, `paid`, `skipped`), `scheduled_for` (agendamento no banco), `paid_at` e `paid_cents`; atrasada/hoje/próxima são derivados na leitura. Contas pagas antes da migração 0015 ficam com `migrated_payment = 1` (sem lançamento).
-- `bill_payments`: vínculo opcional entre uma ocorrência e o lançamento que a pagou (`transaction_id` único). Pagamento "externo" marca a conta sem criar vínculo.
+- `bill_payments`: cada pagamento de uma ocorrência, com valor e data. `transaction_id` (único quando preenchido) aponta o lançamento que pagou; é nulo no pagamento "externo", sem lançamento. A soma dos pagamentos decide se uma conta com pagamento parcial já está quitada.
 - `bill_reminder_batches`: um registro por e-mail de lembrete, com chave única `(milestone, send_date)` — no máximo um e-mail por marco e dia.
 - `bill_reminder_notifications`: histórico por conta e marco, com chave única `(bill_id, milestone, due_date)`. Apagar a conta apaga o histórico dela (`ON DELETE CASCADE`).
 
@@ -685,7 +686,7 @@ A suíte cobre:
 - Com `BILL_REMINDER_TRANSPORT=dry-run` nada é enviado e o agendador nem sobe — o aviso do dia não é consumido.
 - A CLI (`npm.cmd run reminders:run`) **pode** rodar com o backend no ar: a reserva atômica do lote no banco garante um único envio por marco em condições normais. A garantia é *at-least-once* (pode haver reenvio se o processo cair entre a aceitação pelo SMTP e a gravação de `sent`).
 - Não há confirmação de leitura, assinatura digital, configuração pela interface nem canal além de e-mail (WhatsApp e afins ficaram fora do escopo).
-- **Contas a pagar**: contas marcadas como pagas antes da migração `0015` não têm lançamento vinculado (aparecem como "paga antes da atualização"). A tela registra um pagamento por conta; o modelo aceita vários (pagamento parcial), mas a interface ainda não. Não há anexos (boleto/PDF), linha digitável, visão em calendário nem notificação do sistema além do contador no menu e do e-mail.
+- **Contas a pagar**: contas marcadas como pagas antes da migração `0015` não têm lançamento vinculado (aparecem como "paga antes da atualização"). Uma conta paga ou com pagamento parcial só pode ser desfeita por inteiro, não um pagamento de cada vez. Uma conta com pagamento parcial não pode ser pulada nem ter o valor reduzido abaixo do que já foi pago (igual ao já pago, ela é quitada). Não há anexos (boleto/PDF), linha digitável, visão em calendário nem notificação do sistema além do contador no menu e do e-mail.
 - **Recorrências** materializam ocorrências até 12 meses à frente e, para trás, no máximo 12 meses a partir de hoje: uma série com data inicial antiga não gera as ocorrências mais velhas que isso (a numeração "N de T" continua contada desde a data inicial).
 - **Sugestão de pagamento na importação** é heurística (valor igual ou dentro da faixa, até 5 dias, descrição parecida). Na revisão, os pares de alta confiança e sem disputa já vêm confirmados e são vinculados ao importar, a menos que você os mude para Rejeitar ou Pendente; os demais só com confirmação. O servidor não vincula nada sem decisão enviada pela tela. Não procura contas já pagas nem lançamentos gravados antes da importação.
 
