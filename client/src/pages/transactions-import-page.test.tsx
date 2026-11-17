@@ -240,6 +240,14 @@ describe('TransactionsImportPage - laco de previa', () => {
     expect(previewImport.mock.calls.length).toBe(afterFirst);
   });
 
+  it('aceita o extrato OFX do banco e manda para a prévia', async () => {
+    const ofx = new File(['OFXHEADER:100\n<OFX></OFX>'], 'extrato.ofx', { type: 'application/x-ofx' });
+    await mountAndSelectFile(ofx);
+    await settle();
+    expect((container.querySelector('input[type=file]') as HTMLInputElement).accept).toContain('.ofx');
+    expect(previewImport.mock.calls[0]?.[0]).toBe(ofx);
+  });
+
   it('o laco nao repete a requisicao indefinidamente', async () => {
     await mountAndSelectFile();
     await settle(10_000);

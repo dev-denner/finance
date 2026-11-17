@@ -164,7 +164,7 @@ export function ImportsPage() {
         <FlowCard
           icon={FileSpreadsheet}
           title="Importar movimentações"
-          description="Traga despesas, receitas e transferências de uma planilha CSV ou Excel."
+          description="Traga despesas, receitas e transferências de uma planilha CSV ou Excel, ou do extrato OFX do banco."
           details={[
             'Prévia com mapeamento de colunas e correção de linhas',
             'Detecção de duplicidades e revisão de categorias',
