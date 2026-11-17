@@ -4,6 +4,7 @@
  * Testada em `bills-view.test.ts`.
  */
 import type {
+  BoletoReading,
   Bill,
   BillAgenda,
   BillForecast,
@@ -603,4 +604,54 @@ export function defaultCalendarDay(weeks: readonly CalendarWeek[]): string | nul
     days.find((cell) => cell.bills.length > 0)?.date ??
     days[0].date
   );
+}
+
+// ---------------------------------------------------------------------------
+// Conta a partir do boleto
+// ---------------------------------------------------------------------------
+
+/**
+ * Preenche o formulário com a leitura do boleto: valor e vencimento da linha
+ * digitável sempre que ela os traz; descrição e categoria sugeridas só nos
+ * campos ainda vazios. Devolve também o que foi usado, para mostrar na tela.
+ */
+export function applyBoletoReading(
+  form: BillForm,
+  reading: BoletoReading,
+  formatDate: (iso: string) => string,
+): { form: BillForm; notes: string[] } {
+  const next = { ...form };
+  const notes: string[] = [];
+  const { barcode, suggestion } = reading;
+  if (barcode) {
+    const filled: string[] = [];
+    if (barcode.amountCents !== null) {
+      next.amount = centsToInput(barcode.amountCents);
+      filled.push('valor');
+    }
+    if (barcode.dueDate !== null) {
+      next.dueDate = barcode.dueDate;
+      filled.push('vencimento');
+    }
+    notes.push(
+      filled.length > 0
+        ? `${filled.join(' e ').replace(/^./, (letter) => letter.toUpperCase())} pela linha digitável.`
+        : 'Linha digitável lida, mas sem valor ou vencimento: preencha à mão.',
+    );
+  } else {
+    notes.push('Linha digitável não encontrada no PDF: preencha valor e vencimento.');
+  }
+  if (suggestion) {
+    if (!next.description.trim()) next.description = suggestion.description;
+    if (next.categoryId === null && suggestion.categoryId !== null) next.categoryId = suggestion.categoryId;
+    const based = suggestion.basedOn ? `“${suggestion.basedOn.description}” de ${formatDate(suggestion.basedOn.dueDate)}` : '';
+    notes.push(
+      suggestion.source === 'same_company'
+        ? `Descrição e categoria como em ${based} (mesma empresa no código de barras).`
+        : suggestion.source === 'similar_bill'
+          ? `Descrição e categoria como em ${based} (beneficiário parecido).`
+          : 'Descrição pelo beneficiário do boleto; escolha a categoria.',
+    );
+  }
+  return { form: next, notes };
 }

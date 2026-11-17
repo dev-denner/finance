@@ -65,3 +65,10 @@ export async function readPdfTextLines(buffer: Buffer, limits: PdfTextLimits): P
     await loadingTask.destroy();
   }
 }
+
+/** Texto de cada linha, de cima para baixo, com as partes na ordem horizontal. */
+export function pdfLineTexts(lines: PdfTextLine[]): string[] {
+  return [...lines]
+    .sort((a, b) => b.y - a.y)
+    .map((line) => [...line.parts].sort((a, b) => a.x - b.x).map((part) => part.text).join(' '));
+}

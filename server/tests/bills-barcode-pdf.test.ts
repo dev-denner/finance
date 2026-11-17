@@ -5,7 +5,7 @@ import { bankMod11, findBarcodeInText, formatBarcodeDigits, mod10 } from '../src
 import { addBillAttachment, createBill, readBarcodeFromAttachment } from '../src/services/bills';
 import { ensureLookup } from '../src/services/lookups';
 import { readPdfTextLines } from '../src/lib/pdf-text';
-import { createTestDatabase } from './helpers';
+import { createTestDatabase, pdfFromStream, textPdf } from './helpers';
 
 const TODAY = '2026-11-17';
 
@@ -18,32 +18,6 @@ function validLine(): string {
   const f2 = free.slice(5, 15);
   const f3 = free.slice(15, 25);
   return `${f1}${mod10(f1)}${f2}${mod10(f2)}${f3}${mod10(f3)}${dv}${factorAmount}`;
-}
-
-/** PDF mínimo de uma página com uma linha de texto por item (Helvetica), com xref correto. */
-function textPdf(lines: string[]): Buffer {
-  const escape = (text: string) => text.replace(/[\\()]/g, (char) => `\\${char}`);
-  return pdfFromStream(lines.map((text, index) => `BT /F1 10 Tf 40 ${780 - index * 20} Td (${escape(text)}) Tj ET`).join('\n'));
-}
-
-function pdfFromStream(stream: string): Buffer {
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    `<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`,
-  ];
-  let body = '%PDF-1.4\n';
-  const offsets: number[] = [];
-  objects.forEach((object, index) => {
-    offsets.push(Buffer.byteLength(body, 'latin1'));
-    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-  const xref = Buffer.byteLength(body, 'latin1');
-  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}`;
-  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  return Buffer.from(body, 'latin1');
 }
 
 let handle: DatabaseHandle;

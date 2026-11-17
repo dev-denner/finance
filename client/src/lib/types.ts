@@ -650,6 +650,18 @@ export type BarcodeParseResult =
     }
   | { valid: false; error: string };
 
+export interface BoletoReading {
+  barcode: Omit<Extract<BarcodeParseResult, { valid: true }>, 'valid'> | null;
+  beneficiary: string | null;
+  suggestion: {
+    description: string;
+    categoryId: number | null;
+    categoryName: string | null;
+    source: 'same_company' | 'similar_bill' | 'boleto';
+    basedOn: { id: number; description: string; dueDate: string } | null;
+  } | null;
+}
+
 export type BarcodeFromPdfResult =
   | ({ found: true } & Omit<Extract<BarcodeParseResult, { valid: true }>, 'valid'>)
   | { found: false };

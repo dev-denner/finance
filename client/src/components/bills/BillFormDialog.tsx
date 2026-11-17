@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Repeat } from 'lucide-react';
+import { FileText, Repeat, ScanLine, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Field } from '../ui/Field';
 import { Modal } from '../ui/Modal';
@@ -8,6 +8,7 @@ import { useToast } from '../../context/ToastContext';
 import { api, errorMessage } from '../../lib/api';
 import {
   FREQUENCY_LABELS,
+  applyBoletoReading,
   billFormFrom,
   billInputFrom,
   emptyBillForm,
@@ -63,6 +64,24 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
   const [askScope, setAskScope] = useState(false);
   const [preview, setPreview] = useState<{ sequence: number; dueDate: string }[] | null>(null);
   const previewRequest = useRef(0);
+  /** Boleto lido na criação: anexado e com a linha digitável gravada ao salvar uma conta avulsa. */
+  const [boleto, setBoleto] = useState<{ file: File; barcode: string | null; notes: string[] } | null>(null);
+  const [readingBoleto, setReadingBoleto] = useState(false);
+  const boletoInput = useRef<HTMLInputElement>(null);
+
+  const readBoleto = async (file: File) => {
+    setReadingBoleto(true);
+    try {
+      const reading = await api.readBoleto(file);
+      const applied = applyBoletoReading(form, reading, formatDateBR);
+      setForm(applied.form);
+      setBoleto({ file, barcode: reading.barcode?.digits ?? null, notes: applied.notes });
+    } catch (error) {
+      showToast(errorMessage(error), 'error');
+    } finally {
+      setReadingBoleto(false);
+    }
+  };
 
   const isOccurrence = target.kind === 'edit' && target.bill.templateId !== null;
   const showRecurrence = target.kind === 'create' ? form.repeat : isOccurrence;
@@ -105,8 +124,17 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
           const { template } = await api.createBillTemplate(templateInputFrom(form));
           onSaved(`Recorrência criada: ${template.recurrenceLabel}.`);
         } else {
-          await api.createBill(billInputFrom(form));
-          onSaved('Conta criada.');
+          const { bill } = await api.createBill({ ...billInputFrom(form), barcode: boleto?.barcode ?? null });
+          if (boleto) {
+            try {
+              await api.uploadBillAttachment(bill.id, boleto.file);
+            } catch (error) {
+              showToast(`Conta criada, mas o boleto não foi anexado: ${errorMessage(error)}`, 'error');
+              onSaved('Conta criada.');
+              return;
+            }
+          }
+          onSaved(boleto ? 'Conta criada com o boleto anexado.' : 'Conta criada.');
         }
         return;
       }
@@ -167,6 +195,56 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
             submit();
           }}
         >
+          {target.kind === 'create' && (
+            <div className="rounded-xl border border-dashed border-ink-300 px-3 py-2.5 dark:border-ink-700">
+              <input
+                ref={boletoInput}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                aria-label="Boleto em PDF"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) void readBoleto(file);
+                }}
+              />
+              {boleto ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-ink-800 dark:text-ink-100">
+                      <FileText className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                      <span className="truncate">{boleto.file.name}</span>
+                    </span>
+                    <button type="button" className="icon-btn" aria-label="Tirar o boleto" onClick={() => setBoleto(null)}>
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <ul className="space-y-0.5 text-[11px] text-ink-500 dark:text-ink-400">
+                    {boleto.notes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                    <li>
+                      {form.repeat
+                        ? 'Numa recorrência o boleto não é anexado: anexe-o depois na ocorrência do mês.'
+                        : 'Ao salvar, o PDF fica anexado à conta, com a linha digitável.'}
+                    </li>
+                  </ul>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[12px] text-ink-500 dark:text-ink-400">
+                    Tem o boleto em PDF? Ele preenche valor, vencimento, descrição e categoria.
+                  </p>
+                  <Button size="sm" variant="secondary" onClick={() => boletoInput.current?.click()} loading={readingBoleto}>
+                    <ScanLine className="h-3.5 w-3.5" />
+                    Preencher pelo boleto
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           <Field label="Descrição" htmlFor="bill-description" error={errors.description} required>
             <input
               id="bill-description"
