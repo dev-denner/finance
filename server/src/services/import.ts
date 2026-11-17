@@ -12,6 +12,7 @@
  *  - commit.ts      gravação do lote e histórico
  *  - templates.ts   modelos de mapeamento salvos
  *  - ofx.ts         extrato OFX (parser próprio) convertido em planilha
+ *  - profiles.ts    perfis de arquivo por banco (formato reconhecido e descrições resumidas)
  */
 export { IMPORT_FIELDS, REQUIRED_FIELDS, FIELD_LABELS, DEFAULT_TRANSFER_TOLERANCE_DAYS } from './import/types';
 export type { ImportField, ColumnMapping, TransferDecision, CellMeta, SheetRow, ParsedWorkbook, PurchaseDateSource, ParsedImportValues, FieldIssue, RowSuggestion, DuplicateCounterpart, DuplicateInfo, PreviewRow, ImportPreview, ImportOverrides, CategoryDecisionAction, CategoryDecision, CategoryDecisions, ImportOptions, ImportSummary, PreviewOptions } from './import/types';
@@ -26,3 +27,5 @@ export { listMappingTemplates, saveMappingTemplate, deleteMappingTemplate } from
 export type { ImportMappingTemplate } from './import/templates';
 export { isOfx, parseOfx, ofxToWorkbook } from './import/ofx';
 export type { OfxStatement, OfxTransaction } from './import/ofx';
+export { cleanNubankDescription, detectCsvProfile, detectOfxProfile } from './import/profiles';
+export type { FileProfile } from './import/profiles';

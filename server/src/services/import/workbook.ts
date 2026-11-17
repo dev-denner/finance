@@ -5,6 +5,7 @@ import { badRequest } from '../../lib/errors';
 import { suggestMapping } from './mapping';
 import { type CellMeta, MAX_ROWS, type ParsedWorkbook, type SheetRow } from './types';
 import { isOfx, ofxToWorkbook } from './ofx';
+import { detectCsvProfile } from './profiles';
 
 export function decodeCsv(buffer: Buffer): string {
   if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
@@ -140,11 +141,24 @@ export function readWorkbook(buffer: Buffer, filename: string): ParsedWorkbook {
     throw badRequest(`O arquivo possui mais de ${MAX_ROWS} linhas. Divida a importação em partes.`);
   }
 
+  // Formato de banco conhecido: mapeamento fixo e descrições resumidas.
+  const match = detectCsvProfile(headers);
+  if (match) {
+    const descriptionIndex = match.mapping.description;
+    for (const row of rows) {
+      if (descriptionIndex === null || descriptionIndex === undefined) break;
+      const cell = row.cells[descriptionIndex];
+      if (typeof cell === 'string') row.cells[descriptionIndex] = match.cleanDescription(cell);
+    }
+    return { filename, sheetName, headers, rows, mapping: match.mapping, profile: match.profile };
+  }
+
   return {
     filename,
     sheetName,
     headers,
     rows,
     mapping: suggestMapping(headers),
+    profile: null,
   };
 }

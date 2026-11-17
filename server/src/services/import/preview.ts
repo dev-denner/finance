@@ -10,6 +10,16 @@ import { parseRowFields, rawMap } from './parse-row';
 import { applyTemplateMapping } from './templates';
 import { type ColumnMapping, DEFAULT_TRANSFER_TOLERANCE_DAYS, type DuplicateCounterpart, type DuplicateInfo, type ImportOverrides, type ImportPreview, type PreviewOptions, type PreviewRow } from './types';
 import { readWorkbook } from './workbook';
+import type { FileProfile } from './profiles';
+
+/** Aviso da prévia quando o formato do banco foi reconhecido. */
+function profileNotice(profile: FileProfile): MappingWarning {
+  return {
+    level: 'info',
+    field: null,
+    message: `Formato reconhecido: ${profile.label}. As colunas foram mapeadas sozinhas e as descrições do banco resumidas (ex.: "Pix enviado - Fulano").`,
+  };
+}
 
 export function previewImport(
   db: AppDatabase,
@@ -34,6 +44,11 @@ export function previewImport(
     mapping = applied.mapping;
     headerWarnings = applied.warnings;
     appliedTemplate = applied.appliedTemplate;
+    // Formato de banco reconhecido (e nenhum modelo salvo para ele): vale o mapeamento do perfil.
+    if (!appliedTemplate && workbook.profile) {
+      mapping = workbook.mapping;
+      headerWarnings = [profileNotice(workbook.profile)];
+    }
   }
   const errors = mappingProblems(mapping, workbook.headers);
   const comparisons = loadDatabaseComparisons(db);
@@ -227,6 +242,7 @@ export function previewImport(
   return {
     filename,
     sheetName: workbook.sheetName,
+    profile: workbook.profile,
     headers: workbook.headers,
     mapping,
     mappingErrors: errors,

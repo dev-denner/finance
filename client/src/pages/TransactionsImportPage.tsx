@@ -2192,6 +2192,11 @@ export function TransactionsImportPage() {
               <p className="text-[11px] text-ink-400">
                 {formatFileSize(file.size)}
                 {preview ? ` · Planilha "${preview.sheetName}" · ${preview.totalRows} linha(s)` : ''}
+                {preview?.profile && (
+                  <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    {preview.profile.label}
+                  </span>
+                )}
               </p>
             </div>
             {loadingPreview && (

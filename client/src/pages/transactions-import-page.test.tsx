@@ -248,6 +248,15 @@ describe('TransactionsImportPage - laco de previa', () => {
     expect(previewImport.mock.calls[0]?.[0]).toBe(ofx);
   });
 
+  it('mostra o formato de banco reconhecido ao lado do arquivo', async () => {
+    previewImport.mockImplementation(() =>
+      Promise.resolve(previewResponse({ profile: { id: 'nubank-checking', label: 'Nubank · conta corrente', accountKind: 'checking' } })),
+    );
+    await mountAndSelectFile();
+    await settle();
+    expect(container.textContent).toContain('Nubank · conta corrente');
+  });
+
   it('o laco nao repete a requisicao indefinidamente', async () => {
     await mountAndSelectFile();
     await settle(10_000);
