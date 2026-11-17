@@ -5,6 +5,10 @@ import path from 'node:path';
 import process from 'node:process';
 import { chromium, type Page, type Response as PlaywrightResponse, type Route } from 'playwright-core';
 import { badRequest, HttpError } from '../lib/errors';
+import type { DomDocument } from '../lib/dom-lite';
+
+/** Existe só dentro do Chromium, nas funções passadas a `page.evaluate`. */
+declare const document: DomDocument;
 
 export const MAX_NFCE_NAVIGATION_MS = 20_000;
 export const MAX_NFCE_DOCUMENT_BYTES = 2 * 1024 * 1024;

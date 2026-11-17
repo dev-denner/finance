@@ -34,8 +34,10 @@ Tudo o que foi feito está em `master`. Merges de 2026-11-12, em ordem:
 | #10 | `feat/bills-import-match` | Sugestão e vínculo de pagamentos de contas na importação | `386cc25` |
 | #11 | `fix/import-bill-candidates-all` | Abas de contas e de transferências da importação mostram todos os pares | `d8f9b21` |
 | #12 | `chore/bills-docs-final` | Documentação final do Módulo 1 | `2f883ee` |
+| #13 | `fix/purchase-reconcile-item-categories` | R3: conciliação só categoriza itens sem categoria | `1040b49` |
+| #14, #15 | `chore/nfce-portal-query-opt-in`, `chore/drop-purchases-transaction-id` | R2 e R4; mesclados nas bases empilhadas, não no `master` | `381e3a5`, `4332e07` |
 
-Em andamento: `fix/purchase-reconcile-item-categories` (#13, ressalva R3 do Módulo 3), `chore/nfce-portal-query-opt-in` (#14, ressalva R2, empilhada sobre o #13) e `chore/drop-purchases-transaction-id` (ressalva R4 com a migração `0016`, empilhada sobre o #14). As branches mescladas não foram apagadas; `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` são locais e sem uso.
+Em andamento: **#16** leva ao `master` os commits da R2 e da R4, que ficaram fora dele, e `chore/module3-maintenance` (R6), aberta contra o `master` por cima deles. As branches mescladas não foram apagadas; `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` são locais e sem uso.
 
 O CI (`.github/workflows/ci.yml`, build + testes em Linux) roda em todo push no `master` e em PRs. Ele só passou a valer depois de chegar ao `master`; trocar a base de um PR não o dispara, só um push. O Codex revisa cada PR automaticamente e, nos PRs deste trabalho, sempre encontrou algo real: espere a revisão terminar antes de mesclar, ou trate o apontamento em PR de acompanhamento.
 
@@ -74,7 +76,7 @@ Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills
 
 O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído: PR1–PR6 mesclados (#6 a #12). O registro de cada PR está na seção 9 do plano.
 
-1. **Módulo 3 — ressalvas da revisão** (`docs/revisao-modulo-3-2026-11.md`): R3 resolvida (a conciliação só categoriza itens sem categoria ou em "Sem categoria"); R2 resolvida (consulta aos portais atrás de `NFCE_PORTAL_QUERY_ENABLED`, desligada por padrão); R4 resolvida (migração `0016` remove `purchases.transaction_id`); faltam R6 (tsconfig `lib: DOM` no server inteiro, teste próprio do parser RJ, mensagens de saldo em BRL) e R7 (código do item e formas de pagamento da nota em linhas, para o Módulo 4).
+1. **Módulo 3 — ressalvas da revisão** (`docs/revisao-modulo-3-2026-11.md`): R3 resolvida (a conciliação só categoriza itens sem categoria ou em "Sem categoria"); R2 resolvida (consulta aos portais atrás de `NFCE_PORTAL_QUERY_ENABLED`, desligada por padrão); R4 resolvida (migração `0016` remove `purchases.transaction_id`); R6 resolvida (server sem `lib: DOM`, extração do RJ testada com retrato fixo, mensagens de saldo em BRL); falta R7 (código do item e formas de pagamento da nota em linhas, para o Módulo 4). Achado pequeno: o parser do RJ lê só duas casas do preço unitário (`6,6667` vira R$ 6,66); o total do item não é afetado.
 2. **Módulo 1 — sobras fora de escopo** (plano, seção 8): pagamento parcial na tela, notificações locais/PWA, anexos e linha digitável, visão calendário, "find schedules" (sugerir recorrências pelo histórico), recorrência na importação de contas por planilha, M1-06 (duplicidade duplicada em `bills-import.ts`), ações em massa e atalhos.
 3. **Módulo 2** (fase 2 da análise): entidade conta evoluindo `payment_methods.balance_type`, perfis de arquivo por banco, OFX, grupo de parcelas, rateio/tags, regras, desfazer lote, quebrar `import.ts`/`TransactionsImportPage.tsx` (3 mil linhas) em wizard.
 4. **Transversal**: ESLint/Prettier, `packages/domain` e `api-client` (análise, seção 5), PWA.
@@ -88,6 +90,7 @@ O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído:
 - **`npx vitest run … -w`**: `-w` é **watch**, não workspace; trava o comando. Rode dentro de `server/` ou `client/`.
 - **`git commit` commita tudo que está no índice**: após `git checkout <branch> -- arquivos`, os arquivos ficam staged; faça `git reset` antes de commits por unidade.
 - A tela atual de contas e os lembretes dependem do campo legado `status`/`counts` do DTO até o PR4.
+- **PRs empilhados**: depois de mesclar um PR, troque a base do seguinte para `master` (`gh pr edit N --base master`) antes de mesclá-lo. O #14 e o #15 foram mesclados nas bases antigas e não chegaram ao `master`; o #16 corrigiu isso. Para PRs novos, prefira abrir contra o `master` mesmo empilhados.
 - O `.gitattributes` do `origin/master` já define `* text=auto eol=lf`; não renormalizar retroativamente (decisão registrada lá).
 
 - **`@fastify/static` com `wildcard: false`** registra a lista de arquivos ao iniciar: depois de um `vite build`, o servidor de produção precisa ser reiniciado, senão o bundle novo responde `index.html` (tela branca, erro de MIME no console).
@@ -96,7 +99,7 @@ O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído:
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 

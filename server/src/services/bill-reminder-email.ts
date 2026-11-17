@@ -15,7 +15,7 @@
  * que o usuário precisa para priorizar, e **não** envolve valor monetário.
  */
 
-import { daysBetweenIso } from '../lib/dates';
+import { daysBetweenIso, formatIsoDateBR } from '../lib/dates';
 
 /** Marcos de aviso, do mais distante para o mais próximo do vencimento. */
 export const REMINDER_MILESTONES = ['D-3', 'D-2', 'D-1', 'D0'] as const;
@@ -66,13 +66,6 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Converte ISO (AAAA-MM-DD) em DD/MM/AAAA. */
-function formatBr(date: string): string {
-  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return date;
-  return `${match[3]}/${match[2]}/${match[1]}`;
-}
-
 function pluralize(count: number, singular: string, plural: string): string {
   return count === 1 ? singular : plural;
 }
@@ -93,7 +86,7 @@ export function remainingDaysLabel(today: string, dueDate: string): string | nul
 
 /** Vencimento com o prazo restante entre parênteses (sem valor monetário). */
 function dueDateLabel(today: string, dueDate: string): string {
-  const base = formatBr(dueDate);
+  const base = formatIsoDateBR(dueDate);
   const remaining = remainingDaysLabel(today, dueDate);
   return remaining ? `${base} (${remaining})` : base;
 }
@@ -122,7 +115,7 @@ export function buildReminderEmail(input: ReminderEmailInput): ReminderEmailCont
   const lines: string[] = [];
   lines.push('Finance — contas pendentes para agendar');
   lines.push('');
-  lines.push(`Hoje, ${formatBr(today)}, ${schedule}.`);
+  lines.push(`Hoje, ${formatIsoDateBR(today)}, ${schedule}.`);
   if (late) {
     lines.push('');
     lines.push('Atenção: há contas vencidas nesta lista. Agende-as assim que possível.');
@@ -188,7 +181,7 @@ export function buildReminderEmail(input: ReminderEmailInput): ReminderEmailCont
             <tr>
               <td style="padding: 28px 32px 12px;">
                 <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #334155;">Hoje, ${escapeHtml(
-                  formatBr(today),
+                  formatIsoDateBR(today),
                 )}, <strong>${escapeHtml(schedule)}</strong>.</p>
               </td>
             </tr>

@@ -1,5 +1,6 @@
 import type { Page } from 'playwright-core';
 import { badRequest } from '../lib/errors';
+import type { DomDocument, DomTableRow } from '../lib/dom-lite';
 import { MAX_NFCE_NAVIGATION_MS, withNfceBrowser, type BrowserRequest } from './nfce-browser';
 import type { PurchaseInput } from './purchase-input';
 
@@ -213,14 +214,14 @@ export function parseSpNfceSnapshot(snapshot: SpNfceDomSnapshot): PurchaseInput 
 }
 
 /** Extração DOM sem cabeçalhos semânticos; `#tabResult` usa exatamente duas células por item. */
-export function extractSpNfceSnapshotFromDocument(doc: Document): SpNfceDomSnapshot {
+export function extractSpNfceSnapshotFromDocument(doc: DomDocument): SpNfceDomSnapshot {
   // Esta função é serializada e executada no contexto do Chromium via
   // `page.evaluate`; mantenha suas dependências locais/autocontidas.
   const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim();
   const maxItems = 300;
-  const value = (selector: string, root: ParentNode = doc): string => {
+  const value = (selector: string, root: Pick<DomDocument, 'querySelector'> = doc): string => {
     const node = root.querySelector(selector);
-    return normalize((node as HTMLElement | null)?.innerText || node?.textContent || '');
+    return normalize(node?.innerText || node?.textContent || '');
   };
   const panel = (label: RegExp): string => {
     const heading = Array.from(doc.querySelectorAll('h4.ui-collapsible-heading, h3, h4'))
@@ -234,7 +235,7 @@ export function extractSpNfceSnapshotFromDocument(doc: Document): SpNfceDomSnaps
     const row = totalRows.find((item) => label.test(item.textContent ?? ''));
     return row ? value('.totalNumb', row) || normalize(row.textContent ?? '') : null;
   };
-  const tableRows = Array.from(doc.querySelectorAll<HTMLTableRowElement>('#tabResult tr'));
+  const tableRows = Array.from(doc.querySelectorAll('#tabResult tr')) as DomTableRow[];
   if (tableRows.length > maxItems) throw new Error('item-limit');
   const items = tableRows.map((row) => {
     const left = row.cells[0];

@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull, lt, lte, notExists, notInArray, or, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
-import { daysBetweenIso } from '../lib/dates';
+import { daysBetweenIso, formatIsoDateBR } from '../lib/dates';
+import { formatBRL } from '../lib/money';
 import { badRequest, conflict, notFound, nowIso } from '../lib/errors';
 import { EMPTY_CATEGORY_NAME, normalizeName } from '../lib/normalize';
 import { categories, paymentBalanceAdjustments, paymentMethods, purchaseItems, purchaseSettlements, purchases, transactions, transfers } from '../db/schema';
@@ -146,7 +147,7 @@ export function getPaymentBalanceHistory(db: AppDatabase, paymentMethodId: numbe
 }
 
 function assertNonNegativeChronologicalBalance(db: AppDatabase, accountId: number) {
-  const method = db.select({ balanceType: paymentMethods.balanceType }).from(paymentMethods).where(eq(paymentMethods.id, accountId)).get();
+  const method = db.select({ name: paymentMethods.name, balanceType: paymentMethods.balanceType }).from(paymentMethods).where(eq(paymentMethods.id, accountId)).get();
   if (!method || !['wallet', 'debit'].includes(method.balanceType)) return;
   const events = [
     ...db.select({ date: transactions.dueDate, amount: transactions.amountCents }).from(transactions).where(eq(transactions.paymentMethodId, accountId)).all().map((e) => ({ ...e, priority: 1 })),
@@ -157,7 +158,7 @@ function assertNonNegativeChronologicalBalance(db: AppDatabase, accountId: numbe
   let balance = 0;
   for (const event of events) {
     balance += event.amount;
-    if (balance < 0) throw badRequest(`Saldo insuficiente na conta/carteira ${accountId}; faltam ${Math.abs(balance)} centavos em ${event.date}.`);
+    if (balance < 0) throw badRequest(`Saldo insuficiente em ${method.name}: faltam ${formatBRL(-balance)} em ${formatIsoDateBR(event.date)}.`);
   }
 }
 
@@ -178,7 +179,7 @@ export function reconcilePurchase(db: AppDatabase, purchaseId: number, input: Pu
     const walletTotal = input.walletPayments.reduce((sum, item) => sum + item.amountCents, 0);
     if (input.walletPayments.some((item) => !Number.isSafeInteger(item.amountCents) || item.amountCents <= 0)) throw badRequest('Valor de carteira inválido.');
     const total = movementTotal + walletTotal;
-    if (total !== purchase.totalCents) throw badRequest(`Os pagamentos somam ${total} centavos; o total da compra é ${purchase.totalCents} centavos.`);
+    if (total !== purchase.totalCents) throw badRequest(`Os pagamentos somam ${formatBRL(total)}; o total da compra é ${formatBRL(purchase.totalCents)}.`);
     const categorySet = new Set(chosen.map((item) => item.categoryId));
     if (categorySet.size > 1 && input.categoryId === null) throw badRequest('Escolha explicitamente uma categoria para a compra quando os pagamentos têm categorias diferentes.');
 
