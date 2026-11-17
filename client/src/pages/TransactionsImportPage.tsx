@@ -240,6 +240,29 @@ function BillCandidateRow({
 
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         <PartyMini party={candidate.party} tone="out" />
+        {candidate.groupBills.length > 0 ? (
+          <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 dark:border-blue-900/50 dark:bg-blue-950/20">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                Boleto agrupado · {candidate.groupBills.length} contas
+              </span>
+              <span className="num text-[12px] font-semibold text-ink-800 dark:text-ink-100">
+                {formatBRL(candidate.groupBills.reduce((sum, bill) => sum + bill.amountCents - bill.paidCents, 0))}
+              </span>
+            </div>
+            <ul className="mt-1 space-y-0.5">
+              {candidate.groupBills.map((bill) => (
+                <li key={bill.id} className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="min-w-0 truncate text-ink-700 dark:text-ink-200">
+                    {bill.description}
+                    <span className="ml-1 text-ink-400">vence {formatDateBR(bill.dueDate)}</span>
+                  </span>
+                  <span className="num shrink-0 text-ink-600 dark:text-ink-300">{formatBRL(bill.amountCents - bill.paidCents)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
         <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 dark:border-blue-900/50 dark:bg-blue-950/20">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
@@ -262,6 +285,7 @@ function BillCandidateRow({
             Vence {formatDateBR(candidate.bill.dueDate)} · {candidate.bill.categoryName}
           </p>
         </div>
+        )}
       </div>
 
       <ul className="mt-2 space-y-0.5">

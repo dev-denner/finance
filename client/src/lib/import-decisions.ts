@@ -193,10 +193,15 @@ export function mergeBillDecisions(
   return next;
 }
 
+/** Contas pagas pela sugestão: o grupo inteiro (boleto agrupado) ou só a conta. */
+export function candidateBillIds(candidate: Pick<BillPaymentCandidate, 'bill' | 'groupBills'>): number[] {
+  return candidate.groupBills.length > 0 ? candidate.groupBills.map((bill) => bill.id) : [candidate.bill.id];
+}
+
 /**
  * Aplica uma decisão. Confirmar um par devolve a pendente qualquer outro par
- * confirmado que use a mesma linha ou a mesma conta: uma linha paga uma conta
- * e uma conta é paga por uma linha.
+ * confirmado que use a mesma linha ou alguma das mesmas contas: uma linha paga
+ * uma conta (ou um grupo) e uma conta é paga por uma linha.
  */
 export function applyBillDecision(
   candidates: BillPaymentCandidate[],
@@ -206,9 +211,10 @@ export function applyBillDecision(
 ): Record<string, BillDecision> {
   const next = { ...current, [candidate.key]: decision };
   if (decision !== 'confirm') return next;
+  const bills = new Set(candidateBillIds(candidate));
   for (const other of candidates) {
     if (other.key === candidate.key || next[other.key] !== 'confirm') continue;
-    if (other.party.key === candidate.party.key || other.bill.id === candidate.bill.id) next[other.key] = 'pending';
+    if (other.party.key === candidate.party.key || candidateBillIds(other).some((id) => bills.has(id))) next[other.key] = 'pending';
   }
   return next;
 }
