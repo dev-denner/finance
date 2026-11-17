@@ -45,7 +45,7 @@ O CI (`.github/workflows/ci.yml`, build + testes em Linux) roda em todo push no 
 
 O usuário autorizou (2026-11-12) **publicar cada PR assim que concluído** (push da branch e abertura do PR); merge continua sendo decisão dele.
 
-O usuário trabalha em mais de uma máquina (Windows e Linux) e com sessões paralelas de IA que fazem merge no remoto. **Sempre `git fetch origin` e criar branches a partir de `origin/master`.**
+O usuário trabalha em mais de uma máquina (Windows e Linux) e com sessões paralelas de IA que fazem merge no remoto. **Sempre `git fetch origin` e criar branches a partir de `origin/develop`**, que concentra os PRs; o `master` só recebe releases.
 
 ## 3. Decisões tomadas com o usuário (não reabrir sem motivo)
 
