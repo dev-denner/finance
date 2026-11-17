@@ -17,6 +17,8 @@ import {
   statusInfo,
   templateInputFrom,
   validateBillForm,
+  billNote,
+  remainingCents,
 } from './bills-view';
 import type { Bill, BillTemplate } from './types';
 
@@ -35,6 +37,7 @@ function bill(overrides: Partial<Bill> = {}): Bill {
     scheduledFor: null,
     paidAt: null,
     paidCents: null,
+    partialPaidCents: 0,
     migratedPayment: false,
     categoryId: 3,
     categoryName: 'Moradia',
@@ -246,3 +249,25 @@ describe('futureEditPlan ("esta e as futuras")', () => {
     expect(nextDayIso('2026-12-31')).toBe('2027-01-01');
   });
 });
+
+describe('pagamento parcial', () => {
+  const brl = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace('.', ',')}`;
+  const payment = (transactionId: number | null, paymentMethodName: string | null = null) => ({
+    id: 1, transactionId, amountCents: 100, paidAt: TODAY, origin: 'manual' as const,
+    createdTransaction: transactionId !== null, paymentMethodName, transactionDescription: null,
+  });
+
+  it('o restante desconta os parciais e nunca fica negativo', () => {
+    expect(remainingCents(bill({ partialPaidCents: 20000 }))).toBe(58200);
+    expect(remainingCents(bill({ partialPaidCents: 90000 }))).toBe(0);
+  });
+
+  it('a nota da linha prioriza o progresso parcial, depois o lançamento, a migração e a observação', () => {
+    expect(billNote(bill({ partialPaidCents: 20000, payments: [payment(null)] }), brl)).toBe('Pago R$ 200,00 de R$ 782,00 · faltam R$ 582,00');
+    expect(billNote(bill({ state: 'paid', payments: [payment(null), payment(9, 'Nubank')] }), brl)).toBe('Lançamento em Nubank');
+    expect(billNote(bill({ state: 'paid', payments: [payment(null)], notes: 'pago no caixa' }), brl)).toBe('pago no caixa');
+    expect(billNote(bill({ state: 'paid', migratedPayment: true }), brl)).toBe('Paga antes da atualização (sem lançamento)');
+    expect(billNote(bill(), brl)).toBeNull();
+  });
+});
+

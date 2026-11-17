@@ -393,3 +393,30 @@ export function futureEditPlan(form: BillForm, bill: Bill, template: BillTemplat
     preview: { ...base, recurrence: fullRecurrence, startDate: dateChanged ? form.dueDate : from },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Pagamentos
+// ---------------------------------------------------------------------------
+
+/** Quanto falta pagar: o valor previsto menos os pagamentos parciais. */
+export function remainingCents(bill: Pick<Bill, 'amountCents' | 'partialPaidCents'>): number {
+  return Math.max(0, bill.amountCents - bill.partialPaidCents);
+}
+
+/**
+ * Linha de apoio sob a descrição da conta: progresso do pagamento parcial,
+ * conta de onde saiu o lançamento, pagamento migrado ou observação.
+ */
+export function billNote(
+  bill: Pick<Bill, 'state' | 'amountCents' | 'partialPaidCents' | 'payments' | 'migratedPayment' | 'notes'>,
+  formatMoney: (cents: number) => string,
+): string | null {
+  if (bill.state === 'open' && bill.partialPaidCents > 0) {
+    return `Pago ${formatMoney(bill.partialPaidCents)} de ${formatMoney(bill.amountCents)} · faltam ${formatMoney(remainingCents(bill))}`;
+  }
+  const linked = bill.payments.find((payment) => payment.transactionId !== null);
+  if (linked) return `Lançamento em ${linked.paymentMethodName ?? 'Movimentações'}`;
+  if (bill.migratedPayment) return 'Paga antes da atualização (sem lançamento)';
+  return bill.notes;
+}
+

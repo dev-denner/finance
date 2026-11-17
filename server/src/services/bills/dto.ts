@@ -35,14 +35,15 @@ export type BillPaymentOrigin = 'manual' | 'import_match' | 'migration';
 
 export interface BillPaymentDto {
   id: number;
-  transactionId: number;
+  /** null quando o pagamento foi registrado sem lançamento. */
+  transactionId: number | null;
   amountCents: number;
   paidAt: string;
   origin: BillPaymentOrigin;
   /** true quando o lançamento foi criado pelo próprio pagamento (desfazer apaga). */
   createdTransaction: boolean;
   paymentMethodName: string | null;
-  transactionDescription: string;
+  transactionDescription: string | null;
 }
 
 export interface BillDto {
@@ -57,6 +58,8 @@ export interface BillDto {
   scheduledFor: string | null;
   paidAt: string | null;
   paidCents: number | null;
+  /** Soma dos pagamentos parciais de uma conta ainda em aberto; 0 nos demais casos. */
+  partialPaidCents: number;
   /** true quando o "pago" veio da migração do status PG, sem lançamento. */
   migratedPayment: boolean;
   categoryId: number;
@@ -126,7 +129,7 @@ export function loadPayments(db: AppDatabase, billIds: number[]): Map<number, Bi
       paymentMethodName: paymentMethods.name,
     })
     .from(billPayments)
-    .innerJoin(transactions, eq(billPayments.transactionId, transactions.id))
+    .leftJoin(transactions, eq(billPayments.transactionId, transactions.id))
     .leftJoin(paymentMethods, eq(transactions.paymentMethodId, paymentMethods.id))
     .where(inArray(billPayments.billId, billIds))
     .all();
@@ -165,6 +168,7 @@ export function toBillDto(
     scheduledFor: bill.scheduledFor ?? null,
     paidAt: bill.paidAt ?? null,
     paidCents: bill.paidCents ?? null,
+    partialPaidCents: billState(bill.state) === 'open' ? payments.reduce((sum, payment) => sum + payment.amountCents, 0) : 0,
     migratedPayment: bill.migratedPayment === 1,
     categoryId: bill.categoryId,
     categoryName: row.categoryName,
@@ -206,8 +210,11 @@ export function summarize(bills: BillDto[]): BillSummary {
       summary.paidCents += bill.paidCents ?? bill.amountCents;
       continue;
     }
-    summary.openCents += bill.amountCents;
-    if (bill.displayStatus === 'overdue') summary.overdueCents += bill.amountCents;
+    // Pagamentos parciais contam como pagos; só o restante fica em aberto.
+    const remaining = Math.max(0, bill.amountCents - bill.partialPaidCents);
+    summary.paidCents += bill.partialPaidCents;
+    summary.openCents += remaining;
+    if (bill.displayStatus === 'overdue') summary.overdueCents += remaining;
   }
   return summary;
 }
