@@ -29,6 +29,7 @@ const apiMock = {
   getBill: vi.fn(),
   parseBarcode: vi.fn(),
   uploadBillAttachment: vi.fn(),
+  readBarcodeFromAttachment: vi.fn(),
   deleteBillAttachment: vi.fn(),
   billAttachmentUrl: vi.fn((id: number, attachmentId: number) => `/api/bills/${id}/attachments/${attachmentId}`),
   bulkPayBills: vi.fn(),
@@ -645,6 +646,7 @@ describe('contas — boleto e anexos', () => {
     const withFile = bill({ attachments: [attachment] });
     apiMock.uploadBillAttachment.mockResolvedValue({ attachment });
     apiMock.deleteBillAttachment.mockResolvedValue({ ok: true });
+    apiMock.readBarcodeFromAttachment.mockResolvedValue({ found: false });
     apiMock.getBill.mockResolvedValueOnce({ bill: withFile }).mockResolvedValueOnce({ bill: bill() });
     await render('/contas', [bill()]);
 
@@ -656,6 +658,9 @@ describe('contas — boleto e anexos', () => {
       fileInput.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(apiMock.uploadBillAttachment).toHaveBeenCalledWith(1, file);
+    // PDF numa conta sem linha digitável: tenta ler sozinho; sem achar, não incomoda com aviso.
+    expect(apiMock.readBarcodeFromAttachment).toHaveBeenCalledWith(1, 5);
+    expect(showToast).not.toHaveBeenCalledWith(expect.stringContaining('Não achei'), 'info');
     const link = document.querySelector('[role="dialog"] a') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('/api/bills/1/attachments/5');
     expect(link.getAttribute('target')).toBe('_blank');
@@ -664,6 +669,23 @@ describe('contas — boleto e anexos', () => {
     await click(buttons('Excluir anexo boleto.pdf')[0]);
     expect(apiMock.deleteBillAttachment).toHaveBeenCalledWith(1, 5);
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Nenhum anexo');
+  });
+
+  it('"Ler" preenche a linha digitável achada no PDF para conferir e salvar', async () => {
+    const attachment = { id: 6, filename: 'boleto.pdf', contentType: 'application/pdf', sizeBytes: 900, createdAt: '2026-03-01T00:00:00Z' };
+    apiMock.readBarcodeFromAttachment
+      .mockResolvedValueOnce({ found: false })
+      .mockResolvedValueOnce({ found: true, digits: LINE, kind: 'bank', amountCents: 78200, dueDate: null, formatted: '00190.00009 01234.567890 12345.678901 2 34567890123456' });
+    apiMock.parseBarcode.mockResolvedValue({ valid: true, digits: LINE, kind: 'bank', amountCents: 78200, dueDate: null, formatted: 'x' });
+    await render('/contas', [bill({ attachments: [attachment] })]);
+    await click(buttons('Boleto e anexos de Condomínio')[0]);
+
+    await click(buttons('Ler linha digitável de boleto.pdf')[0]);
+    expect(showToast).toHaveBeenCalledWith('Não achei uma linha digitável no texto do PDF (um boleto escaneado não tem texto).', 'info');
+    await click(buttons('Ler linha digitável de boleto.pdf')[0]);
+    expect((document.getElementById('boleto-barcode') as HTMLInputElement).value).toBe('00190.00009 01234.567890 12345.678901 2 34567890123456');
+    expect(showToast).toHaveBeenCalledWith('Linha digitável encontrada no PDF: confira e salve.', 'success');
+    expect(apiMock.updateBill).not.toHaveBeenCalled();
   });
 
   it('copia a linha digitável direto da linha da conta', async () => {

@@ -160,3 +160,23 @@ export function parseBarcode(value: unknown, today: string): BarcodeResult {
   if (digits.length === 48) return parseUtility(digits);
   return { ok: false, error: 'A linha digitável tem 47 dígitos (boleto) ou 48 (conta de consumo ou tributo).' };
 }
+
+/**
+ * Procura uma linha digitável válida num texto (ex.: extraído do PDF do
+ * boleto). Junta os dígitos separados por pontos, espaços e hífens e testa
+ * janelas de 47 e 48 dígitos; os dígitos verificadores descartam o resto.
+ */
+export function findBarcodeInText(text: string, today: string): BarcodeDetails | null {
+  const runs = text.match(/\d[\d.\s-]{40,}\d/g) ?? [];
+  for (const run of runs) {
+    const digits = run.replace(/\D/g, '');
+    if (digits.length < 47 || digits.length > 200) continue;
+    for (const size of [47, 48]) {
+      for (let start = 0; start + size <= digits.length; start += 1) {
+        const parsed = parseBarcode(digits.slice(start, start + size), today);
+        if (parsed.ok) return parsed.value;
+      }
+    }
+  }
+  return null;
+}

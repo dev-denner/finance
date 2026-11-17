@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Copy, ExternalLink, FileText, Image as ImageIcon, Paperclip, Trash2 } from 'lucide-react';
+import { Copy, ExternalLink, FileText, Image as ImageIcon, Paperclip, ScanLine, Trash2 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Field } from '../ui/Field';
 import { Modal } from '../ui/Modal';
@@ -29,7 +29,7 @@ export function BoletoDialog({
   onClose: () => void;
   /** Recarrega a tela; devolve a conta atualizada para o diálogo continuar aberto. */
   onChanged: () => Promise<Bill | null>;
-  notify: (message: string, kind: 'success' | 'error') => void;
+  notify: (message: string, kind: 'success' | 'error' | 'info') => void;
 }) {
   const [current, setCurrent] = useState(bill);
   const [barcode, setBarcode] = useState(bill.barcodeFormatted ?? '');
@@ -71,6 +71,43 @@ export function BoletoDialog({
       notify(errorMessage(err), 'error');
     } finally {
       setBusy(null);
+    }
+  };
+
+  /** Preenche o campo com a linha achada no PDF; o usuário confere e salva. */
+  const readFromPdf = async (attachmentId: number, automatic = false) => {
+    setBusy(`read-${attachmentId}`);
+    try {
+      const result = await api.readBarcodeFromAttachment(current.id, attachmentId);
+      if (result.found) {
+        setBarcode(result.formatted);
+        notify('Linha digitável encontrada no PDF: confira e salve.', 'success');
+      } else if (!automatic) {
+        notify('Não achei uma linha digitável no texto do PDF (um boleto escaneado não tem texto).', 'info');
+      }
+    } catch (err) {
+      if (!automatic) notify(errorMessage(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const upload = async (file: File) => {
+    setBusy('upload');
+    let added: { id: number; contentType: string } | null = null;
+    try {
+      added = (await api.uploadBillAttachment(current.id, file)).attachment;
+      const updated = await onChanged();
+      if (updated) setCurrent(updated);
+      notify('Anexo adicionado.', 'success');
+    } catch (err) {
+      notify(errorMessage(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+    // Sem linha digitável ainda: tenta ler a do PDF recém-anexado.
+    if (added?.contentType === 'application/pdf' && !current.barcode && barcode.replace(/\D/g, '') === '') {
+      await readFromPdf(added.id, true);
     }
   };
 
@@ -197,7 +234,7 @@ export function BoletoDialog({
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = '';
-                if (file) void run('upload', () => api.uploadBillAttachment(current.id, file), 'Anexo adicionado.');
+                if (file) void upload(file);
               }}
             />
           </div>
@@ -220,6 +257,20 @@ export function BoletoDialog({
                       <ExternalLink className="ml-1 inline h-3 w-3" aria-hidden="true" />
                     </a>
                     <span className="shrink-0 text-[11px] tabular-nums text-ink-400">{formatSize(attachment.sizeBytes)}</span>
+                    {attachment.contentType === 'application/pdf' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Ler linha digitável de ${attachment.filename}`}
+                        title="Ler a linha digitável do PDF"
+                        disabled={busy !== null}
+                        loading={busy === `read-${attachment.id}`}
+                        onClick={() => void readFromPdf(attachment.id)}
+                      >
+                        <ScanLine className="h-3.5 w-3.5" />
+                        Ler
+                      </Button>
+                    )}
                     <button
                       type="button"
                       className="icon-btn hover:text-rose-600"
