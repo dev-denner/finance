@@ -183,9 +183,12 @@ describe('formulário', () => {
   });
 
   it('recorrência deriva o dia (e o mês, se anual) da primeira data', () => {
-    expect(recurrenceFrom({ dueDate: '2026-01-31', frequency: 'monthly', interval: '1' })).toEqual({ frequency: 'monthly', interval: 1, dayOfMonth: 31 });
-    expect(recurrenceFrom({ dueDate: '2026-04-05', frequency: 'yearly', interval: '1' })).toEqual({ frequency: 'yearly', interval: 1, dayOfMonth: 5, monthOfYear: 4 });
-    expect(recurrenceFrom({ dueDate: '2026-04-05', frequency: 'weekly', interval: '2' })).toEqual({ frequency: 'weekly', interval: 2, weekday: null });
+    expect(recurrenceFrom({ dueDate: '2026-01-31', frequency: 'monthly', interval: '1' })).toEqual({ frequency: 'monthly', interval: 1, dayOfMonth: 31, lastBusinessDay: false });
+    expect(recurrenceFrom({ dueDate: '2026-04-05', frequency: 'yearly', interval: '1' })).toEqual({ frequency: 'yearly', interval: 1, dayOfMonth: 5, monthOfYear: 4, lastBusinessDay: false });
+    expect(recurrenceFrom({ dueDate: '2026-04-05', frequency: 'weekly', interval: '2' })).toEqual({ frequency: 'weekly', interval: 2, weekday: null, lastBusinessDay: false });
+    // Último dia útil: o dia sai da regra, não da data; ignorado fora do mensal.
+    expect(recurrenceFrom({ dueDate: '2026-01-10', frequency: 'monthly', interval: '1', lastBusinessDay: true })).toEqual({ frequency: 'monthly', interval: 1, dayOfMonth: null, lastBusinessDay: true });
+    expect(recurrenceFrom({ dueDate: '2026-01-10', frequency: 'weekly', interval: '1', lastBusinessDay: true })).toMatchObject({ frequency: 'weekly', lastBusinessDay: false });
   });
 
   it('monta o payload da recorrência conforme o término escolhido', () => {
@@ -248,7 +251,10 @@ describe('futureEditPlan ("esta e as futuras")', () => {
 
   it('frequência alterada sem mudar a data: deriva a regra nova da data exibida', () => {
     const weekly = { ...billFormFrom(february, day31), frequency: 'weekly' as const };
-    expect(futureEditPlan(weekly, february, day31).update.recurrence).toEqual({ frequency: 'weekly', interval: 1, weekday: null });
+    expect(futureEditPlan(weekly, february, day31).update.recurrence).toEqual({ frequency: 'weekly', interval: 1, weekday: null, lastBusinessDay: false });
+    // Ligar "último dia útil" também muda a regra: a âncora não é mantida.
+    const lastBusiness = { ...billFormFrom(february, day31), lastBusinessDay: true };
+    expect(futureEditPlan(lastBusiness, february, day31).update.recurrence).toEqual({ frequency: 'monthly', interval: 1, dayOfMonth: null, lastBusinessDay: true });
   });
 
   it('nextDayIso vira mês e ano', () => {

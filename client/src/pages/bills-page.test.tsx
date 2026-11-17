@@ -353,11 +353,39 @@ describe('tela de contas a pagar', () => {
         startDate: '2026-04-05',
         occurrenceCount: 6,
         endDate: null,
-        recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: 5 },
+        recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: 5, lastBusinessDay: false },
       }),
     );
     expect(apiMock.createBill).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('Recorrência criada: Mensal, dia 5.', 'success', undefined);
+  });
+
+  it('recorrência mensal no último dia útil manda a opção e some ao trocar a frequência', async () => {
+    apiMock.createBillTemplate.mockResolvedValue({ template: { ...TEMPLATE, recurrenceLabel: 'Mensal, último dia útil' } });
+    await render('/contas', []);
+
+    await click(buttons('Nova conta')[0]);
+    await type(document.getElementById('bill-description') as HTMLInputElement, 'Salário diarista');
+    await type(document.getElementById('bill-amount') as HTMLInputElement, '800');
+    await type(document.getElementById('bill-due') as HTMLInputElement, '2026-04-01');
+    await type(document.getElementById('bill-category') as HTMLSelectElement, '3');
+    await click([...document.querySelectorAll('label')].find((label) => label.textContent?.trim() === 'Repetir')!.querySelector('input')!);
+    const lastBusinessDay = () =>
+      [...document.querySelectorAll('label')].find((label) => label.textContent?.includes('No último dia útil do mês'))?.querySelector('input') ?? null;
+
+    await type(document.getElementById('bill-frequency') as HTMLSelectElement, 'weekly');
+    expect(lastBusinessDay()).toBeNull();
+    await type(document.getElementById('bill-frequency') as HTMLSelectElement, 'monthly');
+    await click(lastBusinessDay() as HTMLInputElement);
+    await click(buttons('Salvar')[0]);
+
+    expect(apiMock.createBillTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startDate: '2026-04-01',
+        recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: null, lastBusinessDay: true },
+      }),
+    );
+    expect(showToast).toHaveBeenCalledWith('Recorrência criada: Mensal, último dia útil.', 'success', undefined);
   });
 
   it('excluir ocorrência de recorrência oferece pular só esta', async () => {

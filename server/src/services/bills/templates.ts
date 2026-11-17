@@ -51,6 +51,7 @@ export interface BillRecurrenceInput {
   dayOfMonth?: unknown;
   weekday?: unknown;
   monthOfYear?: unknown;
+  lastBusinessDay?: unknown;
 }
 
 export interface BillTemplateWriteInput {
@@ -85,6 +86,8 @@ interface ParsedTemplate {
   dayOfMonth: number | null;
   weekday: number | null;
   monthOfYear: number | null;
+  /** 0 ou 1, como na coluna. */
+  lastBusinessDay: number;
   startDate: string;
   endDate: string | null;
   occurrenceCount: number | null;
@@ -104,13 +107,16 @@ export function horizonFor(today: string): string {
   return horizon;
 }
 
-function recurrenceOf(row: Pick<TemplateRow, 'frequency' | 'interval' | 'dayOfMonth' | 'weekday' | 'monthOfYear'>): BillRecurrence {
+function recurrenceOf(
+  row: Pick<TemplateRow, 'frequency' | 'interval' | 'dayOfMonth' | 'weekday' | 'monthOfYear' | 'lastBusinessDay'>,
+): BillRecurrence {
   return {
     frequency: row.frequency as BillFrequency,
     interval: row.interval,
     dayOfMonth: row.dayOfMonth ?? null,
     weekday: row.weekday ?? null,
     monthOfYear: row.monthOfYear ?? null,
+    lastBusinessDay: row.lastBusinessDay === 1,
   };
 }
 
@@ -163,6 +169,12 @@ function parseRecurrenceInput(input: BillRecurrenceInput | undefined, existing?:
         ? optionalInt(input.monthOfYear, 'Mês')
         : (base?.monthOfYear ?? null),
   };
+  // Sem a opção na entrada, vale a da regra atual enquanto ela continuar mensal.
+  recurrence.lastBusinessDay =
+    input?.lastBusinessDay !== undefined
+      ? input.lastBusinessDay === true
+      : recurrence.frequency === 'monthly' && base?.lastBusinessDay === true;
+  if (recurrence.lastBusinessDay) recurrence.dayOfMonth = null;
   const problem = validateRecurrence(recurrence);
   if (problem) throw badRequest(problem);
   return recurrence;
@@ -245,6 +257,7 @@ function parseTemplateInput(
     categoryId,
     paymentMethodId,
     ...recurrence,
+    lastBusinessDay: recurrence.lastBusinessDay ? 1 : 0,
     startDate: start.value,
     endDate,
     occurrenceCount,
@@ -395,6 +408,7 @@ function recurrenceChanged(before: TemplateRow, after: ParsedTemplate): boolean 
     (before.dayOfMonth ?? null) !== after.dayOfMonth ||
     (before.weekday ?? null) !== after.weekday ||
     (before.monthOfYear ?? null) !== after.monthOfYear ||
+    before.lastBusinessDay !== after.lastBusinessDay ||
     before.startDate !== after.startDate
   );
 }

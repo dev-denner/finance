@@ -235,6 +235,8 @@ export const billTemplates = sqliteTable(
     dayOfMonth: integer('day_of_month'),
     weekday: integer('weekday'),
     monthOfYear: integer('month_of_year'),
+    /** 1 = vence no último dia útil bancário do mês (só monthly); 0 = usa day_of_month. */
+    lastBusinessDay: integer('last_business_day').notNull().default(0),
     startDate: text('start_date').notNull(),
     /** Término por data; vale o que terminar primeiro entre end_date e occurrence_count. */
     endDate: text('end_date'),

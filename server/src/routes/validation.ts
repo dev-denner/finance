@@ -155,6 +155,7 @@ const recurrenceShape = {
   dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
   weekday: z.number().int().min(0).max(6).nullable().optional(),
   monthOfYear: z.number().int().min(1).max(12).nullable().optional(),
+  lastBusinessDay: z.boolean().optional(),
 };
 
 export const billRecurrenceSchema = z.object(recurrenceShape).strict();

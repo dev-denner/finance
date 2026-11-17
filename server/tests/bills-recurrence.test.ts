@@ -190,6 +190,32 @@ describe('recorrência — semanal e anual', () => {
   });
 });
 
+describe('recorrência — último dia útil', () => {
+  it('vence no último dia útil de cada mês, ignorando o dia do mês', () => {
+    const dates = nextOccurrenceDates(monthly({ lastBusinessDay: true, dayOfMonth: 10 }), '2026-01-05', { to: '2026-06-30' });
+    expect(dates.map((d) => d.dueDate)).toEqual(['2026-01-30', '2026-02-27', '2026-03-31', '2026-04-30', '2026-05-29', '2026-06-30']);
+  });
+
+  it('data inicial depois do último dia útil começa no mês seguinte; intervalo e from mantêm a numeração', () => {
+    const rule = monthly({ lastBusinessDay: true, interval: 2 });
+    expect(nextOccurrenceDates(rule, '2026-01-31', { to: '2026-07-31' }).map((d) => d.dueDate)).toEqual([
+      '2026-02-27',
+      '2026-04-30',
+      '2026-06-30',
+    ]);
+    expect(nextOccurrenceDates(rule, '2026-01-31', { from: '2026-04-01', to: '2026-07-31' })).toEqual([
+      { sequence: 2, dueDate: '2026-04-30' },
+      { sequence: 3, dueDate: '2026-06-30' },
+    ]);
+  });
+
+  it('só vale para mensal e aparece na descrição', () => {
+    expect(validateRecurrence(monthly({ frequency: 'weekly', lastBusinessDay: true }))).toMatch(/último dia útil/);
+    expect(describeRecurrence(monthly({ lastBusinessDay: true }))).toBe('Mensal, último dia útil');
+    expect(describeRecurrence(monthly({ lastBusinessDay: true, interval: 3 }))).toBe('A cada 3 meses, último dia útil');
+  });
+});
+
 describe('recorrência — validação e descrição', () => {
   it('rejeita frequência, intervalo e dias fora do domínio', () => {
     expect(validateRecurrence(monthly({ frequency: 'daily' as BillRecurrence['frequency'] }))).toMatch(

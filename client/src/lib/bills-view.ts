@@ -221,6 +221,8 @@ export interface BillForm {
   repeat: boolean;
   frequency: BillFrequency;
   interval: string;
+  /** Só mensal: vence no último dia útil do mês em vez do dia da primeira data. */
+  lastBusinessDay: boolean;
   endMode: EndMode;
   endDate: string;
   occurrenceCount: string;
@@ -239,6 +241,7 @@ export function emptyBillForm(today: string, categoryId: number | null): BillFor
     repeat: false,
     frequency: 'monthly',
     interval: '1',
+    lastBusinessDay: false,
     endMode: 'never',
     endDate: '',
     occurrenceCount: '',
@@ -256,6 +259,7 @@ export function billFormFrom(bill: Bill, template?: BillTemplate): BillForm {
     repeat: Boolean(template),
     frequency: template?.recurrence.frequency ?? 'monthly',
     interval: String(template?.recurrence.interval ?? 1),
+    lastBusinessDay: template?.recurrence.lastBusinessDay === true,
     endMode: template?.occurrenceCount ? 'count' : template?.endDate ? 'date' : 'never',
     endDate: template?.endDate ?? '',
     occurrenceCount: template?.occurrenceCount ? String(template.occurrenceCount) : '',
@@ -306,15 +310,21 @@ export function billInputFrom(form: BillForm) {
 /**
  * Recorrência derivada da primeira data: o dia do mês (e o mês, se anual) vêm
  * dela, e o dia da semana fica com o servidor. Dia 31 recua para o fim dos
- * meses curtos sem perder o dia nos meses longos.
+ * meses curtos sem perder o dia nos meses longos. Com "último dia útil", o
+ * servidor calcula o dia de cada mês.
  */
-export function recurrenceFrom(form: Pick<BillForm, 'dueDate' | 'frequency' | 'interval'>): BillTemplateInput['recurrence'] {
+export function recurrenceFrom(
+  form: Pick<BillForm, 'dueDate' | 'frequency' | 'interval'> & Partial<Pick<BillForm, 'lastBusinessDay'>>,
+): BillTemplateInput['recurrence'] {
   const day = Number(form.dueDate.slice(8, 10));
   const month = Number(form.dueDate.slice(5, 7));
   const interval = Number(form.interval) || 1;
-  if (form.frequency === 'weekly') return { frequency: 'weekly', interval, weekday: null };
-  if (form.frequency === 'yearly') return { frequency: 'yearly', interval, dayOfMonth: day, monthOfYear: month };
-  return { frequency: 'monthly', interval, dayOfMonth: day };
+  if (form.frequency === 'weekly') return { frequency: 'weekly', interval, weekday: null, lastBusinessDay: false };
+  if (form.frequency === 'yearly') {
+    return { frequency: 'yearly', interval, dayOfMonth: day, monthOfYear: month, lastBusinessDay: false };
+  }
+  if (form.lastBusinessDay) return { frequency: 'monthly', interval, dayOfMonth: null, lastBusinessDay: true };
+  return { frequency: 'monthly', interval, dayOfMonth: day, lastBusinessDay: false };
 }
 
 export function templateInputFrom(form: BillForm): BillTemplateInput {
@@ -372,7 +382,10 @@ export function futureEditPlan(form: BillForm, bill: Bill, template: BillTemplat
     : retained
       ? nextDayIso(bill.dueDate)
       : bill.dueDate;
-  const keepAnchor = !dateChanged && form.frequency === template.recurrence.frequency;
+  const keepAnchor =
+    !dateChanged &&
+    form.frequency === template.recurrence.frequency &&
+    (form.frequency === 'monthly' && form.lastBusinessDay) === (template.recurrence.lastBusinessDay === true);
   const interval = Number(form.interval) || 1;
   const fullRecurrence: BillTemplateInput['recurrence'] = keepAnchor
     ? {
@@ -381,6 +394,7 @@ export function futureEditPlan(form: BillForm, bill: Bill, template: BillTemplat
         dayOfMonth: template.recurrence.dayOfMonth,
         weekday: template.recurrence.weekday,
         monthOfYear: template.recurrence.monthOfYear,
+        lastBusinessDay: template.recurrence.lastBusinessDay === true,
       }
     : recurrenceFrom(form);
 

@@ -182,6 +182,33 @@ describe('recorrências — criação e geração (AC1, AC3, AC3b)', () => {
   });
 });
 
+describe('recorrências — último dia útil', () => {
+  it('cria, gera as ocorrências no último dia útil e devolve a regra; mudar exige scope=future', () => {
+    const { db, category } = setup();
+    const template = createTemplate(
+      db,
+      monthlyInput({ categoryId: category.id, recurrence: { frequency: 'monthly', interval: 1, lastBusinessDay: true }, startDate: '2026-01-01', occurrenceCount: 3 }),
+      TODAY,
+    );
+    expect(template.recurrence).toMatchObject({ lastBusinessDay: true, dayOfMonth: null });
+    expect(template.recurrenceLabel).toBe('Mensal, último dia útil');
+    expect(listBillsBetween(db, '2026-01-01', '2026-12-31', { today: TODAY }).bills.map((bill) => bill.dueDate)).toEqual([
+      '2026-01-30',
+      '2026-02-27',
+      '2026-03-31',
+    ]);
+    expect(() =>
+      updateTemplate(db, template.id, { recurrence: { frequency: 'monthly', lastBusinessDay: false, dayOfMonth: 10 } }, { scope: 'all' }, TODAY),
+    ).toThrow();
+    // Sem a opção na entrada, uma alteração parcial mantém a regra.
+    expect(updateTemplate(db, template.id, { recurrence: { interval: 1 } }, { scope: 'all' }, TODAY).recurrence.lastBusinessDay).toBe(true);
+    expect(() =>
+      createTemplate(db, monthlyInput({ categoryId: category.id, recurrence: { frequency: 'weekly', lastBusinessDay: true } }), TODAY),
+    ).toThrow(/último dia útil/);
+    expect(getTemplate(db, template.id).recurrence.lastBusinessDay).toBe(true);
+  });
+});
+
 describe('recorrências — alteração (AC10)', () => {
   it('scope=all propaga campos descritivos às abertas sem pagamento e não toca as pagas', () => {
     const { db, category } = setup();
