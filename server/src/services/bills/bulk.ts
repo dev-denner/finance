@@ -87,6 +87,8 @@ export type GroupPaymentInput =
       /** Vincula um lançamento de saída já existente cujo valor é o total das contas. */
       mode: 'link';
       transactionId: number;
+      /** `import_match` quando o vínculo veio da revisão da importação. */
+      origin?: 'manual' | 'import_match';
     };
 
 /**
@@ -110,6 +112,7 @@ export function payBillsWithOneTransaction(
     let paidAt: string;
     let paymentMethodId: number | null;
     let created: boolean;
+    const origin = input.mode === 'link' ? (input.origin ?? 'manual') : 'manual';
     if (input.mode === 'transaction') {
       const parsed = parseDateValue(input.paidAt);
       if (!parsed.ok) throw badRequest(`Data do pagamento: ${parsed.error}`);
@@ -158,7 +161,7 @@ export function payBillsWithOneTransaction(
 
     for (const { bill, cents } of shares) {
       db.insert(billPayments)
-        .values({ billId: bill.id, transactionId, amountCents: cents, paidAt, origin: 'manual', createdTransaction: created ? 1 : 0 })
+        .values({ billId: bill.id, transactionId, amountCents: cents, paidAt, origin, createdTransaction: created ? 1 : 0 })
         .run();
       db.update(scheduledBills)
         .set({

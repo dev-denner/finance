@@ -536,6 +536,15 @@ export interface PreviewRow {
 
 export type BillDecision = 'confirm' | 'reject' | 'pending';
 
+export interface BillCandidateBill {
+  id: number;
+  description: string;
+  amountCents: number;
+  dueDate: string;
+  categoryName: string;
+  paidCents: number;
+}
+
 /** Saída do arquivo que parece pagar uma conta a pagar em aberto. */
 export interface BillPaymentCandidate {
   /** `file:<linha>:bill:<id>` — chave das decisões. */
@@ -547,7 +556,9 @@ export interface BillPaymentCandidate {
   amountDiffCents: number;
   party: TransferParty;
   /** `paidCents`: parciais já pagos; a sugestão casa com o que falta. */
-  bill: { id: number; description: string; amountCents: number; dueDate: string; categoryName: string; paidCents: number };
+  bill: BillCandidateBill;
+  /** Boleto agrupado: todas as contas que a linha paga juntas (2 a 4); vazio no par comum. */
+  groupBills: BillCandidateBill[];
 }
 
 export interface ImportPreview {

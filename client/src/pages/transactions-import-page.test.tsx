@@ -318,6 +318,50 @@ describe('TransactionsImportPage - laco de previa', () => {
     expect(importButton().disabled).toBe(false);
   });
 
+  it('boleto agrupado mostra as contas do grupo e o total', async () => {
+    const candidate = {
+      key: 'file:2:bills:7+8',
+      confidence: 'possible' as const,
+      ambiguous: false,
+      reasons: ['Soma de 2 contas igual ao valor (R$ 20,00)', 'Mesmo dia dos vencimentos', 'Boleto agrupado: um lançamento paga todas'],
+      dayDistance: 0,
+      amountDiffCents: 0,
+      party: {
+        key: 'file:2',
+        source: 'file' as const,
+        rowNumber: 2,
+        transactionId: null,
+        dueDate: '2024-02-01',
+        purchaseDate: '2024-02-01',
+        description: 'Compra A',
+        amountCents: -2000,
+        paymentMethod: '',
+        transfer: null,
+      },
+      bill: { id: 7, description: 'Assinatura A', amountCents: 1500, dueDate: '2024-02-01', categoryName: 'Serviços', paidCents: 0 },
+      groupBills: [
+        { id: 7, description: 'Assinatura A', amountCents: 1500, dueDate: '2024-02-01', categoryName: 'Serviços', paidCents: 0 },
+        { id: 8, description: 'Assinatura B', amountCents: 500, dueDate: '2024-02-01', categoryName: 'Serviços', paidCents: 0 },
+      ],
+    };
+    previewImport.mockImplementation(() => Promise.resolve(previewResponse({ billCandidates: [candidate] })));
+    await mountAndSelectFile();
+    await settle();
+    const [select] = selectsByCard('Conta de destino do lote');
+    await selectOption(select, '1');
+    await settle();
+
+    const tab = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Contas a pagar'));
+    expect(tab?.textContent).toContain('1');
+    await act(async () => tab!.click());
+    expect(container.textContent).toContain('Boleto agrupado · 2 contas');
+    expect(container.textContent).toContain('Assinatura B');
+    expect(container.textContent).toContain('Soma de 2 contas igual ao valor (R$ 20,00)');
+    const decisionButton = (label: string) =>
+      [...container.querySelectorAll('button[aria-pressed]')].find((button) => button.textContent === label) as HTMLButtonElement;
+    expect(decisionButton('Pendente').getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('conta com pagamento parcial mostra o que já foi pago e o que falta', async () => {
     const candidate = {
       key: 'file:2:bill:7',
@@ -339,6 +383,7 @@ describe('TransactionsImportPage - laco de previa', () => {
         transfer: null,
       },
       bill: { id: 7, description: 'Assinatura A', amountCents: 2500, dueDate: '2024-02-01', categoryName: 'Serviços', paidCents: 500 },
+      groupBills: [],
     };
     previewImport.mockImplementation(() => Promise.resolve(previewResponse({ billCandidates: [candidate] })));
     await mountAndSelectFile();
@@ -375,6 +420,7 @@ describe('TransactionsImportPage - laco de previa', () => {
         transfer: null,
       },
       bill: { id: 7, description: 'Assinatura A', amountCents: 2000, dueDate: '2024-02-01', categoryName: 'Serviços', paidCents: 0 },
+      groupBills: [],
     };
     previewImport.mockImplementation(() => Promise.resolve(previewResponse({ billCandidates: [candidate] })));
     importFile.mockResolvedValue({
@@ -431,6 +477,7 @@ describe('TransactionsImportPage - laco de previa', () => {
       amountDiffCents: 0,
       party: fileParty(index + 2, -1000 - index),
       bill: { id: index + 1, description: `Conta ${index + 1}`, amountCents: 1000 + index, dueDate: '2024-02-01', categoryName: 'X', paidCents: 0 },
+      groupBills: [],
     }));
     const transfers = Array.from({ length: 60 }, (_, index) => ({
       key: `t${index}`,

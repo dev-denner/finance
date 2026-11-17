@@ -32,8 +32,10 @@ export interface OpenBillForMatch {
   paidCents: number;
 }
 
+type CandidateBill = Pick<OpenBillForMatch, 'id' | 'description' | 'amountCents' | 'dueDate' | 'categoryName' | 'paidCents'>;
+
 export interface BillPaymentCandidate {
-  /** `${party.key}:bill:${bill.id}` — chave das decisões. */
+  /** `${party.key}:bill:${bill.id}`, ou `${party.key}:bills:${ids}` no boleto agrupado — chave das decisões. */
   key: string;
   confidence: 'high' | 'possible';
   ambiguous: boolean;
@@ -42,7 +44,52 @@ export interface BillPaymentCandidate {
   /** |valor do lançamento| − valor que falta pagar (o previsto, sem parcial). */
   amountDiffCents: number;
   party: TransferParty;
-  bill: Pick<OpenBillForMatch, 'id' | 'description' | 'amountCents' | 'dueDate' | 'categoryName' | 'paidCents'>;
+  /** A conta (no boleto agrupado, a primeira do grupo). */
+  bill: CandidateBill;
+  /** Boleto agrupado: todas as contas que a linha paga juntas (2 a 4); vazio no par comum. */
+  groupBills: CandidateBill[];
+}
+
+/** Contas pagas pela sugestão: o grupo inteiro ou só a conta. */
+export function candidateBillIds(candidate: Pick<BillPaymentCandidate, 'bill' | 'groupBills'>): number[] {
+  return candidate.groupBills.length > 0 ? candidate.groupBills.map((bill) => bill.id) : [candidate.bill.id];
+}
+
+/** Tamanho máximo de um boleto agrupado sugerido e quantas contas próximas entram na busca. */
+const MAX_GROUP_SIZE = 4;
+const MAX_GROUP_POOL = 20;
+const MAX_GROUPS_PER_ROW = 5;
+
+function toCandidateBill(bill: OpenBillForMatch): CandidateBill {
+  return {
+    id: bill.id,
+    description: bill.description,
+    amountCents: bill.amountCents,
+    dueDate: bill.dueDate,
+    categoryName: bill.categoryName,
+    paidCents: bill.paidCents,
+  };
+}
+
+/** Combinações de 2 a MAX_GROUP_SIZE contas cujo restante soma exatamente `target`. */
+function groupsSumming(pool: { bill: OpenBillForMatch; remaining: number }[], target: number): OpenBillForMatch[][] {
+  const result: OpenBillForMatch[][] = [];
+  const chosen: { bill: OpenBillForMatch; remaining: number }[] = [];
+  const walk = (start: number, sum: number) => {
+    if (result.length >= MAX_GROUPS_PER_ROW + 1) return;
+    if (sum === target && chosen.length >= 2) {
+      result.push(chosen.map((item) => item.bill));
+      return;
+    }
+    if (chosen.length === MAX_GROUP_SIZE || sum >= target) return;
+    for (let index = start; index < pool.length; index += 1) {
+      chosen.push(pool[index]);
+      walk(index + 1, sum + pool[index].remaining);
+      chosen.pop();
+    }
+  };
+  walk(0, 0);
+  return result;
 }
 
 /** Palavras comuns em extratos que não identificam o credor. */
@@ -137,14 +184,52 @@ export function detectBillPaymentCandidates(
         dayDistance,
         amountDiffCents: paid - target,
         party,
-        bill: {
-          id: bill.id,
-          description: bill.description,
-          amountCents: bill.amountCents,
-          dueDate: bill.dueDate,
-          categoryName: bill.categoryName,
-          paidCents: bill.paidCents,
-        },
+        bill: toCandidateBill(bill),
+        groupBills: [],
+      });
+    }
+  }
+
+  // Boleto agrupado: só para saídas sem nenhuma conta que case sozinha. Sempre
+  // "possível" (nunca vem confirmado): várias somas podem coincidir por acaso.
+  const singlesByParty = new Set(candidates.map((candidate) => candidate.party.key));
+  for (const party of parties) {
+    if (party.amountCents >= 0 || singlesByParty.has(party.key)) continue;
+    const paid = -party.amountCents;
+    const pool = bills
+      .map((bill) => ({
+        bill,
+        remaining: bill.amountCents - bill.paidCents,
+        distance: Math.min(
+          Math.abs(toDay(party.dueDate) - toDay(bill.dueDate)),
+          Math.abs(toDay(party.purchaseDate) - toDay(bill.dueDate)),
+        ),
+      }))
+      .filter((item) => item.remaining > 0 && item.remaining < paid && item.distance <= toleranceDays)
+      .sort((a, b) => a.distance - b.distance || a.bill.id - b.bill.id)
+      .slice(0, MAX_GROUP_POOL);
+    const groups = groupsSumming(pool, paid);
+    for (const group of groups.slice(0, MAX_GROUPS_PER_ROW)) {
+      const ordered = [...group].sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.id - b.id);
+      const dayDistance = Math.max(
+        ...ordered.map((bill) =>
+          Math.min(Math.abs(toDay(party.dueDate) - toDay(bill.dueDate)), Math.abs(toDay(party.purchaseDate) - toDay(bill.dueDate))),
+        ),
+      );
+      candidates.push({
+        key: `${party.key}:bills:${ordered.map((bill) => bill.id).join('+')}`,
+        confidence: 'possible',
+        ambiguous: false,
+        reasons: [
+          `Soma de ${ordered.length} contas igual ao valor (${formatCents(paid)})`,
+          dayDistance === 0 ? 'Mesmo dia dos vencimentos' : `Até ${dayDistance} dia(s) dos vencimentos`,
+          'Boleto agrupado: um lançamento paga todas',
+        ],
+        dayDistance,
+        amountDiffCents: 0,
+        party,
+        bill: toCandidateBill(ordered[0]),
+        groupBills: ordered.map(toCandidateBill),
       });
     }
   }
@@ -154,10 +239,10 @@ export function detectBillPaymentCandidates(
   const perBill = new Map<number, number>();
   for (const candidate of candidates) {
     perParty.set(candidate.party.key, (perParty.get(candidate.party.key) ?? 0) + 1);
-    perBill.set(candidate.bill.id, (perBill.get(candidate.bill.id) ?? 0) + 1);
+    for (const id of candidateBillIds(candidate)) perBill.set(id, (perBill.get(id) ?? 0) + 1);
   }
   for (const candidate of candidates) {
-    if ((perParty.get(candidate.party.key) ?? 0) > 1 || (perBill.get(candidate.bill.id) ?? 0) > 1) {
+    if ((perParty.get(candidate.party.key) ?? 0) > 1 || candidateBillIds(candidate).some((id) => (perBill.get(id) ?? 0) > 1)) {
       candidate.ambiguous = true;
       candidate.reasons.push('Há mais de um par possível; escolha manualmente');
     }
@@ -237,11 +322,12 @@ export function confirmedBillCandidates(
     if (parties.has(candidate.party.key)) {
       conflicts.push(`A linha ${candidate.party.rowNumber} foi confirmada para mais de uma conta.`);
     }
-    if (bills.has(candidate.bill.id)) {
-      conflicts.push(`A conta "${candidate.bill.description}" foi confirmada para mais de uma linha.`);
+    const members = candidate.groupBills.length > 0 ? candidate.groupBills : [candidate.bill];
+    for (const bill of members) {
+      if (bills.has(bill.id)) conflicts.push(`A conta "${bill.description}" foi confirmada para mais de uma linha.`);
+      bills.add(bill.id);
     }
     parties.add(candidate.party.key);
-    bills.add(candidate.bill.id);
   }
   return { confirmed, conflicts };
 }

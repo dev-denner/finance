@@ -150,4 +150,21 @@ describe('importação × contas a pagar (AC14–AC16)', () => {
     expect(paid).toMatchObject({ state: 'paid', paidAt: '2026-03-11', paidCents: 100000, partialPaidCents: 0 });
     expect(paid.payments.map((payment) => [payment.amountCents, payment.origin])).toEqual([[14375, 'manual'], [85625, 'import_match']]);
   });
+
+  it('boleto agrupado: a linha que soma duas contas é sugerida e, confirmada, paga as duas com o mesmo lançamento', () => {
+    // 856,25 (linha 3 do extrato) = 700,00 + 156,25.
+    const condo = openBill('Condomínio', 70000, '2026-03-10');
+    const fund = openBill('Fundo de obras', 15625, '2026-03-12');
+    const preview = previewImport(handle.db, csv(), 'extrato.csv');
+    const group = preview.billCandidates.find((candidate) => candidate.groupBills.length > 0);
+    expect(group).toMatchObject({ confidence: 'possible', party: { rowNumber: 3 } });
+    expect(group?.groupBills.map((bill) => bill.id)).toEqual([condo.id, fund.id]);
+
+    const summary = importWorkbook(handle.db, csv(), 'extrato.csv', { mapping: preview.mapping, billDecisions: { [group!.key]: 'confirm' } });
+    expect(summary).toMatchObject({ linkedBillPayments: 2, skippedBillPayments: [] });
+    const [a, b] = [getBill(handle.db, condo.id), getBill(handle.db, fund.id)];
+    expect([a.state, b.state]).toEqual(['paid', 'paid']);
+    expect(a.payments[0]).toMatchObject({ origin: 'import_match', groupSize: 2, transactionDescription: 'BOLETO CONDOMINIO' });
+    expect(a.payments[0].transactionId).toBe(b.payments[0].transactionId);
+  });
 });

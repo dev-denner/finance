@@ -35,6 +35,7 @@ import {
   type BillDecision,
   type BillPaymentCandidate,
 } from './bill-payment-detection';
+import { payBillsWithOneTransaction } from './bills/bulk';
 import { payBill } from './bills/payments';
 
 export const IMPORT_FIELDS = [
@@ -1623,12 +1624,18 @@ export function importWorkbook(
       }
       try {
         // Transação aninhada (savepoint): uma recusa desfaz só este vínculo.
-        payBill(tx as unknown as AppDatabase, candidate.bill.id, {
-          mode: 'link',
-          transactionId,
-          origin: 'import_match',
-        });
-        linkedBillPayments += 1;
+        if (candidate.groupBills.length > 0) {
+          const ids = candidate.groupBills.map((bill) => bill.id);
+          payBillsWithOneTransaction(tx as unknown as AppDatabase, ids, { mode: 'link', transactionId, origin: 'import_match' });
+          linkedBillPayments += ids.length;
+        } else {
+          payBill(tx as unknown as AppDatabase, candidate.bill.id, {
+            mode: 'link',
+            transactionId,
+            origin: 'import_match',
+          });
+          linkedBillPayments += 1;
+        }
       } catch (error) {
         if (!(error instanceof HttpError)) throw error;
         skip(error.message);

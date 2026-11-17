@@ -9,6 +9,7 @@ import {
   previewIdentityKey,
   resolveIncludedDuplicateRows,
   applyBillDecision,
+  candidateBillIds,
   billDecisionsForImport,
   defaultBillDecisions,
   mergeBillDecisions,
@@ -296,6 +297,7 @@ describe('decisões de pagamento de contas na importação', () => {
     amountDiffCents: 0,
     party: party(rowNumber),
     bill: { id: billId, description: `Conta ${billId}`, amountCents: 14287, dueDate: '2026-03-10', categoryName: 'Contas', paidCents: 0 },
+    groupBills: [],
     ...overrides,
   });
 
@@ -328,5 +330,18 @@ describe('decisões de pagamento de contas na importação', () => {
     expect(billDecisionsForImport(candidates, { 'file:2:bill:1': 'confirm', 'file:3:bill:2': 'confirm' }, new Set([3]))).toEqual({
       'file:2:bill:1': 'confirm',
     });
+  });
+
+  it('boleto agrupado: confirmar o grupo devolve a pendente o par que usa uma das contas dele', () => {
+    const member = (id: number) => ({ id, description: `Conta ${id}`, amountCents: 1000, dueDate: '2026-03-10', categoryName: 'Contas', paidCents: 0 });
+    const single = candidate(3, 1);
+    const group = candidate(2, 1, { key: 'file:2:bills:1+5', confidence: 'possible', groupBills: [member(1), member(5)] });
+    const unrelated = candidate(4, 9);
+    const all = [single, group, unrelated];
+    const start = { [single.key]: 'confirm' as const, [group.key]: 'pending' as const, [unrelated.key]: 'confirm' as const };
+    expect(candidateBillIds(group)).toEqual([1, 5]);
+    expect(applyBillDecision(all, start, group, 'confirm')).toEqual({ [single.key]: 'pending', [group.key]: 'confirm', [unrelated.key]: 'confirm' });
+    // Grupo nunca vem confirmado sozinho.
+    expect(defaultBillDecisions([group])[group.key]).toBe('pending');
   });
 });
