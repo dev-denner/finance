@@ -144,6 +144,13 @@ const notesSchema = z.string().max(1000).nullable().optional();
 
 export const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
 
+export const billAttachmentParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  attachmentId: z.coerce.number().int().positive(),
+});
+
+export const barcodeParseSchema = z.object({ barcode: z.string().max(80) }).strict();
+
 export const billPaymentParamSchema = z.object({
   id: z.coerce.number().int().positive(),
   paymentId: z.coerce.number().int().positive(),
@@ -172,6 +179,7 @@ const billFields = {
   paymentMethodId: z.number().int().positive().nullable().optional(),
   notes: notesSchema,
   scheduledFor: isoDateSchema.nullable().optional(),
+  barcode: z.string().max(80).nullable().optional(),
 };
 
 export const billCreateSchema = z

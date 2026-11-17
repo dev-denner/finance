@@ -1,7 +1,9 @@
 import type {
   AccountCashFlowResult,
   Bill,
+  BarcodeParseResult,
   BillAgenda,
+  BillAttachment,
   BillDecision,
   BillForecast,
   BillImportMapping,
@@ -402,6 +404,21 @@ export const api = {
     return request<BillImportSummary>('/bills/import', { method: 'POST', body: form });
   },
 
+  parseBarcode: (barcode: string) =>
+    request<BarcodeParseResult>('/bills/barcode/parse', { method: 'POST', body: JSON.stringify({ barcode }) }),
+
+  uploadBillAttachment: (id: number, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ attachment: BillAttachment }>(`/bills/${id}/attachments`, { method: 'POST', body: form });
+  },
+
+  deleteBillAttachment: (id: number, attachmentId: number) =>
+    request<{ ok: true }>(`/bills/${id}/attachments/${attachmentId}`, { method: 'DELETE' }),
+
+  /** Endereço para abrir o anexo no navegador (o servidor responde com o tipo do arquivo). */
+  billAttachmentUrl: (id: number, attachmentId: number) => `/api/bills/${id}/attachments/${attachmentId}`,
+
   unpayBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/unpay`, { method: 'POST' }),
 
   skipBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/skip`, { method: 'POST' }),
@@ -462,6 +479,7 @@ export const api = {
       paymentMethodId?: number | null;
       notes?: string | null;
       scheduledFor?: string | null;
+      barcode?: string | null;
     },
   ) => request<{ bill: Bill }>(`/bills/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
 

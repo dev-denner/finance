@@ -1,6 +1,8 @@
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../../db/client';
+import { formatBarcodeDigits } from '../../lib/barcode';
 import {
+  billAttachments,
   billPayments,
   categories,
   paymentMethods,
@@ -48,6 +50,14 @@ export interface BillPaymentDto {
   groupSize: number;
 }
 
+export interface BillAttachmentDto {
+  id: number;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
 export interface BillDto {
   id: number;
   templateId: number | null;
@@ -69,7 +79,11 @@ export interface BillDto {
   paymentMethodId: number | null;
   paymentMethodName: string | null;
   notes: string | null;
+  /** Linha digitável (só dígitos) e a mesma formatada para leitura. */
+  barcode: string | null;
+  barcodeFormatted: string | null;
   payments: BillPaymentDto[];
+  attachments: BillAttachmentDto[];
   createdAt: string;
   updatedAt: string;
 }
@@ -166,10 +180,36 @@ export function loadPayments(db: AppDatabase, billIds: number[]): Map<number, Bi
   return result;
 }
 
+/** Metadados dos anexos (sem o conteúdo), por conta. */
+export function loadAttachmentMeta(db: AppDatabase, billIds: number[]): Map<number, BillAttachmentDto[]> {
+  const result = new Map<number, BillAttachmentDto[]>();
+  if (billIds.length === 0) return result;
+  const rows = db
+    .select({
+      id: billAttachments.id,
+      billId: billAttachments.billId,
+      filename: billAttachments.filename,
+      contentType: billAttachments.contentType,
+      sizeBytes: billAttachments.sizeBytes,
+      createdAt: billAttachments.createdAt,
+    })
+    .from(billAttachments)
+    .where(inArray(billAttachments.billId, billIds))
+    .orderBy(billAttachments.id)
+    .all();
+  for (const { billId, ...attachment } of rows) {
+    const list = result.get(billId) ?? [];
+    list.push(attachment);
+    result.set(billId, list);
+  }
+  return result;
+}
+
 export function toBillDto(
   row: JoinedBillRow,
   today: string,
   payments: BillPaymentDto[] = [],
+  attachments: BillAttachmentDto[] = [],
 ): BillDto {
   const { bill } = row;
   return {
@@ -191,7 +231,10 @@ export function toBillDto(
     paymentMethodId: bill.paymentMethodId ?? null,
     paymentMethodName: row.paymentMethodName ?? null,
     notes: bill.notes ?? null,
+    barcode: bill.barcode ?? null,
+    barcodeFormatted: bill.barcode ? formatBarcodeDigits(bill.barcode) : null,
     payments,
+    attachments,
     createdAt: bill.createdAt,
     updatedAt: bill.updatedAt,
   };
@@ -199,11 +242,10 @@ export function toBillDto(
 
 /** Converte linhas já carregadas em DTOs, anexando os pagamentos em uma única consulta. */
 export function toBillDtos(db: AppDatabase, rows: JoinedBillRow[], today: string): BillDto[] {
-  const payments = loadPayments(
-    db,
-    rows.map((row) => row.bill.id),
-  );
-  return rows.map((row) => toBillDto(row, today, payments.get(row.bill.id) ?? []));
+  const ids = rows.map((row) => row.bill.id);
+  const payments = loadPayments(db, ids);
+  const attachments = loadAttachmentMeta(db, ids);
+  return rows.map((row) => toBillDto(row, today, payments.get(row.bill.id) ?? [], attachments.get(row.bill.id) ?? []));
 }
 
 export function emptySummary(): BillSummary {

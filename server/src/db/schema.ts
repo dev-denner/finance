@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { blob, check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -303,6 +303,8 @@ export const scheduledBills = sqliteTable(
       onUpdate: 'cascade',
     }),
     notes: text('notes'),
+    /** Linha digitável do boleto (47 dígitos) ou da conta de consumo (48), só dígitos. */
+    barcode: text('barcode'),
     /** 1 quando o "pago" veio da migração do status PG, sem lançamento vinculado. */
     migratedPayment: integer('migrated_payment').notNull().default(0),
     /** Conta de origem quando esta foi gerada por repetição manual (legado). */
@@ -362,6 +364,30 @@ export const billPayments = sqliteTable(
       'bill_payments_origin_check',
       sql`${table.origin} IN ('manual', 'import_match', 'migration')`,
     ),
+  ],
+);
+
+/**
+ * Anexos de uma conta a pagar (boleto em PDF, foto da conta). O arquivo fica no
+ * próprio banco para entrar no backup junto com a conta.
+ */
+export const billAttachments = sqliteTable(
+  'bill_attachments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    billId: integer('bill_id')
+      .notNull()
+      .references(() => scheduledBills.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    filename: text('filename').notNull(),
+    /** application/pdf | image/png | image/jpeg */
+    contentType: text('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    data: blob('data', { mode: 'buffer' }).notNull(),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    index('bill_attachments_bill_idx').on(table.billId),
+    check('bill_attachments_size_check', sql`${table.sizeBytes} > 0`),
   ],
 );
 

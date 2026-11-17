@@ -3,12 +3,14 @@ import type { AppDatabase } from '../../db/client';
 import { billPayments, categories, paymentMethods, scheduledBills } from '../../db/schema';
 import { parseDateValue, todayIso } from '../../lib/dates';
 import { badRequest, conflict, notFound, nowIso } from '../../lib/errors';
+import { parseBarcode } from '../../lib/barcode';
 import { parseAmountToCents } from '../../lib/money';
 import { displayName } from '../../lib/normalize';
 import {
   billSelection,
   billState,
   toBillDto,
+  loadAttachmentMeta,
   loadPayments,
   type BillDto,
   type BillRow,
@@ -25,6 +27,8 @@ export interface BillWriteInput {
   categoryId?: unknown;
   paymentMethodId?: unknown;
   notes?: unknown;
+  /** Linha digitável do boleto; null ou vazio limpa. Validada pelos dígitos verificadores. */
+  barcode?: unknown;
   /** Data de agendamento no banco; null limpa. */
   scheduledFor?: unknown;
   /**
@@ -44,7 +48,8 @@ export function getBill(db: AppDatabase, id: number, today = todayIso()): BillDt
   const row = billSelection(db).where(eq(scheduledBills.id, id)).get();
   if (!row) throw notFound('Conta a pagar não encontrada.');
   const payments = loadPayments(db, [id]).get(id) ?? [];
-  return toBillDto(row, today, payments);
+  const attachments = loadAttachmentMeta(db, [id]).get(id) ?? [];
+  return toBillDto(row, today, payments, attachments);
 }
 
 export function assertCategory(db: AppDatabase, value: unknown): number {
@@ -112,6 +117,15 @@ interface ParsedBill {
   categoryId: number;
   paymentMethodId: number | null;
   notes: string | null;
+  barcode: string | null;
+}
+
+/** Só os dígitos da linha digitável, depois de conferir os dígitos verificadores. */
+export function parseBarcodeInput(value: unknown, today = todayIso()): string | null {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const parsed = parseBarcode(value, today);
+  if (!parsed.ok) throw badRequest(parsed.error);
+  return parsed.value.digits;
 }
 
 function parseBillInput(db: AppDatabase, input: BillWriteInput, existing?: BillRow): ParsedBill {
@@ -138,8 +152,9 @@ function parseBillInput(db: AppDatabase, input: BillWriteInput, existing?: BillR
       : (existing?.paymentMethodId ?? null);
 
   const notes = input.notes !== undefined ? parseNotes(input.notes) : (existing?.notes ?? null);
+  const barcode = input.barcode !== undefined ? parseBarcodeInput(input.barcode) : (existing?.barcode ?? null);
 
-  return { description, amountCents, dueDate: dueDate.value, categoryId, paymentMethodId, notes };
+  return { description, amountCents, dueDate: dueDate.value, categoryId, paymentMethodId, notes, barcode };
 }
 
 /** Cria uma conta avulsa (sem recorrência). */

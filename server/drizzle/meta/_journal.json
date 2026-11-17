@@ -148,6 +148,13 @@
       "when": 1794892178359,
       "tag": "0020_bill_payments_grouped",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1794928831884,
+      "tag": "0021_bill_barcode_and_attachments",
+      "breakpoints": true
     }
   ]
 }
