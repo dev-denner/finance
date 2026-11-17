@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  calendarWeeks,
+  defaultCalendarDay,
   billsShortcut,
   bulkSelection,
   badgeCount,
@@ -138,6 +140,7 @@ describe('estado na URL (AC17)', () => {
       state: 'paid',
       q: 'luz',
       categoryId: 4,
+      layout: 'list',
     });
     expect(parseBillsView(new URLSearchParams('year=2025&month=13&state=xx&categoryId=-1'), TODAY)).toEqual({
       year: 2026,
@@ -145,14 +148,15 @@ describe('estado na URL (AC17)', () => {
       state: 'all',
       q: '',
       categoryId: null,
+      layout: 'list',
     });
   });
 
   it('grava só o que difere do padrão e é ida e volta', () => {
-    expect(billsViewParams({ year: 2026, month: 3, state: 'all', q: ' ', categoryId: null }, TODAY)).toEqual({});
-    const view = { year: 2025, month: 11, state: 'open' as const, q: 'condo', categoryId: 2 };
+    expect(billsViewParams({ year: 2026, month: 3, state: 'all', q: ' ', categoryId: null, layout: 'list' }, TODAY)).toEqual({});
+    const view = { year: 2025, month: 11, state: 'open' as const, q: 'condo', categoryId: 2, layout: 'calendar' as const };
     const params = billsViewParams(view, TODAY);
-    expect(params).toEqual({ year: '2025', month: '11', state: 'open', q: 'condo', categoryId: '2' });
+    expect(params).toEqual({ year: '2025', month: '11', state: 'open', q: 'condo', categoryId: '2', layout: 'calendar' });
     expect(parseBillsView(new URLSearchParams(params), TODAY)).toEqual(view);
   });
 });
@@ -321,5 +325,44 @@ describe('ações em massa e atalhos', () => {
     expect(billsShortcut({ ...base, key: 'p', target: { tagName: 'BUTTON' } as unknown as EventTarget })).toBe('pay');
     expect(billsShortcut({ ...base, key: 'p', target: { tagName: 'INPUT', type: 'checkbox' } as unknown as EventTarget })).toBe('pay');
     expect(billsShortcut({ ...base, key: 'p', target: { tagName: 'INPUT', type: 'date' } as unknown as EventTarget })).toBeNull();
+  });
+});
+
+describe('calendário do mês', () => {
+  it('monta semanas de domingo a sábado com as contas pelo vencimento', () => {
+    // Março de 2026 começa num domingo e tem 31 dias: 5 semanas.
+    const weeks = calendarWeeks(
+      2026,
+      3,
+      [
+        bill({ id: 1, dueDate: '2026-03-02', displayStatus: 'overdue', amountCents: 1000 }),
+        bill({ id: 2, dueDate: '2026-03-02', state: 'paid', displayStatus: 'paid', amountCents: 500 }),
+        bill({ id: 3, dueDate: '2026-03-05', state: 'skipped', displayStatus: 'skipped', amountCents: 700 }),
+        bill({ id: 4, dueDate: '2026-03-10', displayStatus: 'upcoming', amountCents: 3000, partialPaidCents: 1000 }),
+      ],
+      '2026-03-04',
+    );
+    expect(weeks).toHaveLength(5);
+    expect(weeks.every((week) => week.length === 7)).toBe(true);
+    expect(weeks[0][0]?.date).toBe('2026-03-01');
+    expect(weeks[4].map((cell) => cell?.day ?? null)).toEqual([29, 30, 31, null, null, null, null]);
+
+    const second = weeks[0][1];
+    expect(second).toMatchObject({ day: 2, totalCents: 1500, openCents: 1000, tone: 'danger', isToday: false });
+    expect(second?.bills.map((item) => item.id)).toEqual([1, 2]);
+    expect(weeks[0][4]).toMatchObject({ day: 5, totalCents: 0, openCents: 0, tone: 'muted' });
+    expect(weeks[1][2]).toMatchObject({ day: 10, totalCents: 3000, openCents: 2000, tone: 'neutral' });
+    expect(weeks[0][3]).toMatchObject({ day: 4, isToday: true, bills: [], tone: null });
+  });
+
+  it('começa com folga no início quando o mês não abre no domingo e escolhe o dia inicial', () => {
+    // Fevereiro de 2027 começa numa segunda e tem 28 dias.
+    const weeks = calendarWeeks(2027, 2, [bill({ id: 1, dueDate: '2027-02-15', displayStatus: 'upcoming' })], '2026-03-04');
+    expect(weeks[0][0]).toBeNull();
+    expect(weeks[0][1]?.date).toBe('2027-02-01');
+    expect(weeks.flat().filter(Boolean)).toHaveLength(28);
+    expect(defaultCalendarDay(weeks)).toBe('2027-02-15');
+    expect(defaultCalendarDay(calendarWeeks(2027, 2, [], '2026-03-04'))).toBe('2027-02-01');
+    expect(defaultCalendarDay(calendarWeeks(2026, 3, [bill({ dueDate: '2026-03-20' })], '2026-03-04'))).toBe('2026-03-04');
   });
 });
