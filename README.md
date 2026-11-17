@@ -207,7 +207,7 @@ Na tela **Contas a pagar**:
 - **Nova conta** com **Repetir** mostra as próximas datas calculadas pelo servidor antes de salvar. Editar uma conta recorrente pergunta se a alteração vale **só para esta** ou **para esta e as futuras**; mudar a repetição só é possível no segundo caso.
 - **Excluir** uma conta recorrente oferece **pular só esta** ou **excluir a recorrência** (as já pagas ficam no histórico).
 
-As rotas antigas `POST /api/bills/:id/status` e `/repeat` foram removidas. A importação de contas por planilha continua aceitando a coluna **Situação** (`AG` vira agendada no vencimento; `PG`, paga sem lançamento).
+As rotas antigas `POST /api/bills/:id/status` e `/repeat` foram removidas. A importação de contas por planilha (`POST /api/bills/import/preview` e `POST /api/bills/import`, só pela API por enquanto) continua aceitando a coluna **Situação** (`AG` vira agendada no vencimento; `PG`, paga sem lançamento). A coluna opcional **Repetição** transforma a linha em recorrência a partir do vencimento: `mensal`, `bimestral`, `trimestral`, `semestral`, `anual`, `semanal` ou `quinzenal`, com quantidade opcional (`12x`, `6 vezes`) e, nas mensais, `último dia útil` (ex.: `Mensal 12x`, `Mensal, último dia útil`). Vazio, `não` ou `avulsa` mantém a conta avulsa. Numa recorrência a Situação deve ficar vazia (o pagamento é marcado depois, na tela). A importação grava tudo ou nada e o resumo traz `createdTemplates`.
 
 Na migração `0015`, contas com situação `PG` viraram pagas na data de vencimento, sem lançamento vinculado (`migratedPayment`); `AG` virou agendada para o vencimento.
 
