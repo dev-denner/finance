@@ -8,6 +8,7 @@ import { monthlyFlow } from '../../lib/charts';
 import type { ConsolidationResponse } from '../../lib/types';
 import { CategoryBars } from './CategoryBars';
 import { ChartCard } from './ChartCard';
+import { ColumnChart } from './ColumnChart';
 import { MonthlyFlowChart } from './MonthlyFlowChart';
 
 declare global {
@@ -45,7 +46,7 @@ describe('gráficos', () => {
     expect(svg.querySelectorAll('polyline')).toHaveLength(1);
 
     const february = svg.querySelectorAll('rect[tabindex="0"]')[1];
-    expect(february.getAttribute('aria-label')).toBe('Fevereiro: entradas R$ 1.200,00, saídas R$ 1.500,00, saldo -R$ 300,00');
+    expect(february.getAttribute('aria-label')).toBe('Fevereiro de 2026: entradas R$ 1.200,00, saídas R$ 1.500,00, saldo do mês -R$ 300,00');
     await act(async () => {
       february.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     });
@@ -84,5 +85,22 @@ describe('gráficos', () => {
     expect(container.textContent).toContain('· 25%');
     const bars = container.querySelectorAll('span[aria-hidden="true"]') as NodeListOf<HTMLSpanElement>;
     expect(bars[1].style.background).toBe('var(--chart-other)');
+  });
+
+  it('colunas empilhadas: um segmento por série com valor, só o de cima arredondado, e total no tooltip', async () => {
+    const categories = [{ short: 'Jan', long: 'Janeiro de 2026' }, { short: 'Fev', long: 'Fevereiro de 2026' }];
+    const columns = [
+      { key: 'a', label: 'Mercado A', color: 'var(--chart-series-1)', values: [10_000, 0] },
+      { key: 'b', label: 'Mercado B', color: 'var(--chart-series-2)', values: [5_000, 7_000] },
+    ];
+    await act(async () => root.render(<ColumnChart label="Compras" mode="stacked" categories={categories} columns={columns} />));
+    const paths = [...container.querySelectorAll('path')].filter((path) => path.getAttribute('d'));
+    expect(paths).toHaveLength(3);
+    const target = container.querySelectorAll('rect[tabindex="0"]')[0];
+    expect(target.getAttribute('aria-label')).toBe('Janeiro de 2026: mercado a R$ 100,00, mercado b R$ 50,00');
+    await act(async () => {
+      target.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Total R$ 150,00');
   });
 });

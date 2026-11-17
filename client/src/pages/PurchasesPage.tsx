@@ -14,11 +14,14 @@ import {
 } from 'lucide-react';
 import { ApiError, api } from '../lib/api';
 import type { Lookup, Purchase, PurchaseReconciliationCandidates } from '../lib/types';
-import { categoryColorHex, formatBRL, formatDateBR, formatDateTimeBR, isoToParts, MONTHS_LONG } from '../lib/format';
+import { categoryColorHex, formatBRL, formatDateBR, formatDateTimeBR, isoToParts, MONTHS_LONG, MONTHS_SHORT } from '../lib/format';
 import { useMeta } from '../context/MetaContext';
 import { useToast } from '../context/ToastContext';
 import { Button } from '../components/ui/Button';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Page';
+import { ChartCard } from '../components/charts/ChartCard';
+import { ColumnChart } from '../components/charts/ColumnChart';
+import { lastMonths, purchasesBySupplier } from '../lib/charts';
 import { Modal } from '../components/ui/Modal';
 
 function errorText(error: unknown): string {
@@ -401,6 +404,11 @@ function PurchaseList() {
     return [...values].sort((left, right) => right - left);
   }, [purchases, year]);
 
+  // Gráfico: 12 meses até o mês escolhido (ou dezembro, com "todos os meses"), sobre todas as compras.
+  const chartEnd = useMemo(() => ({ year, month: month ?? 12 }), [year, month]);
+  const chartMonths = useMemo(() => lastMonths(chartEnd, 12), [chartEnd]);
+  const supplierSeries = useMemo(() => purchasesBySupplier(purchases, chartMonths), [purchases, chartMonths]);
+
   const filteredPurchases = useMemo(() => purchases.filter((purchase) => {
     const parts = isoToParts(purchase.issuedAt);
     if (!parts || parts.year !== year || (month !== undefined && parts.month !== month)) return false;
@@ -461,6 +469,46 @@ function PurchaseList() {
 
       {!listLoading && purchases.length > 0 && (
         <>
+          {supplierSeries.length > 0 && (
+            <div className="mb-4">
+              <ChartCard
+                title="Compras por fornecedor"
+                subtitle={`Últimos 12 meses até ${MONTHS_LONG[chartEnd.month - 1].toLowerCase()} de ${chartEnd.year}, pela data da nota; todas as compras, sem os filtros abaixo.`}
+                legend={supplierSeries.map((series) => ({ label: series.label, color: series.color, shape: 'box' as const }))}
+                table={
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className="text-left text-ink-500 dark:text-ink-400">
+                          <th className="py-1 font-medium">Mês</th>
+                          {supplierSeries.map((series) => (
+                            <th key={series.key} className="py-1 text-right font-medium">{series.label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="tabular-nums">
+                        {chartMonths.map((item, index) => (
+                          <tr key={`${item.year}-${item.month}`} className="border-t border-ink-100 dark:border-ink-800">
+                            <td className="whitespace-nowrap py-1">{MONTHS_SHORT[item.month - 1]}/{item.year}</td>
+                            {supplierSeries.map((series) => (
+                              <td key={series.key} className="py-1 text-right">{formatBRL(series.values[index])}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                }
+              >
+                <ColumnChart
+                  label="Compras por fornecedor nos últimos 12 meses"
+                  mode="stacked"
+                  categories={chartMonths.map((item) => ({ short: MONTHS_SHORT[item.month - 1], long: `${MONTHS_LONG[item.month - 1]} de ${item.year}` }))}
+                  columns={supplierSeries}
+                />
+              </ChartCard>
+            </div>
+          )}
           <section className="mb-4 grid gap-3 sm:grid-cols-3" aria-label="Resumo das compras filtradas">
             <div className="card px-4 py-3"><p className="text-xs text-ink-400">Compras no período</p><p className="mt-1 text-lg font-semibold">{filteredPurchases.length}</p></div>
             <div className="card px-4 py-3"><p className="text-xs text-ink-400">Total das compras</p><p className="num mt-1 text-lg font-semibold">{formatBRL(totalCents)}</p></div>

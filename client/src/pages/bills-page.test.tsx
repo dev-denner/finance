@@ -280,7 +280,7 @@ describe('tela de contas a pagar', () => {
       { year: 2026, month: 5, from: '2026-05-01', to: '2026-05-31', summary: forecastSummary(0, 0) },
     ]);
 
-    expect(apiMock.getBillForecast).toHaveBeenCalledWith(3);
+    expect(apiMock.getBillForecast).toHaveBeenCalledWith(3, 9);
     const cards = [...document.querySelectorAll('#bills-forecast-title ~ div button')] as HTMLButtonElement[];
     expect(cards.map((card) => card.textContent?.split('R$')[0])).toEqual(['Março de 2026', 'Abril de 2026', 'Maio de 2026']);
     expect(cards[0]!.getAttribute('aria-pressed')).toBe('true');

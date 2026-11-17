@@ -88,3 +88,84 @@ export function topCategories(categories: ConsolidationResponse['categories'], l
   }
   return items;
 }
+
+export interface ColumnSeriesData {
+  key: string;
+  label: string;
+  color: string;
+  values: number[];
+}
+
+export interface MonthColumn {
+  year: number;
+  month: number;
+}
+
+/** Previsto × pago por mês das contas a pagar (o "pago" inclui os parciais). */
+export function billsPaidVsPlanned(
+  forecast: { months: { year: number; month: number; summary: { totalCents: number; paidCents: number } }[] } | null,
+): { months: MonthColumn[]; series: ColumnSeriesData[] } {
+  const months = forecast?.months ?? [];
+  return {
+    months: months.map(({ year, month }) => ({ year, month })),
+    series: [
+      { key: 'planned', label: 'Previsto', color: 'var(--chart-series-1)', values: months.map((item) => item.summary.totalCents) },
+      { key: 'paid', label: 'Pago', color: 'var(--chart-series-3)', values: months.map((item) => item.summary.paidCents) },
+    ],
+  };
+}
+
+/** Os `count` meses que terminam em `end` (inclusive), do mais antigo ao mais recente. */
+export function lastMonths(end: MonthColumn, count: number): MonthColumn[] {
+  return Array.from({ length: count }, (_, index) => {
+    const total = end.year * 12 + (end.month - 1) - (count - 1 - index);
+    return { year: Math.floor(total / 12), month: (total % 12) + 1 };
+  });
+}
+
+const SUPPLIER_COLORS = ['var(--chart-series-1)', 'var(--chart-series-2)', 'var(--chart-series-3)', 'var(--chart-series-4)', 'var(--chart-series-5)'];
+
+/**
+ * Gasto em compras por mês, empilhado pelos maiores fornecedores da janela
+ * (pelo CNPJ, ou pelo nome sem CNPJ) e "Outros". A cor segue o fornecedor
+ * pela ordem do total, nunca pela posição na pilha de um mês.
+ */
+export function purchasesBySupplier(
+  purchases: { supplierName: string; supplierCnpj: string; issuedAt: string; totalCents: number }[],
+  months: MonthColumn[],
+  top = 5,
+): ColumnSeriesData[] {
+  const index = new Map(months.map((month, position) => [`${month.year}-${String(month.month).padStart(2, '0')}`, position]));
+  const suppliers = new Map<string, { label: string; latest: string; total: number; values: number[] }>();
+  for (const purchase of purchases) {
+    const position = index.get(purchase.issuedAt.slice(0, 7));
+    if (position === undefined) continue;
+    const key = purchase.supplierCnpj.replace(/\D/g, '') || purchase.supplierName.trim().toLowerCase();
+    const entry = suppliers.get(key) ?? { label: purchase.supplierName, latest: '', total: 0, values: months.map(() => 0) };
+    if (purchase.issuedAt > entry.latest) {
+      entry.latest = purchase.issuedAt;
+      entry.label = purchase.supplierName;
+    }
+    entry.total += purchase.totalCents;
+    entry.values[position] += purchase.totalCents;
+    suppliers.set(key, entry);
+  }
+  const ranked = [...suppliers.entries()].sort((a, b) => b[1].total - a[1].total || a[1].label.localeCompare(b[1].label));
+  const shown = ranked.length > top ? ranked.slice(0, top) : ranked;
+  const series: ColumnSeriesData[] = shown.map(([key, entry], position) => ({
+    key,
+    label: entry.label,
+    color: SUPPLIER_COLORS[position],
+    values: entry.values,
+  }));
+  const rest = ranked.slice(shown.length);
+  if (rest.length > 0) {
+    series.push({
+      key: 'other',
+      label: `Outros (${rest.length})`,
+      color: 'var(--chart-other)',
+      values: months.map((_, position) => rest.reduce((sum, [, entry]) => sum + entry.values[position], 0)),
+    });
+  }
+  return series;
+}
