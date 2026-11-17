@@ -1,0 +1,1 @@
+ALTER TABLE `bill_templates` ADD `last_business_day` integer DEFAULT 0 NOT NULL;

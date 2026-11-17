@@ -172,7 +172,7 @@ npm.cmd start
 
 O módulo é uma **agenda de pagamentos**: registra o que vence, o que foi agendado no banco e o que foi pago. Ligar um pagamento a um lançamento é opcional.
 
-- **Conta avulsa** vale para uma data. **Recorrência** (`bill_templates`) gera ocorrências mensais, semanais ou anuais a partir de uma data inicial, terminando por data, por quantidade ("repetir 6 vezes") ou no que acabar primeiro. Sem término, as ocorrências são materializadas até 12 meses à frente e o horizonte avança sozinho.
+- **Conta avulsa** vale para uma data. **Recorrência** (`bill_templates`) gera ocorrências mensais, semanais ou anuais a partir de uma data inicial, terminando por data, por quantidade ("repetir 6 vezes") ou no que acabar primeiro. Sem término, as ocorrências são materializadas até 12 meses à frente e o horizonte avança sozinho. A recorrência mensal pode vencer no **último dia útil** do mês (`lastBusinessDay`): dia útil bancário, sem fins de semana nem feriados nacionais (inclusive Carnaval, Sexta-feira Santa e Corpus Christi, sem expediente bancário); feriados estaduais e municipais não são considerados.
 - O estado gravado é só **aberta**, **paga** ou **pulada**. **Atrasada**, **vence hoje**, **agendada** e **futura** são calculados na leitura a partir das datas.
 - **Pagar** tem três modos: só marcar como paga; criar o lançamento de saída; ou vincular um lançamento já existente (ex.: importado do extrato). As regras do vínculo estão em **Regras de negócio**.
 - **Pagamento parcial** (`partial: true`): registra o valor e mantém a conta em aberto até a soma dos pagamentos alcançar o valor previsto. Sem a opção, o pagamento quita a conta com qualquer valor (contas de valor variável) e soma os parciais anteriores.
@@ -554,7 +554,7 @@ Tabelas:
 - `transactions`: lançamentos com FKs para categoria, pagamento e lote de importação. A coluna `transfer` preserva a marcação original do arquivo.
 - `import_batches`: histórico das importações.
 - `transfers`: vínculo entre uma saída e uma entrada (`outgoing_transaction_id`, `incoming_transaction_id`), com confiança e origem. Índices únicos e gatilhos impedem que um lançamento participe de duas transferências ou que o par tenha contas/valores inválidos.
-- `bill_templates`: regra de recorrência de uma conta a pagar (frequência, intervalo, dia, início, término por data ou por quantidade, conta padrão). Gera ocorrências até 12 meses à frente; nunca cria lançamento.
+- `bill_templates`: regra de recorrência de uma conta a pagar (frequência, intervalo, dia ou `last_business_day` (migração 0019), início, término por data ou por quantidade, conta padrão). Gera ocorrências até 12 meses à frente; nunca cria lançamento.
 - `scheduled_bills`: ocorrências de contas a pagar (avulsas ou geradas por `bill_templates`, com `template_id` + `sequence`). Grava só `state` (`open`, `paid`, `skipped`), `scheduled_for` (agendamento no banco), `paid_at` e `paid_cents`; atrasada/hoje/próxima são derivados na leitura. Contas pagas antes da migração 0015 ficam com `migrated_payment = 1` (sem lançamento).
 - `bill_payments`: cada pagamento de uma ocorrência, com valor e data. `transaction_id` (único quando preenchido) aponta o lançamento que pagou; é nulo no pagamento "externo", sem lançamento. A soma dos pagamentos decide se uma conta com pagamento parcial já está quitada.
 - `bill_reminder_batches`: um registro por e-mail de lembrete, com chave única `(milestone, send_date)` — no máximo um e-mail por marco e dia.

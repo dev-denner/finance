@@ -700,6 +700,8 @@ export interface BillRecurrence {
   dayOfMonth: number | null;
   weekday: number | null;
   monthOfYear: number | null;
+  /** Mensal no último dia útil bancário (fins de semana e feriados nacionais fora). */
+  lastBusinessDay?: boolean;
 }
 
 export interface BillTemplate {
@@ -735,6 +737,7 @@ export interface BillTemplateInput {
     dayOfMonth?: number | null;
     weekday?: number | null;
     monthOfYear?: number | null;
+    lastBusinessDay?: boolean;
   };
   startDate: string;
   endDate?: string | null;
