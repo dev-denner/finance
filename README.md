@@ -411,7 +411,9 @@ suporte desta etapa.
 
 ## Importação
 
-Formatos aceitos: `.csv`, `.txt`, `.xls`, `.xlsx` e `.xlsm` (primeira planilha do arquivo, até 20.000 linhas e 25 MB).
+Formatos aceitos: `.csv`, `.txt`, `.xls`, `.xlsx` e `.xlsm` (primeira planilha do arquivo, até 20.000 linhas e 25 MB) e o extrato **OFX** do banco (`.ofx`/`.qfx`, versões 1.x em SGML e 2.x em XML, conta corrente ou cartão).
+
+No OFX, cada lançamento vira uma linha com a data do extrato (como data da compra e vencimento), a descrição (nome e memorando) e o valor com o sinal do banco; as colunas são reconhecidas sozinhas e a conta vem da **conta de destino do lote**. A categoria fica para a revisão (com as sugestões de sempre), e reimportar o mesmo extrato acusa as duplicadas. O leitor é próprio, sem biblioteca.
 
 1. Em **Importações**, escolha **Importar movimentações** e arraste o arquivo ou clique para selecionar.
 2. Confira o mapeamento das colunas. Obrigatórias: **Compra** (ou **Lançamento**) e **Valor**. **Data Compra** e **Vencimento** são opcionais, mas a linha precisa de pelo menos uma data válida.

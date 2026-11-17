@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { badRequest } from '../../lib/errors';
 import { suggestMapping } from './mapping';
 import { type CellMeta, MAX_ROWS, type ParsedWorkbook, type SheetRow } from './types';
+import { isOfx, ofxToWorkbook } from './ofx';
 
 export function decodeCsv(buffer: Buffer): string {
   if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
@@ -45,6 +46,8 @@ export function cellText(value: unknown): string {
 }
 
 export function readWorkbook(buffer: Buffer, filename: string): ParsedWorkbook {
+  // Extrato OFX: parser próprio, devolvido no mesmo formato de planilha.
+  if (isOfx(buffer, filename)) return ofxToWorkbook(buffer, filename);
   const ext = path.extname(filename).toLowerCase();
   let workbook: XLSX.WorkBook;
 
@@ -56,7 +59,7 @@ export function readWorkbook(buffer: Buffer, filename: string): ParsedWorkbook {
     } else if (ext === '.xlsx' || ext === '.xls' || ext === '.xlsm' || ext === '') {
       workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false });
     } else {
-      throw badRequest('Formato não suportado. Envie um arquivo CSV, XLS ou XLSX.');
+      throw badRequest('Formato não suportado. Envie um arquivo CSV, XLS, XLSX ou OFX.');
     }
   } catch (error) {
     if (error instanceof Error && 'statusCode' in error) throw error;

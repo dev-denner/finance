@@ -11,6 +11,7 @@
  *  - preview.ts     prévia (nada é gravado)
  *  - commit.ts      gravação do lote e histórico
  *  - templates.ts   modelos de mapeamento salvos
+ *  - ofx.ts         extrato OFX (parser próprio) convertido em planilha
  */
 export { IMPORT_FIELDS, REQUIRED_FIELDS, FIELD_LABELS, DEFAULT_TRANSFER_TOLERANCE_DAYS } from './import/types';
 export type { ImportField, ColumnMapping, TransferDecision, CellMeta, SheetRow, ParsedWorkbook, PurchaseDateSource, ParsedImportValues, FieldIssue, RowSuggestion, DuplicateCounterpart, DuplicateInfo, PreviewRow, ImportPreview, ImportOverrides, CategoryDecisionAction, CategoryDecision, CategoryDecisions, ImportOptions, ImportSummary, PreviewOptions } from './import/types';
@@ -23,3 +24,5 @@ export { previewImport } from './import/preview';
 export { importWorkbook, listImportBatches } from './import/commit';
 export { listMappingTemplates, saveMappingTemplate, deleteMappingTemplate } from './import/templates';
 export type { ImportMappingTemplate } from './import/templates';
+export { isOfx, parseOfx, ofxToWorkbook } from './import/ofx';
+export type { OfxStatement, OfxTransaction } from './import/ofx';

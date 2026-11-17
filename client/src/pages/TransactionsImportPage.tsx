@@ -1453,8 +1453,8 @@ export function TransactionsImportPage() {
       showToast('Arquivo muito grande. O limite é 25 MB.', 'error');
       return;
     }
-    if (!/\.(csv|xls|xlsx|xlsm)$/i.test(selectedFile.name)) {
-      showToast('Formato não suportado. Envie CSV, XLS ou XLSX.', 'error');
+    if (!/\.(csv|xls|xlsx|xlsm|ofx|qfx)$/i.test(selectedFile.name)) {
+      showToast('Formato não suportado. Envie CSV, XLS, XLSX ou OFX.', 'error');
       return;
     }
     previousPreview.current = null;
@@ -2107,7 +2107,7 @@ export function TransactionsImportPage() {
     <div>
       <PageHeader
         title="Importar movimentações"
-        subtitle="Importe sua planilha financeira em CSV ou Excel. Você revisa e corrige tudo antes de gravar."
+        subtitle="Importe sua planilha financeira em CSV ou Excel, ou o extrato OFX do banco. Você revisa e corrige tudo antes de gravar."
         actions={
           <>
             <Link to="/lancamentos" className="btn-secondary">
@@ -2125,7 +2125,7 @@ export function TransactionsImportPage() {
       <input
         ref={fileInput}
         type="file"
-        accept=".csv,.xls,.xlsx,.xlsm"
+        accept=".csv,.xls,.xlsx,.xlsm,.ofx,.qfx"
         className="hidden"
         onChange={(event) => {
           const selected = event.target.files?.[0];
@@ -2160,7 +2160,7 @@ export function TransactionsImportPage() {
             Arraste o arquivo aqui ou clique para selecionar
           </p>
           <p className="mt-1 text-[13px] text-ink-500 dark:text-ink-400">
-            CSV, XLS ou XLSX · até 25 MB · a planilha original não é alterada
+            CSV, XLS, XLSX ou OFX do banco · até 25 MB · o arquivo original não é alterado
           </p>
           <div className="mt-5 grid max-w-xl gap-2 text-left text-[11px] text-ink-400 sm:grid-cols-2">
             <p className="rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800/50">
