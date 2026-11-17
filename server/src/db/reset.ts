@@ -24,6 +24,7 @@ export const DATA_RESET_TABLES = [
   'purchase_settlements',
   'payment_balance_adjustments',
   'purchase_items',
+  'purchase_payments',
   'purchases',
   'bill_payments',
   'transfer_rejections',

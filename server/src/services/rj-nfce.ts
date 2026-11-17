@@ -2,7 +2,7 @@ import type { Page } from 'playwright-core';
 import { badRequest } from '../lib/errors';
 import type { DomDocument, DomTableRow } from '../lib/dom-lite';
 import { classifyNfcePortalStatus, MAX_NFCE_NAVIGATION_MS, withNfceBrowser, type BrowserRequest } from './nfce-browser';
-import type { PurchaseInput } from './purchase-input';
+import { itemCodeFrom, paymentsFromRows, type PurchaseInput } from './purchase-input';
 export type { PurchaseInput, PurchaseItemInput } from './purchase-input';
 
 const ALLOWED_HOST = 'consultadfe.fazenda.rj.gov.br';
@@ -20,8 +20,12 @@ export interface RjNfceDomSnapshot {
   discountText: string | null;
   totalText: string;
   paymentMethod: string | null;
+  /** Linhas após "Forma de pagamento": rótulo da forma e valor pago. */
+  paymentRows?: { label: string; amountText: string }[];
   items: {
     description: string;
+    /** Texto "(Código: X)" quando o portal o separa da descrição. */
+    codeText?: string;
     quantityText: string;
     unitText: string;
     unitPriceText: string;
@@ -142,6 +146,7 @@ export function parseRjNfceSnapshot(snapshot: RjNfceDomSnapshot): PurchaseInput 
     unitPriceCents: moneyToCents(item.unitPriceText, 'preço unitário'),
     discountCents: item.discountText ? moneyToCents(item.discountText, 'desconto') : null,
     totalCents: moneyToCents(item.totalText, 'total do item'),
+    code: itemCodeFrom(item.codeText ?? '') ?? itemCodeFrom(item.description),
   }));
   if (items.some((item) => !item.description || !item.unit)) {
     throw badRequest('Um item da NFC-e está sem descrição ou unidade.');
@@ -173,6 +178,7 @@ export function parseRjNfceSnapshot(snapshot: RjNfceDomSnapshot): PurchaseInput 
     invoiceDiscountCents,
     paymentMethod: snapshot.paymentMethod ? textValue(snapshot.paymentMethod).slice(0, 100) : null,
     items,
+    payments: paymentsFromRows(snapshot.paymentRows ?? []),
   };
 }
 
@@ -196,6 +202,12 @@ export function extractRjNfceSnapshotFromDocument(doc: DomDocument): RjNfceDomSn
   const paymentHeader = doc.querySelector('#linhaForma');
   const paymentRow = paymentHeader?.nextElementSibling;
   const paymentMethod = paymentRow?.querySelector('.txtTit, .tx')?.textContent?.trim() ?? null;
+  const paymentRows: { label: string; amountText: string }[] = [];
+  for (let node = paymentRow ?? null; node && paymentRows.length < 20; node = node.nextElementSibling) {
+    const label = node.querySelector('.tx, .txtTit')?.textContent?.replace(/\s+/g, ' ').trim();
+    if (!label) break;
+    paymentRows.push({ label, amountText: (node.querySelector('.totalNumb') ?? node).textContent?.replace(/\s+/g, ' ').trim() ?? '' });
+  }
   const rows = Array.from(doc.querySelectorAll('#tabResult tr')) as DomTableRow[];
   if (rows.length > maxItems) throw new Error('item-limit');
   const items = rows.map((row) => {
@@ -203,6 +215,7 @@ export function extractRjNfceSnapshotFromDocument(doc: DomDocument): RjNfceDomSn
     const right = row.cells[1];
     return {
       description: value('.txtTit', left),
+      codeText: value('.RCod', left),
       quantityText: value('.Rqtd', left),
       unitText: value('.RUN', left),
       unitPriceText: value('.RvlUnit', left),
@@ -221,6 +234,7 @@ export function extractRjNfceSnapshotFromDocument(doc: DomDocument): RjNfceDomSn
     totalText: payableRow?.querySelector('.totalNumb')?.textContent
       ?? grossTotalRow?.querySelector('.totalNumb')?.textContent ?? '',
     paymentMethod,
+    paymentRows,
     items,
   };
 }

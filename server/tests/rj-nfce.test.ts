@@ -57,10 +57,11 @@ describe('NFC-e do RJ — extração do DOM do portal (R6)', () => {
       paymentMethod: 'Cartão de Crédito',
     });
     expect(snapshot.generalInfo).toContain('Número: 12345 Série: 1');
+    expect(snapshot.paymentRows).toEqual([{ label: 'Cartão de Crédito', amountText: '25,00' }]);
     expect(snapshot.accessKeyText.replace(/\D/g, '')).toBe(ACCESS_KEY);
     expect(snapshot.items).toEqual([
-      { description: 'ARROZ TIPO 1 5KG', quantityText: 'Qtde.:2', unitText: 'UN: UN', unitPriceText: 'Vl. Unit.: 10,00', discountText: null, totalText: '20,00' },
-      { description: 'SABONETE NEUTRO', quantityText: 'Qtde.:1,5', unitText: 'UN: KG', unitPriceText: 'Vl. Unit.: 6,67', discountText: 'Desconto: 0,00', totalText: '10,00' },
+      { description: 'ARROZ TIPO 1 5KG', codeText: '(Código: 7890001)', quantityText: 'Qtde.:2', unitText: 'UN: UN', unitPriceText: 'Vl. Unit.: 10,00', discountText: null, totalText: '20,00' },
+      { description: 'SABONETE NEUTRO', codeText: '', quantityText: 'Qtde.:1,5', unitText: 'UN: KG', unitPriceText: 'Vl. Unit.: 6,67', discountText: 'Desconto: 0,00', totalText: '10,00' },
     ]);
   });
 
@@ -78,9 +79,10 @@ describe('NFC-e do RJ — extração do DOM do portal (R6)', () => {
       paymentMethod: 'Cartão de Crédito',
     });
     expect(purchase.items).toEqual([
-      { description: 'ARROZ TIPO 1 5KG', quantity: '2', unit: 'UN', unitPriceCents: 1000, discountCents: null, totalCents: 2000 },
-      { description: 'SABONETE NEUTRO', quantity: '1.5', unit: 'KG', unitPriceCents: 667, discountCents: 0, totalCents: 1000 },
+      { description: 'ARROZ TIPO 1 5KG', quantity: '2', unit: 'UN', unitPriceCents: 1000, discountCents: null, totalCents: 2000, code: '7890001' },
+      { description: 'SABONETE NEUTRO', quantity: '1.5', unit: 'KG', unitPriceCents: 667, discountCents: 0, totalCents: 1000, code: null },
     ]);
+    expect(purchase.payments).toEqual([{ method: 'Cartão de crédito', amountCents: 2500 }]);
   });
 
   it('a expressão serializada para o Chromium roda sem depender do módulo', () => {

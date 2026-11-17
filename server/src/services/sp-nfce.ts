@@ -2,7 +2,7 @@ import type { Page } from 'playwright-core';
 import { badRequest } from '../lib/errors';
 import type { DomDocument, DomTableRow } from '../lib/dom-lite';
 import { MAX_NFCE_NAVIGATION_MS, withNfceBrowser, type BrowserRequest } from './nfce-browser';
-import type { PurchaseInput } from './purchase-input';
+import { itemCodeFrom, paymentsFromRows, type PurchaseInput } from './purchase-input';
 
 const ALLOWED_HOST = 'www.nfce.fazenda.sp.gov.br';
 const QR_PATHS = new Set(['/qrcode', '/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx']);
@@ -12,6 +12,7 @@ interface SpItemSnapshot {
   leftText: string;
   rightText: string;
   descriptionText: string;
+  codeText?: string;
   quantityText: string;
   unitText: string;
   unitPriceText: string;
@@ -28,6 +29,8 @@ export interface SpNfceDomSnapshot {
   discountText: string | null;
   totalText: string;
   paymentMethod: string | null;
+  /** Linhas após "Forma de pagamento": rótulo da forma e valor pago. */
+  paymentRows?: { label: string; amountText: string }[];
   items: SpItemSnapshot[];
 }
 
@@ -186,6 +189,7 @@ export function parseSpNfceSnapshot(snapshot: SpNfceDomSnapshot): PurchaseInput 
       unitPriceCents: unitPriceHasCents ? moneyToCents(unitPriceText, 'preço unitário') : derivedUnitPrice ?? moneyToCents(unitPriceText, 'preço unitário'),
       discountCents,
       totalCents,
+      code: itemCodeFrom(item.codeText ?? '') ?? itemCodeFrom(item.descriptionText) ?? itemCodeFrom(item.leftText),
     };
   });
   const totalCents = moneyToCents(snapshot.totalText, 'total a pagar');
@@ -210,6 +214,7 @@ export function parseSpNfceSnapshot(snapshot: SpNfceDomSnapshot): PurchaseInput 
     invoiceDiscountCents,
     paymentMethod: safePaymentMethod(snapshot.paymentMethod),
     items,
+    payments: paymentsFromRows(snapshot.paymentRows ?? []),
   };
 }
 
@@ -246,6 +251,7 @@ export function extractSpNfceSnapshotFromDocument(doc: DomDocument): SpNfceDomSn
       leftText,
       rightText,
       descriptionText: value('.txtTit', left ?? row),
+      codeText: value('.RCod', left ?? row),
       quantityText: value('.Rqtd', left ?? row),
       unitText: value('.RUN', left ?? row),
       unitPriceText: value('.RvlUnit', left ?? row),
@@ -255,6 +261,12 @@ export function extractSpNfceSnapshotFromDocument(doc: DomDocument): SpNfceDomSn
   });
   const paymentHeader = doc.querySelector('#linhaForma');
   const paymentMethod = paymentHeader?.nextElementSibling?.querySelector('.txtTit, .tx')?.textContent ?? null;
+  const paymentRows: { label: string; amountText: string }[] = [];
+  for (let node = paymentHeader?.nextElementSibling ?? null; node && paymentRows.length < 20; node = node.nextElementSibling) {
+    const label = normalize(node.querySelector('.tx, .txtTit')?.textContent ?? '');
+    if (!label) break;
+    paymentRows.push({ label, amountText: normalize((node.querySelector('.totalNumb') ?? node).textContent ?? '') });
+  }
   const supplierRoot = doc.querySelector('.txtCenter') ?? doc;
   return {
     supplierName: value('.txtTopo', supplierRoot),
@@ -265,6 +277,7 @@ export function extractSpNfceSnapshotFromDocument(doc: DomDocument): SpNfceDomSn
     discountText: totalRow(/descontos?/i),
     totalText: totalRow(/valor a pagar/i) ?? totalRow(/valor total/i) ?? '',
     paymentMethod: paymentMethod ? normalize(paymentMethod) : null,
+    paymentRows,
     items,
   };
 }

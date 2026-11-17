@@ -68,7 +68,11 @@ describe('migração 0016 — remove purchases.transaction_id (R4)', () => {
       expect(indexes).toEqual(expect.arrayContaining(['purchases_access_key_uq', 'purchases_issued_at_idx']));
 
       expect(sqlite.prepare('SELECT id, access_key, category_id, reconciled_at FROM purchases ORDER BY id').all()).toEqual(purchasesBefore);
-      for (const [table, expected] of Object.entries(before)) expect(rows(sqlite, table)).toEqual(expected);
+      // Migrações posteriores podem acrescentar colunas; as existentes precisam continuar iguais.
+      for (const [table, expected] of Object.entries(before)) {
+        const after = rows(sqlite, table) as Record<string, unknown>[];
+        expect(after.map((row, index) => Object.fromEntries(Object.keys((expected as Record<string, unknown>[])[index] ?? {}).map((key) => [key, row[key]])))).toEqual(expected);
+      }
       const leftovers = (sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[])
         .map((table) => table.name).filter((name) => name.startsWith('__') && name !== '__drizzle_migrations');
       expect(leftovers).toEqual([]);

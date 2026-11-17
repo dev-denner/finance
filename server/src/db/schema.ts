@@ -473,10 +473,32 @@ export const purchaseItems = sqliteTable(
     totalCents: integer('total_cents').notNull(),
     categoryId: integer('category_id').references(() => categories.id, { onDelete: 'set null', onUpdate: 'cascade' }),
     reconciliationPreviousCategoryId: integer('reconciliation_previous_category_id'),
+    /** Código do produto no emitente (cProd), quando a nota informa. Base do Módulo 4. */
+    code: text('code'),
+    /** GTIN/EAN do produto, quando a nota informa um código válido. */
+    ean: text('ean'),
   },
   (table) => [
     uniqueIndex('purchase_items_purchase_position_uq').on(table.purchaseId, table.position),
     index('purchase_items_purchase_id_idx').on(table.purchaseId),
+  ],
+);
+
+/** Formas de pagamento declaradas na nota (detPag), uma linha por forma. Só informativo: não liquida a compra. */
+export const purchasePayments = sqliteTable(
+  'purchase_payments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    purchaseId: integer('purchase_id')
+      .notNull()
+      .references(() => purchases.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    position: integer('position').notNull(),
+    method: text('method').notNull(),
+    amountCents: integer('amount_cents').notNull(),
+  },
+  (table) => [
+    uniqueIndex('purchase_payments_purchase_position_uq').on(table.purchaseId, table.position),
+    check('purchase_payments_amount_check', sql`${table.amountCents} > 0`),
   ],
 );
 
