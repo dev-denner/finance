@@ -40,6 +40,7 @@ function recurrenceDiffers(form: BillForm, initial: BillForm): boolean {
   return (
     form.frequency !== initial.frequency ||
     form.interval !== initial.interval ||
+    (form.frequency === 'monthly' && form.lastBusinessDay) !== (initial.frequency === 'monthly' && initial.lastBusinessDay) ||
     form.endMode !== initial.endMode ||
     (form.endMode === 'date' && form.endDate !== initial.endDate) ||
     (form.endMode === 'count' && form.occurrenceCount !== initial.occurrenceCount)
@@ -282,6 +283,22 @@ export function BillFormDialog({ target, today, categories, paymentMethods, onCl
                   />
                 </Field>
               </div>
+              {form.frequency === 'monthly' && (
+                <label className="flex items-start gap-2 text-[13px] text-ink-700 dark:text-ink-200">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-blue-600"
+                    checked={form.lastBusinessDay}
+                    onChange={(e) => set('lastBusinessDay', e.target.checked)}
+                  />
+                  <span>
+                    No último dia útil do mês
+                    <span className="block text-[11px] text-ink-500 dark:text-ink-400">
+                      Em vez do dia da primeira data. Fins de semana e feriados bancários nacionais ficam de fora.
+                    </span>
+                  </span>
+                </label>
+              )}
 
               <div role="radiogroup" aria-label="Término" className="space-y-2 text-[13px] text-ink-700 dark:text-ink-200">
                 <p className="label mb-1">Termina</p>

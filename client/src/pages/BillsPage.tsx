@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   CalendarCheck,
   CalendarClock,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   CircleCheck,
+  Copy,
+  FileUp,
+  List,
+  Paperclip,
   Pencil,
   Plus,
   Repeat,
@@ -20,30 +25,46 @@ import {
 import { Button } from '../components/ui/Button';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Page';
 import { BillFormDialog, type BillFormTarget } from '../components/bills/BillFormDialog';
+import { BillsCalendar } from '../components/bills/BillsCalendar';
+import { BoletoDialog } from '../components/bills/BoletoDialog';
+import { BulkBillsDialog, type GroupPaymentChoice } from '../components/bills/BulkBillsDialog';
+import { ForecastStrip } from '../components/bills/ForecastStrip';
 import { PayDialog } from '../components/bills/PayDialog';
-import { DeleteBillDialog, ScheduleDialog } from '../components/bills/SmallBillDialogs';
+import { DeleteBillDialog, PaymentsDialog, ScheduleDialog } from '../components/bills/SmallBillDialogs';
 import { StatusChip } from '../components/bills/StatusChip';
 import { useBillsBadge } from '../context/BillsBadgeContext';
 import { useMeta } from '../context/MetaContext';
 import { useToast } from '../context/ToastContext';
 import { api, errorMessage } from '../lib/api';
 import {
+  billNote,
+  billsShortcut,
+  bulkSelection,
+  calendarWeeks,
+  defaultCalendarDay,
+  isBulkSelectable,
+  forecastCards,
   billsViewParams,
   monthLabel,
   parseBillsView,
+  remainingCents,
   sequenceLabel,
   shiftMonth,
   type BillStateFilter,
+  type BillsLayout,
   type BillsView,
 } from '../lib/bills-view';
 import { formatBRL, formatDateBR, todayISO } from '../lib/format';
-import type { Bill, BillAgenda, BillListResponse, BillTemplate, PayBillInput } from '../lib/types';
+import type { Bill, BillAgenda, BillForecast, BillListResponse, BillTemplate, PayBillInput } from '../lib/types';
 
 type Dialog =
   | { kind: 'form'; target: BillFormTarget }
   | { kind: 'pay'; bill: Bill }
   | { kind: 'schedule'; bill: Bill }
-  | { kind: 'delete'; bill: Bill };
+  | { kind: 'delete'; bill: Bill }
+  | { kind: 'payments'; bill: Bill }
+  | { kind: 'boleto'; bill: Bill }
+  | { kind: 'bulk'; action: 'pay' | 'skip' };
 
 const STATE_OPTIONS: { value: BillStateFilter; label: string }[] = [
   { value: 'all', label: 'Todas' },
@@ -52,9 +73,16 @@ const STATE_OPTIONS: { value: BillStateFilter; label: string }[] = [
   { value: 'skipped', label: 'Puladas' },
 ];
 
+const LAYOUT_OPTIONS: { value: BillsLayout; label: string; icon: typeof List }[] = [
+  { value: 'list', label: 'Lista', icon: List },
+  { value: 'calendar', label: 'Calendário', icon: CalendarDays },
+];
+
 const UNDO_MS = 6000;
 /** Linhas da agenda visíveis antes de "Mostrar todas". */
 const AGENDA_PREVIEW_ROWS = 8;
+/** Mês corrente e os dois seguintes. */
+const FORECAST_MONTHS = 3;
 
 function SummaryTile({
   label,
@@ -87,6 +115,11 @@ function SummaryTile({
   );
 }
 
+/** Mais de um pagamento, ou um boleto agrupado: o desfazer passa pela lista, que avisa o efeito. */
+function needsPaymentsDialog(bill: Bill): boolean {
+  return bill.payments.length > 1 || bill.payments.some((payment) => payment.groupSize > 1);
+}
+
 function plural(count: number, one: string, many: string) {
   return `${count} ${count === 1 ? one : many}`;
 }
@@ -101,13 +134,18 @@ export function BillsPage() {
 
   const [month, setMonth] = useState<BillListResponse | null>(null);
   const [agenda, setAgenda] = useState<BillAgenda | null>(null);
+  const [forecast, setForecast] = useState<BillForecast | null>(null);
   const [templates, setTemplates] = useState<Map<number, BillTemplate>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [draftQuery, setDraftQuery] = useState(view.q);
   const [showAllAttention, setShowAllAttention] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  /** Dia escolhido no calendário; fora do mês exibido, vale o dia padrão. */
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
   const loadRequest = useRef(0);
+  const headerCheckbox = useRef<HTMLInputElement>(null);
 
   const categories = meta?.categories ?? [];
   const paymentMethods = meta?.paymentMethods ?? [];
@@ -123,7 +161,7 @@ export function BillsPage() {
     const requestId = ++loadRequest.current;
     setError(null);
     try {
-      const [monthResult, agendaResult, templateResult] = await Promise.all([
+      const [monthResult, agendaResult, templateResult, forecastResult] = await Promise.all([
         api.getBills(view.year, view.month, {
           state: view.state,
           q: view.q || undefined,
@@ -131,10 +169,12 @@ export function BillsPage() {
         }),
         api.getBillAgenda(7),
         api.listBillTemplates(true),
+        api.getBillForecast(FORECAST_MONTHS),
       ]);
       if (requestId !== loadRequest.current) return;
       setMonth(monthResult);
       setAgenda(agendaResult);
+      setForecast(forecastResult);
       setTemplates(new Map(templateResult.templates.map((template) => [template.id, template])));
     } catch (err) {
       if (requestId === loadRequest.current) setError(errorMessage(err));
@@ -154,6 +194,67 @@ export function BillsPage() {
     const timer = window.setTimeout(() => setView({ q: draftQuery }, { replace: true }), 300);
     return () => window.clearTimeout(timer);
   }, [draftQuery, setView, view.q]);
+
+  // A seleção vale para o mês e os filtros exibidos.
+  useEffect(() => setSelectedIds(new Set()), [view]);
+
+  const weeks = useMemo(
+    () => calendarWeeks(view.year, view.month, month?.bills ?? [], today),
+    [month, today, view.month, view.year],
+  );
+  const monthPrefix = `${view.year}-${String(view.month).padStart(2, '0')}-`;
+  const activeDay =
+    view.layout !== 'calendar'
+      ? null
+      : pickedDay?.startsWith(monthPrefix)
+        ? pickedDay
+        : defaultCalendarDay(weeks);
+  // No calendário, a tabela (e a seleção) mostra só as contas do dia escolhido.
+  const visibleBills = useMemo(
+    () => (month?.bills ?? []).filter((bill) => activeDay === null || bill.dueDate === activeDay),
+    [activeDay, month],
+  );
+  const selectDay = (date: string) => {
+    setPickedDay(date);
+    setSelectedIds(new Set());
+  };
+
+  const selection = useMemo(() => bulkSelection(visibleBills, selectedIds), [visibleBills, selectedIds]);
+  const selectableIds = useMemo(() => visibleBills.filter(isBulkSelectable).map((bill) => bill.id), [visibleBills]);
+  const allSelected = selectableIds.length > 0 && selection.bills.length === selectableIds.length;
+
+  useEffect(() => {
+    if (headerCheckbox.current) headerCheckbox.current.indeterminate = selection.bills.length > 0 && !allSelected;
+  }, [allSelected, selection.bills.length]);
+
+  const toggleSelected = (id: number, selected: boolean) =>
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (selected) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const openPay = useCallback(() => {
+    if (selection.bills.length === 1) setDialog({ kind: 'pay', bill: selection.bills[0] });
+    else if (selection.bills.length > 1) setDialog({ kind: 'bulk', action: 'pay' });
+    else showToast('Marque na lista as contas a pagar.', 'info');
+  }, [selection, showToast]);
+
+  // Atalhos: N abre "Nova conta"; P paga as contas marcadas. Desligados com um diálogo aberto ou digitando.
+  useEffect(() => {
+    if (dialog) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.defaultPrevented) return;
+      const shortcut = billsShortcut(event);
+      if (!shortcut) return;
+      event.preventDefault();
+      if (shortcut === 'new') setDialog({ kind: 'form', target: { kind: 'create' } });
+      else openPay();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [dialog, openPay]);
 
   const afterChange = useCallback(
     async (message?: string, options?: Parameters<typeof showToast>[2]) => {
@@ -178,17 +279,76 @@ export function BillsPage() {
 
   const pay = async (bill: Bill, input: PayBillInput) => {
     try {
-      await api.payBill(bill.id, input);
+      const { bill: updated } = await api.payBill(bill.id, input);
+      const message =
+        updated.state === 'open'
+          ? `Pagamento parcial registrado; faltam ${formatBRL(remainingCents(updated))}.`
+          : input.mode === 'transaction'
+            ? 'Conta paga e lançamento registrado.'
+            : 'Conta marcada como paga.';
+      // "Desfazer" remove todos os pagamentos da conta: só é oferecido quando este foi o primeiro.
       await afterChange(
-        input.mode === 'transaction' ? 'Conta paga e lançamento registrado.' : 'Conta marcada como paga.',
-        {
-          durationMs: UNDO_MS,
-          action: {
-            label: 'Desfazer',
-            onClick: () => void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.'),
-          },
-        },
+        message,
+        bill.payments.length === 0
+          ? {
+              durationMs: UNDO_MS,
+              action: {
+                label: 'Desfazer',
+                onClick: () => void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.'),
+              },
+            }
+          : undefined,
       );
+    } catch (err) {
+      showToast(errorMessage(err), 'error');
+    }
+  };
+
+  const undoPayment = async (bill: Bill, paymentId: number) => {
+    try {
+      const groupSize = bill.payments.find((payment) => payment.id === paymentId)?.groupSize ?? 1;
+      const { bill: updated } = await api.undoBillPayment(bill.id, paymentId);
+      const message =
+        groupSize > 1
+          ? `Boleto agrupado desfeito: ${plural(groupSize, 'conta reaberta', 'contas reabertas')}.`
+          : updated.state === 'paid'
+          ? 'Pagamento desfeito; a conta continua paga.'
+          : updated.partialPaidCents > 0
+            ? `Pagamento desfeito; faltam ${formatBRL(remainingCents(updated))}.`
+            : 'Pagamento desfeito.';
+      await afterChange(message);
+      // Com mais de um pagamento restante, o diálogo continua aberto com a conta atualizada.
+      if (needsPaymentsDialog(updated)) setDialog({ kind: 'payments', bill: updated });
+    } catch (err) {
+      showToast(errorMessage(err), 'error');
+    }
+  };
+
+  const copyBarcode = async (bill: Bill) => {
+    try {
+      await navigator.clipboard.writeText(bill.barcode ?? '');
+      showToast('Linha digitável copiada.', 'success');
+    } catch {
+      showToast('Não foi possível copiar; abra "Boleto e anexos" e copie manualmente.', 'error');
+    }
+  };
+
+  const runBulk = async (action: 'pay' | 'skip', paidAt: string, group: GroupPaymentChoice | null) => {
+    const ids = selection.bills.map((bill) => bill.id);
+    try {
+      if (action === 'pay' && group) {
+        const result = await api.payBillsGroup(ids, { paidAt, ...group });
+        setSelectedIds(new Set());
+        await afterChange(`${plural(result.updated, 'conta paga', 'contas pagas')} com um lançamento de ${formatBRL(result.paidCents)}.`);
+      } else if (action === 'pay') {
+        const result = await api.bulkPayBills(ids, paidAt);
+        setSelectedIds(new Set());
+        await afterChange(`${plural(result.updated, 'conta marcada', 'contas marcadas')} como paga${result.updated === 1 ? '' : 's'} (${formatBRL(result.paidCents)}).`);
+      } else {
+        const result = await api.bulkSkipBills(ids);
+        setSelectedIds(new Set());
+        await afterChange(`${plural(result.updated, 'conta pulada', 'contas puladas')}.`);
+      }
     } catch (err) {
       showToast(errorMessage(err), 'error');
     }
@@ -234,13 +394,19 @@ export function BillsPage() {
           Pagar
         </Button>
       )}
-      {bill.state === 'paid' && (
+      {(bill.state === 'paid' || bill.partialPaidCents > 0) && (
         <button
           type="button"
           className="icon-btn"
-          title="Desfazer pagamento"
-          aria-label={`Desfazer pagamento de ${bill.description}`}
-          onClick={() => void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.')}
+          title={needsPaymentsDialog(bill) ? 'Ver e desfazer pagamentos' : 'Desfazer pagamento'}
+          aria-label={
+            needsPaymentsDialog(bill) ? `Pagamentos de ${bill.description}` : `Desfazer pagamento de ${bill.description}`
+          }
+          onClick={() =>
+            needsPaymentsDialog(bill)
+              ? setDialog({ kind: 'payments', bill })
+              : void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.')
+          }
         >
           <Undo2 className="h-4 w-4" />
         </button>
@@ -279,6 +445,31 @@ export function BillsPage() {
           </button>
         )
       )}
+      {bill.barcode && bill.state === 'open' && (
+        <button
+          type="button"
+          className="icon-btn"
+          title="Copiar linha digitável"
+          aria-label={`Copiar linha digitável de ${bill.description}`}
+          onClick={() => void copyBarcode(bill)}
+        >
+          <Copy className="h-4 w-4" />
+        </button>
+      )}
+      <button
+        type="button"
+        className="icon-btn relative"
+        title={bill.attachments.length > 0 ? `Boleto e anexos (${bill.attachments.length})` : 'Boleto e anexos'}
+        aria-label={`Boleto e anexos de ${bill.description}`}
+        onClick={() => setDialog({ kind: 'boleto', bill })}
+      >
+        <Paperclip className="h-4 w-4" />
+        {bill.attachments.length > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-blue-600 px-0.5 text-[9px] font-semibold text-white">
+            {bill.attachments.length}
+          </span>
+        )}
+      </button>
       <button
         type="button"
         className="icon-btn"
@@ -303,6 +494,7 @@ export function BillsPage() {
   const describe = (bill: Bill) => {
     const template = bill.templateId !== null ? templates.get(bill.templateId) : undefined;
     const sequence = sequenceLabel(bill, template);
+    const note = billNote(bill, formatBRL);
     return (
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
@@ -317,18 +509,109 @@ export function BillsPage() {
             </span>
           )}
         </div>
-        {(bill.notes || bill.payments.length > 0 || bill.migratedPayment) && (
-          <p className="truncate text-[11px] text-ink-400">
-            {bill.payments.length > 0
-              ? `Lançamento em ${bill.payments[0].paymentMethodName ?? 'Movimentações'}`
-              : bill.migratedPayment
-                ? 'Paga antes da atualização (sem lançamento)'
-                : bill.notes}
-          </p>
-        )}
+        {note && <p className="truncate text-[11px] text-ink-400">{note}</p>}
       </div>
     );
   };
+
+  const selectionBar = selection.bills.length > 0 && (
+    <div
+      role="region"
+      aria-label="Contas selecionadas"
+      className="flex flex-wrap items-center gap-2.5 border-b border-blue-200 bg-blue-50/80 px-4 py-2.5 dark:border-blue-900/50 dark:bg-blue-950/30"
+    >
+      <div className="mr-1 flex items-center gap-2 text-[12px]">
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-semibold text-white">
+          {selection.bills.length}
+        </span>
+        <span className="font-medium text-blue-900 dark:text-blue-200">
+          {selection.bills.length === 1 ? 'selecionada' : 'selecionadas'} · {formatBRL(selection.remainingCents)}
+        </span>
+      </div>
+      <Button size="sm" variant="primary" title="Pagar as selecionadas (atalho P)" aria-keyshortcuts="P" onClick={openPay}>
+        <CircleCheck className="h-3.5 w-3.5" />
+        Marcar como pagas
+      </Button>
+      <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: 'bulk', action: 'skip' })}>
+        <SkipForward className="h-3.5 w-3.5" />
+        Pular
+      </Button>
+      <button
+        type="button"
+        onClick={() => setSelectedIds(new Set())}
+        className="ml-auto text-[12px] font-medium text-blue-700 underline-offset-2 hover:underline dark:text-blue-300"
+      >
+        Limpar seleção
+      </button>
+    </div>
+  );
+
+  const billsTable = (bills: Bill[]) => (
+    <div className="table-shell">
+      <table className="w-full min-w-[760px] border-collapse">
+        <thead className="sticky top-0 z-10">
+          <tr>
+            <th className="th w-10">
+              <input
+                ref={headerCheckbox}
+                type="checkbox"
+                className="h-4 w-4 cursor-pointer rounded border-ink-300 accent-blue-600"
+                checked={allSelected}
+                disabled={selectableIds.length === 0}
+                onChange={(e) => setSelectedIds(e.target.checked ? new Set(selectableIds) : new Set())}
+                aria-label={view.layout === 'calendar' ? 'Selecionar as contas em aberto do dia' : 'Selecionar as contas em aberto do mês'}
+              />
+            </th>
+            <th className="th w-[110px]">Vencimento</th>
+            <th className="th">Descrição</th>
+            <th className="th">Categoria</th>
+            <th className="th text-right">Valor</th>
+            <th className="th">Situação</th>
+            <th className="th w-[260px] text-right">
+              <span className="sr-only">Ações</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {bills.map((bill) => (
+            <tr
+              key={bill.id}
+              className={`transition ${
+                selectedIds.has(bill.id)
+                  ? 'bg-blue-50/70 dark:bg-blue-950/20'
+                  : 'hover:bg-ink-50/70 dark:hover:bg-ink-800/30'
+              } ${bill.state === 'skipped' ? 'opacity-60' : ''}`}
+            >
+              <td className="td">
+                {isBulkSelectable(bill) && (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer rounded border-ink-300 accent-blue-600"
+                    checked={selectedIds.has(bill.id)}
+                    onChange={(e) => toggleSelected(bill.id, e.target.checked)}
+                    aria-label={`Selecionar ${bill.description}`}
+                  />
+                )}
+              </td>
+              <td className="td whitespace-nowrap tabular-nums">{formatDateBR(bill.dueDate)}</td>
+              <td className="td max-w-[320px]">{describe(bill)}</td>
+              <td className="td text-[12px] text-ink-500 dark:text-ink-400">{bill.categoryName}</td>
+              <td className="td whitespace-nowrap text-right font-medium tabular-nums">
+                {formatBRL(bill.amountCents)}
+                {bill.state === 'paid' && bill.paidCents !== null && bill.paidCents !== bill.amountCents && (
+                  <span className="block text-[11px] font-normal text-ink-400">pago {formatBRL(bill.paidCents)}</span>
+                )}
+              </td>
+              <td className="td">
+                <StatusChip bill={bill} today={today} />
+              </td>
+              <td className="td">{rowActions(bill)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -336,10 +619,21 @@ export function BillsPage() {
         title="Contas a pagar"
         subtitle="Agenda do que vence, do que já foi agendado no banco e do que foi pago."
         actions={
-          <Button variant="primary" onClick={() => setDialog({ kind: 'form', target: { kind: 'create' } })}>
-            <Plus className="h-4 w-4" />
-            Nova conta
-          </Button>
+          <>
+            <Link to="/importacoes/contas" className="btn-secondary">
+              <FileUp className="h-4 w-4" />
+              Importar planilha
+            </Link>
+            <Button
+              variant="primary"
+              title="Nova conta (atalho N)"
+              aria-keyshortcuts="N"
+              onClick={() => setDialog({ kind: 'form', target: { kind: 'create' } })}
+            >
+              <Plus className="h-4 w-4" />
+              Nova conta
+            </Button>
+          </>
         }
       />
 
@@ -407,6 +701,11 @@ export function BillsPage() {
         </section>
       )}
 
+      <ForecastStrip
+        cards={forecastCards(forecast, view)}
+        onSelect={(year, month) => setView({ year, month })}
+      />
+
       <section aria-labelledby="bills-month-title" className="space-y-3">
         <div className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-1.5">
@@ -440,6 +739,24 @@ export function BillsPage() {
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div role="group" aria-label="Exibição" className="inline-flex rounded-lg border border-ink-200 p-0.5 dark:border-ink-700">
+              {LAYOUT_OPTIONS.map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={view.layout === value}
+                  onClick={() => setView({ layout: value })}
+                  className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition ${
+                    view.layout === value
+                      ? 'bg-blue-600 text-white'
+                      : 'text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
             <label className="relative">
               <span className="sr-only">Buscar conta</span>
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400" />
@@ -540,47 +857,36 @@ export function BillsPage() {
                 )
               }
             />
+          ) : view.layout === 'calendar' ? (
+            <>
+              <BillsCalendar
+                weeks={weeks}
+                selectedDay={activeDay}
+                onSelectDay={selectDay}
+                label={`Calendário de ${monthLabel(view.year, view.month)}`}
+              />
+              {activeDay && (
+                <section aria-labelledby="bills-day-title">
+                  <h3
+                    id="bills-day-title"
+                    className="border-b border-ink-200 bg-ink-50/70 px-4 py-2 text-[12px] font-semibold text-ink-700 dark:border-ink-800 dark:bg-ink-950/30 dark:text-ink-200"
+                  >
+                    Vencem em {formatDateBR(activeDay)}
+                  </h3>
+                  {selectionBar}
+                  {visibleBills.length > 0 ? (
+                    billsTable(visibleBills)
+                  ) : (
+                    <p className="px-4 py-4 text-[13px] text-ink-500 dark:text-ink-400">Nenhuma conta vence neste dia.</p>
+                  )}
+                </section>
+              )}
+            </>
           ) : (
-            <div className="table-shell">
-              <table className="w-full min-w-[760px] border-collapse">
-                <thead className="sticky top-0 z-10">
-                  <tr>
-                    <th className="th w-[110px]">Vencimento</th>
-                    <th className="th">Descrição</th>
-                    <th className="th">Categoria</th>
-                    <th className="th text-right">Valor</th>
-                    <th className="th">Situação</th>
-                    <th className="th w-[220px] text-right">
-                      <span className="sr-only">Ações</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {month.bills.map((bill) => (
-                    <tr
-                      key={bill.id}
-                      className={`transition hover:bg-ink-50/70 dark:hover:bg-ink-800/30 ${
-                        bill.state === 'skipped' ? 'opacity-60' : ''
-                      }`}
-                    >
-                      <td className="td whitespace-nowrap tabular-nums">{formatDateBR(bill.dueDate)}</td>
-                      <td className="td max-w-[320px]">{describe(bill)}</td>
-                      <td className="td text-[12px] text-ink-500 dark:text-ink-400">{bill.categoryName}</td>
-                      <td className="td whitespace-nowrap text-right font-medium tabular-nums">
-                        {formatBRL(bill.amountCents)}
-                        {bill.state === 'paid' && bill.paidCents !== null && bill.paidCents !== bill.amountCents && (
-                          <span className="block text-[11px] font-normal text-ink-400">pago {formatBRL(bill.paidCents)}</span>
-                        )}
-                      </td>
-                      <td className="td">
-                        <StatusChip bill={bill} today={today} />
-                      </td>
-                      <td className="td">{rowActions(bill)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              {selectionBar}
+              {billsTable(month.bills)}
+            </>
           )}
         </div>
       </section>
@@ -602,6 +908,36 @@ export function BillsPage() {
           paymentMethods={paymentMethods}
           onClose={() => setDialog(null)}
           onConfirm={(input) => pay(dialog.bill, input)}
+        />
+      )}
+      {dialog?.kind === 'bulk' && (
+        <BulkBillsDialog
+          action={dialog.action}
+          selection={selection}
+          today={today}
+          paymentMethods={paymentMethods}
+          categories={categories}
+          onClose={() => setDialog(null)}
+          onConfirm={(paidAt, group) => runBulk(dialog.action, paidAt, group)}
+        />
+      )}
+      {dialog?.kind === 'boleto' && (
+        <BoletoDialog
+          bill={dialog.bill}
+          onClose={() => setDialog(null)}
+          onChanged={async () => {
+            await Promise.all([load(), refreshBadge()]);
+            return (await api.getBill(dialog.bill.id)).bill;
+          }}
+          notify={(message, kind) => showToast(message, kind)}
+        />
+      )}
+      {dialog?.kind === 'payments' && (
+        <PaymentsDialog
+          bill={dialog.bill}
+          onClose={() => setDialog(null)}
+          onUndo={(paymentId) => undoPayment(dialog.bill, paymentId)}
+          onUndoAll={() => run(() => api.unpayBill(dialog.bill.id), 'Pagamentos desfeitos.')}
         />
       )}
       {dialog?.kind === 'schedule' && (

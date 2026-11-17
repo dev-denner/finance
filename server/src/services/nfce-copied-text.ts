@@ -1,6 +1,6 @@
 import { badRequest, HttpError } from '../lib/errors';
 import type { AppDatabase } from '../db/client';
-import type { PurchaseInput } from './purchase-input';
+import { itemCodeFrom, paymentsFromText, type PurchaseInput } from './purchase-input';
 import { findPurchaseByAccessKey, importPurchase } from './purchases';
 
 export const MAX_COPIED_NFCE_TEXT_BYTES = 1024 * 1024;
@@ -149,6 +149,7 @@ function parseItem(lines: string[], index: number): PurchaseInput['items'][numbe
     unitPriceCents: parseMoney(unitPrice, 'preço unitário', 6),
     discountCents: discount === null ? null : parseMoney(discount, 'desconto do item'),
     totalCents: parseMoney(totalText, 'total do item'),
+    code: itemCodeFrom(descriptionLine),
   };
 }
 
@@ -218,6 +219,7 @@ function parseCopiedNfceBlock(block: string): { purchase: PurchaseInput; state: 
       invoiceDiscountCents: invoiceDiscount,
       paymentMethod,
       items,
+      payments: paymentsFromText(paymentSection),
     },
   };
 }

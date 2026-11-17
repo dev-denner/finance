@@ -1,6 +1,8 @@
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../../db/client';
+import { formatBarcodeDigits } from '../../lib/barcode';
 import {
+  billAttachments,
   billPayments,
   categories,
   paymentMethods,
@@ -35,14 +37,25 @@ export type BillPaymentOrigin = 'manual' | 'import_match' | 'migration';
 
 export interface BillPaymentDto {
   id: number;
-  transactionId: number;
+  /** null quando o pagamento foi registrado sem lançamento. */
+  transactionId: number | null;
   amountCents: number;
   paidAt: string;
   origin: BillPaymentOrigin;
   /** true quando o lançamento foi criado pelo próprio pagamento (desfazer apaga). */
   createdTransaction: boolean;
   paymentMethodName: string | null;
-  transactionDescription: string;
+  transactionDescription: string | null;
+  /** Contas pagas pelo mesmo lançamento (boleto agrupado); 1 no pagamento comum. */
+  groupSize: number;
+}
+
+export interface BillAttachmentDto {
+  id: number;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
 }
 
 export interface BillDto {
@@ -57,6 +70,8 @@ export interface BillDto {
   scheduledFor: string | null;
   paidAt: string | null;
   paidCents: number | null;
+  /** Soma dos pagamentos parciais de uma conta ainda em aberto; 0 nos demais casos. */
+  partialPaidCents: number;
   /** true quando o "pago" veio da migração do status PG, sem lançamento. */
   migratedPayment: boolean;
   categoryId: number;
@@ -64,7 +79,11 @@ export interface BillDto {
   paymentMethodId: number | null;
   paymentMethodName: string | null;
   notes: string | null;
+  /** Linha digitável (só dígitos) e a mesma formatada para leitura. */
+  barcode: string | null;
+  barcodeFormatted: string | null;
   payments: BillPaymentDto[];
+  attachments: BillAttachmentDto[];
   createdAt: string;
   updatedAt: string;
 }
@@ -126,10 +145,23 @@ export function loadPayments(db: AppDatabase, billIds: number[]): Map<number, Bi
       paymentMethodName: paymentMethods.name,
     })
     .from(billPayments)
-    .innerJoin(transactions, eq(billPayments.transactionId, transactions.id))
+    .leftJoin(transactions, eq(billPayments.transactionId, transactions.id))
     .leftJoin(paymentMethods, eq(transactions.paymentMethodId, paymentMethods.id))
     .where(inArray(billPayments.billId, billIds))
+    .orderBy(billPayments.id)
     .all();
+  const transactionIds = [...new Set(rows.map((row) => row.payment.transactionId).filter((id): id is number => id !== null))];
+  const groupSizes = new Map<number, number>();
+  if (transactionIds.length > 0) {
+    for (const group of db
+      .select({ transactionId: billPayments.transactionId, count: sql<number>`count(*)` })
+      .from(billPayments)
+      .where(inArray(billPayments.transactionId, transactionIds))
+      .groupBy(billPayments.transactionId)
+      .all()) {
+      if (group.transactionId !== null) groupSizes.set(group.transactionId, group.count);
+    }
+  }
   for (const row of rows) {
     const list = result.get(row.payment.billId) ?? [];
     list.push({
@@ -141,8 +173,34 @@ export function loadPayments(db: AppDatabase, billIds: number[]): Map<number, Bi
       createdTransaction: row.payment.createdTransaction === 1,
       paymentMethodName: row.paymentMethodName ?? null,
       transactionDescription: row.transactionDescription,
+      groupSize: row.payment.transactionId !== null ? (groupSizes.get(row.payment.transactionId) ?? 1) : 1,
     });
     result.set(row.payment.billId, list);
+  }
+  return result;
+}
+
+/** Metadados dos anexos (sem o conteúdo), por conta. */
+export function loadAttachmentMeta(db: AppDatabase, billIds: number[]): Map<number, BillAttachmentDto[]> {
+  const result = new Map<number, BillAttachmentDto[]>();
+  if (billIds.length === 0) return result;
+  const rows = db
+    .select({
+      id: billAttachments.id,
+      billId: billAttachments.billId,
+      filename: billAttachments.filename,
+      contentType: billAttachments.contentType,
+      sizeBytes: billAttachments.sizeBytes,
+      createdAt: billAttachments.createdAt,
+    })
+    .from(billAttachments)
+    .where(inArray(billAttachments.billId, billIds))
+    .orderBy(billAttachments.id)
+    .all();
+  for (const { billId, ...attachment } of rows) {
+    const list = result.get(billId) ?? [];
+    list.push(attachment);
+    result.set(billId, list);
   }
   return result;
 }
@@ -151,6 +209,7 @@ export function toBillDto(
   row: JoinedBillRow,
   today: string,
   payments: BillPaymentDto[] = [],
+  attachments: BillAttachmentDto[] = [],
 ): BillDto {
   const { bill } = row;
   return {
@@ -165,13 +224,17 @@ export function toBillDto(
     scheduledFor: bill.scheduledFor ?? null,
     paidAt: bill.paidAt ?? null,
     paidCents: bill.paidCents ?? null,
+    partialPaidCents: billState(bill.state) === 'open' ? payments.reduce((sum, payment) => sum + payment.amountCents, 0) : 0,
     migratedPayment: bill.migratedPayment === 1,
     categoryId: bill.categoryId,
     categoryName: row.categoryName,
     paymentMethodId: bill.paymentMethodId ?? null,
     paymentMethodName: row.paymentMethodName ?? null,
     notes: bill.notes ?? null,
+    barcode: bill.barcode ?? null,
+    barcodeFormatted: bill.barcode ? formatBarcodeDigits(bill.barcode) : null,
     payments,
+    attachments,
     createdAt: bill.createdAt,
     updatedAt: bill.updatedAt,
   };
@@ -179,11 +242,10 @@ export function toBillDto(
 
 /** Converte linhas já carregadas em DTOs, anexando os pagamentos em uma única consulta. */
 export function toBillDtos(db: AppDatabase, rows: JoinedBillRow[], today: string): BillDto[] {
-  const payments = loadPayments(
-    db,
-    rows.map((row) => row.bill.id),
-  );
-  return rows.map((row) => toBillDto(row, today, payments.get(row.bill.id) ?? []));
+  const ids = rows.map((row) => row.bill.id);
+  const payments = loadPayments(db, ids);
+  const attachments = loadAttachmentMeta(db, ids);
+  return rows.map((row) => toBillDto(row, today, payments.get(row.bill.id) ?? [], attachments.get(row.bill.id) ?? []));
 }
 
 export function emptySummary(): BillSummary {
@@ -206,8 +268,11 @@ export function summarize(bills: BillDto[]): BillSummary {
       summary.paidCents += bill.paidCents ?? bill.amountCents;
       continue;
     }
-    summary.openCents += bill.amountCents;
-    if (bill.displayStatus === 'overdue') summary.overdueCents += bill.amountCents;
+    // Pagamentos parciais contam como pagos; só o restante fica em aberto.
+    const remaining = Math.max(0, bill.amountCents - bill.partialPaidCents);
+    summary.paidCents += bill.partialPaidCents;
+    summary.openCents += remaining;
+    if (bill.displayStatus === 'overdue') summary.overdueCents += remaining;
   }
   return summary;
 }

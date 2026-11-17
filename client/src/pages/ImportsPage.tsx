@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowRight,
+  CalendarClock,
   FileSpreadsheet,
   History,
   Loader2,
@@ -57,12 +58,13 @@ function FlowCard({
   primaryTo: string;
   secondaryLabel: string;
   secondaryTo: string;
-  tone: 'blue' | 'violet';
+  tone: 'blue' | 'violet' | 'emerald';
 }) {
-  const iconStyle =
-    tone === 'blue'
-      ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400'
-      : 'bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400';
+  const iconStyle = {
+    blue: 'bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400',
+    violet: 'bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400',
+    emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400',
+  }[tone];
 
   return (
     <article className="card flex flex-col p-5">
@@ -149,7 +151,7 @@ export function ImportsPage() {
     <div>
       <PageHeader
         title="Importações"
-        subtitle="Comece uma importação de movimentações ou de compras e acompanhe o histórico em um só lugar."
+        subtitle="Comece uma importação de movimentações, compras ou contas a pagar e acompanhe o histórico em um só lugar."
         actions={
           <Button variant="secondary" onClick={() => void loadHistory()} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -158,7 +160,7 @@ export function ImportsPage() {
         }
       />
 
-      <section className="grid gap-4 md:grid-cols-2" aria-label="Fluxos de importação">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Fluxos de importação">
         <FlowCard
           icon={FileSpreadsheet}
           title="Importar movimentações"
@@ -189,6 +191,22 @@ export function ImportsPage() {
           secondaryLabel="Ver compras"
           secondaryTo="/compras"
           tone="violet"
+        />
+        <FlowCard
+          icon={CalendarClock}
+          title="Importar contas a pagar"
+          description="Traga contas avulsas e recorrentes de uma planilha CSV ou Excel."
+          details={[
+            'Prévia com mapeamento de colunas e erros por linha',
+            'Coluna Repetição cria recorrências (mensal, trimestral 4x…)',
+            'Situação AG/PG marca agendada ou paga, sem lançamento',
+            'Duplicadas puladas; grava tudo ou nada',
+          ]}
+          primaryLabel="Importar contas"
+          primaryTo="/importacoes/contas"
+          secondaryLabel="Ver contas a pagar"
+          secondaryTo="/contas"
+          tone="emerald"
         />
       </section>
 

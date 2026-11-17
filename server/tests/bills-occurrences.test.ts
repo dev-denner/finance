@@ -108,18 +108,18 @@ describe('ocorrências — status derivado e agenda (AC9)', () => {
 });
 
 describe('ocorrências — pagamento externo (AC4a), pular (AC8) e agendar', () => {
-  it('pagar no modo externo marca paga sem lançamento nem vínculo; desfazer reabre', () => {
+  it('pagar no modo externo marca paga sem lançamento; o pagamento fica registrado sem vínculo; desfazer reabre', () => {
     const { db, bill, sqlite } = setup();
     const target = bill('Luz', '2026-03-12', 18000);
     const paid = payBill(db, target.id, { mode: 'external', paidAt: '2026-03-11', paidCents: 17550, notes: 'desconto' }, TODAY);
-    expect(paid).toMatchObject({ state: 'paid', paidAt: '2026-03-11', paidCents: 17550, notes: 'desconto', payments: [] });
+    expect(paid).toMatchObject({ state: 'paid', paidAt: '2026-03-11', paidCents: 17550, notes: 'desconto', partialPaidCents: 0 });
+    expect(paid.payments).toMatchObject([{ transactionId: null, amountCents: 17550, paidAt: '2026-03-11', createdTransaction: false, transactionDescription: null }]);
     expect((sqlite.prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n).toBe(0);
-    expect((sqlite.prepare('SELECT COUNT(*) AS n FROM bill_payments').get() as { n: number }).n).toBe(0);
 
     expect(() => payBill(db, target.id, { mode: 'external', paidAt: '2026-03-11', paidCents: 1 }, TODAY)).toThrow(/já está paga/);
 
     const reopened = unpayBill(db, target.id, TODAY);
-    expect(reopened).toMatchObject({ state: 'open', paidAt: null, paidCents: null, displayStatus: 'upcoming' });
+    expect(reopened).toMatchObject({ state: 'open', paidAt: null, paidCents: null, displayStatus: 'upcoming', payments: [] });
     expect((sqlite.prepare('SELECT COUNT(*) AS n FROM transactions').get() as { n: number }).n).toBe(0);
   });
 

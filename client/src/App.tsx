@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { BillsImportPage } from './pages/BillsImportPage';
 import { BillsPage } from './pages/BillsPage';
 import { ConsolidatedPage } from './pages/ConsolidatedPage';
 import { ImportsPage } from './pages/ImportsPage';
@@ -22,6 +23,7 @@ export function App() {
         <Route path="/importacoes" element={<ImportsPage />} />
         <Route path="/importacoes/movimentacoes" element={<TransactionsImportPage />} />
         <Route path="/importacoes/nfce" element={<NfceImportPage />} />
+        <Route path="/importacoes/contas" element={<BillsImportPage />} />
         <Route path="/conciliacao" element={<ReconciliationPage />} />
         <Route path="/compras" element={<PurchasesPage />} />
         <Route path="/compras/:id" element={<PurchasesPage />} />

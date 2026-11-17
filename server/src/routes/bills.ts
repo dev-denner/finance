@@ -7,10 +7,18 @@ import {
   previewBillsImport,
   type BillImportField,
 } from '../services/bills-import';
+import { parseBarcode } from '../lib/barcode';
+import { todayIso } from '../lib/dates';
 import {
+  addBillAttachment,
+  bulkPayBills,
+  bulkSkipBills,
+  payBillsWithOneTransaction,
   createBill,
   createTemplate,
   deleteBill,
+  deleteBillAttachment,
+  getBillAttachmentFile,
   deleteTemplate,
   getAgenda,
   getBill,
@@ -22,6 +30,7 @@ import {
   previewTemplateDates,
   scheduleBill,
   skipBill,
+  undoBillPayment,
   unpayBill,
   unskipBill,
   updateBill,
@@ -29,15 +38,21 @@ import {
 } from '../services/bills';
 import { parseJsonField, readMultipartForm } from './multipart';
 import {
+  barcodeParseSchema,
   billAgendaQuerySchema,
+  billAttachmentParamSchema,
   billCreateSchema,
   billForecastQuerySchema,
   billListQuerySchema,
+  billPaymentParamSchema,
   billTemplateCreateSchema,
   billTemplateListQuerySchema,
   billTemplateUpdateQuerySchema,
   billTemplateUpdateSchema,
   billUpdateSchema,
+  bulkPayBillsSchema,
+  bulkSkipBillsSchema,
+  groupPayBillsSchema,
   idParamSchema,
   parseWith,
   payBillSchema,
@@ -127,6 +142,55 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
     return getForecast(db, { months: query.months });
   });
 
+  /** Ações em massa: tudo ou nada; o erro cita a conta que impediu. */
+  app.post('/api/bills/bulk-pay', async (request) => {
+    const body = parseWith(bulkPayBillsSchema, request.body, 'Dados do pagamento em massa inválidos.');
+    return bulkPayBills(db, body.ids, { paidAt: body.paidAt });
+  });
+
+  /** Boleto agrupado: um lançamento (novo ou existente) paga todas as contas. */
+  app.post('/api/bills/group-pay', async (request) => {
+    const { ids, ...input } = parseWith(groupPayBillsSchema, request.body, 'Dados do pagamento agrupado inválidos.');
+    return payBillsWithOneTransaction(db, ids, input);
+  });
+
+  app.post('/api/bills/bulk-skip', async (request) => {
+    const body = parseWith(bulkSkipBillsSchema, request.body, 'Seleção de contas inválida.');
+    return bulkSkipBills(db, body.ids);
+  });
+
+  /** Confere a linha digitável e devolve o tipo, o valor e o vencimento que ela traz. */
+  app.post('/api/bills/barcode/parse', async (request) => {
+    const body = parseWith(barcodeParseSchema, request.body, 'Linha digitável inválida.');
+    const parsed = parseBarcode(body.barcode, todayIso());
+    return parsed.ok ? { valid: true, ...parsed.value } : { valid: false, error: parsed.error };
+  });
+
+  // ---- Anexos ------------------------------------------------------------
+
+  app.post('/api/bills/:id/attachments', async (request, reply) => {
+    const id = idOf(request);
+    const form = await readMultipartForm(request);
+    if (!form.file) throw badRequest('Envie o arquivo do anexo.');
+    return reply.status(201).send({ attachment: addBillAttachment(db, id, form.file) });
+  });
+
+  app.get('/api/bills/:id/attachments/:attachmentId', async (request, reply) => {
+    const params = parseWith(billAttachmentParamSchema, request.params, 'Identificador inválido.');
+    const file = getBillAttachmentFile(db, params.id, params.attachmentId);
+    return reply
+      .type(file.contentType)
+      .header('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.filename)}`)
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Cache-Control', 'private, no-store')
+      .send(file.data);
+  });
+
+  app.delete('/api/bills/:id/attachments/:attachmentId', async (request) => {
+    const params = parseWith(billAttachmentParamSchema, request.params, 'Identificador inválido.');
+    return deleteBillAttachment(db, params.id, params.attachmentId);
+  });
+
   app.get('/api/bills/:id', async (request) => ({ bill: getBill(db, idOf(request)) }));
 
   app.post('/api/bills', async (request, reply) => {
@@ -150,6 +214,12 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
   });
 
   app.post('/api/bills/:id/unpay', async (request) => ({ bill: unpayBill(db, idOf(request)) }));
+
+  /** Desfaz só um pagamento; a conta reabre quando ele era o que a quitou. */
+  app.delete('/api/bills/:id/payments/:paymentId', async (request) => {
+    const params = parseWith(billPaymentParamSchema, request.params, 'Identificador inválido.');
+    return { bill: undoBillPayment(db, params.id, params.paymentId) };
+  });
 
   app.post('/api/bills/:id/skip', async (request) => ({ bill: skipBill(db, idOf(request)) }));
 

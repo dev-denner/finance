@@ -3,6 +3,7 @@
  * fuso horário (toda aritmética usa calendário civil em UTC sobre ISO
  * AAAA-MM-DD).
  */
+import { lastBusinessDayOfMonth } from '../../lib/business-days';
 
 export type BillFrequency = 'monthly' | 'weekly' | 'yearly';
 
@@ -18,6 +19,11 @@ export interface BillRecurrence {
   weekday: number | null;
   /** 1..12; só yearly. Nulo = mês da data inicial. */
   monthOfYear: number | null;
+  /**
+   * Só monthly: vence no último dia útil bancário do mês (fins de semana e
+   * feriados nacionais ficam de fora); `dayOfMonth` é ignorado.
+   */
+  lastBusinessDay?: boolean;
 }
 
 export interface OccurrenceLimits {
@@ -122,6 +128,9 @@ export function validateRecurrence(input: BillRecurrence): string | null {
   ) {
     return 'O mês deve estar entre 1 e 12.';
   }
+  if (input.lastBusinessDay && input.frequency !== 'monthly') {
+    return 'O último dia útil só vale para recorrência mensal.';
+  }
   return null;
 }
 
@@ -138,6 +147,12 @@ function anchorFor(recurrence: BillRecurrence, startDate: string): Anchor {
 
   switch (recurrence.frequency) {
     case 'monthly': {
+      if (recurrence.lastBusinessDay) {
+        const candidate = lastBusinessDayOfMonth(start.year, start.month);
+        if (candidate >= startDate) return { first: candidate, day: 31 };
+        const next = start.year * 12 + start.month; // índice absoluto do mês seguinte
+        return { first: lastBusinessDayOfMonth(Math.floor(next / 12), (next % 12) + 1), day: 31 };
+      }
       const day = recurrence.dayOfMonth ?? start.day;
       const candidate = clampedDate(start.year, start.month, day);
       if (candidate >= startDate) return { first: candidate, day };
@@ -169,6 +184,7 @@ function occurrenceAt(recurrence: BillRecurrence, anchor: Anchor, index: number)
   switch (recurrence.frequency) {
     case 'monthly': {
       const total = first.year * 12 + (first.month - 1) + index * recurrence.interval;
+      if (recurrence.lastBusinessDay) return lastBusinessDayOfMonth(Math.floor(total / 12), (total % 12) + 1);
       return clampedDate(Math.floor(total / 12), (total % 12) + 1, anchor.day);
     }
     case 'weekly':
@@ -251,6 +267,7 @@ export function describeRecurrence(recurrence: BillRecurrence): string {
   switch (recurrence.frequency) {
     case 'monthly': {
       const base = every === 1 ? 'Mensal' : `A cada ${every} meses`;
+      if (recurrence.lastBusinessDay) return `${base}, último dia útil`;
       return recurrence.dayOfMonth ? `${base}, dia ${recurrence.dayOfMonth}` : base;
     }
     case 'weekly': {

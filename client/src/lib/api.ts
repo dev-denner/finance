@@ -1,9 +1,14 @@
 import type {
   AccountCashFlowResult,
   Bill,
+  BarcodeParseResult,
   BillAgenda,
+  BillAttachment,
   BillDecision,
   BillForecast,
+  BillImportMapping,
+  BillImportPreview,
+  BillImportSummary,
   BillListFilters,
   BillListResponse,
   BillTemplate,
@@ -361,6 +366,59 @@ export const api = {
   payBill: (id: number, input: PayBillInput) =>
     request<{ bill: Bill }>(`/bills/${id}/pay`, { method: 'POST', body: JSON.stringify(input) }),
 
+  bulkPayBills: (ids: number[], paidAt: string) =>
+    request<{ updated: number; paidCents: number }>('/bills/bulk-pay', {
+      method: 'POST',
+      body: JSON.stringify({ ids, paidAt }),
+    }),
+
+  /** Boleto agrupado: um lançamento novo paga todas as contas. */
+  payBillsGroup: (
+    ids: number[],
+    input: { paidAt: string; paymentMethodId: number; categoryId?: number | null; description?: string | null },
+  ) =>
+    request<{ updated: number; paidCents: number; transactionId: number }>('/bills/group-pay', {
+      method: 'POST',
+      body: JSON.stringify({ ids, mode: 'transaction', ...input }),
+    }),
+
+  bulkSkipBills: (ids: number[]) =>
+    request<{ updated: number }>('/bills/bulk-skip', { method: 'POST', body: JSON.stringify({ ids }) }),
+
+  undoBillPayment: (id: number, paymentId: number) =>
+    request<{ bill: Bill }>(`/bills/${id}/payments/${paymentId}`, { method: 'DELETE' }),
+
+  previewBillsImport: (file: File, mapping?: BillImportMapping) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (mapping) form.append('mapping', JSON.stringify(mapping));
+    return request<BillImportPreview>('/bills/import/preview', { method: 'POST', body: form });
+  },
+
+  importBills: (file: File, options: { mapping: BillImportMapping; skipDuplicates: boolean; rejectedRows: number[] }) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('mapping', JSON.stringify(options.mapping));
+    form.append('skipDuplicates', String(options.skipDuplicates));
+    form.append('rejectedRows', JSON.stringify(options.rejectedRows));
+    return request<BillImportSummary>('/bills/import', { method: 'POST', body: form });
+  },
+
+  parseBarcode: (barcode: string) =>
+    request<BarcodeParseResult>('/bills/barcode/parse', { method: 'POST', body: JSON.stringify({ barcode }) }),
+
+  uploadBillAttachment: (id: number, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ attachment: BillAttachment }>(`/bills/${id}/attachments`, { method: 'POST', body: form });
+  },
+
+  deleteBillAttachment: (id: number, attachmentId: number) =>
+    request<{ ok: true }>(`/bills/${id}/attachments/${attachmentId}`, { method: 'DELETE' }),
+
+  /** Endereço para abrir o anexo no navegador (o servidor responde com o tipo do arquivo). */
+  billAttachmentUrl: (id: number, attachmentId: number) => `/api/bills/${id}/attachments/${attachmentId}`,
+
   unpayBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/unpay`, { method: 'POST' }),
 
   skipBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/skip`, { method: 'POST' }),
@@ -421,6 +479,7 @@ export const api = {
       paymentMethodId?: number | null;
       notes?: string | null;
       scheduledFor?: string | null;
+      barcode?: string | null;
     },
   ) => request<{ bill: Bill }>(`/bills/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
 

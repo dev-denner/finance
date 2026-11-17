@@ -1,6 +1,6 @@
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { badRequest } from '../lib/errors';
-import type { PurchaseInput } from './purchase-input';
+import { itemCodeFrom, paymentsFromText, type PurchaseInput } from './purchase-input';
 
 export const MAX_NFCE_PDF_BYTES = 5 * 1024 * 1024;
 export const MAX_NFCE_PDF_PAGES = 5;
@@ -43,6 +43,11 @@ function keyFromText(text: string): string {
   return key;
 }
 
+/** Trecho entre "Forma de pagamento" e o troco ou os tributos, onde ficam as formas e os valores pagos. */
+function paymentSectionOf(text: string): string {
+  return text.match(/Forma\s+de\s+pagamento([\s\S]*?)(?=Troco|Informa[cç][aã]o\s+dos\s+Tributos|$)/i)?.[1] ?? '';
+}
+
 function parseRj(lines: string[], fullText: string): PurchaseInput {
   const joined = lines.join('\n');
   const cnpjMatch = joined.match(/CNPJ\s*:?\s*([\d./-]{14,18})/i);
@@ -68,13 +73,13 @@ function parseRj(lines: string[], fullText: string): PurchaseInput {
     const amounts = [...dataLine.matchAll(/\d[\d.]*[,.]\d{2}/g)].map(([value]) => value);
     const amountText = amounts.at(-1);
     if (!amountText) throw badRequest("Não foi possível interpretar o total de um item no PDF do RJ.");
-    items.push({ description, quantity: values[1]!.replace(',', '.'), unit: values[2]!, unitPriceCents: cents(values[3]!, 'preço unitário'), discountCents: null, totalCents: cents(amountText, 'total do item') });
+    items.push({ description, quantity: values[1]!.replace(',', '.'), unit: values[2]!, unitPriceCents: cents(values[3]!, 'preço unitário'), discountCents: null, totalCents: cents(amountText, 'total do item'), code: itemCodeFrom(descriptionLine) });
   }
   const totalCents = cents(totalText, 'total da nota');
   if (!supplierName || items.length === 0 || items.reduce((sum, item) => sum + item.totalCents, 0) !== totalCents) {
     throw badRequest('Os itens ou o total do PDF do RJ não puderam ser conferidos.');
   }
-  return { accessKey: keyFromText(fullText), supplierName, supplierCnpj: cnpj, invoiceNumber, series, issuedAt, totalCents, invoiceDiscountCents: 0, paymentMethod, items };
+  return { accessKey: keyFromText(fullText), supplierName, supplierCnpj: cnpj, invoiceNumber, series, issuedAt, totalCents, invoiceDiscountCents: 0, paymentMethod, items, payments: paymentsFromText(paymentSectionOf(joined)) };
 }
 
 function parseMg(lines: string[], fullText: string): PurchaseInput {
@@ -108,7 +113,8 @@ function parseMg(lines: string[], fullText: string): PurchaseInput {
     if (!Number.isFinite(quantityNumber) || quantityNumber <= 0) continue;
     const totalCents = cents(itemTotal, "total do item");
     const unitPriceCents = unitPrice ? cents(unitPrice, "preço unitário") : Math.round(totalCents / quantityNumber);
-    items.push({ description, quantity: quantityNumber.toString(), unit, unitPriceCents, discountCents: null, totalCents });
+    const code = line.match(/C[oó]digo\s*:?\s*([\w.-]+)/i)?.[1]?.slice(0, 60) ?? null;
+    items.push({ description, quantity: quantityNumber.toString(), unit, unitPriceCents, discountCents: null, totalCents, code });
   }
   const totalCents = cents(totalText, "total da nota");
   if (items.length === 0 || items.reduce((sum, item) => sum + item.totalCents, 0) !== totalCents) {
@@ -120,7 +126,7 @@ function parseMg(lines: string[], fullText: string): PurchaseInput {
   } catch {
     throw badRequest("O PDF de MG não contém a chave de acesso. Expanda a seção “Chave de acesso” no portal antes de salvar o PDF, ou importe pela URL do QR Code.");
   }
-  return { accessKey, supplierName, supplierCnpj, invoiceNumber, series, issuedAt, totalCents, invoiceDiscountCents: 0, paymentMethod, items };
+  return { accessKey, supplierName, supplierCnpj, invoiceNumber, series, issuedAt, totalCents, invoiceDiscountCents: 0, paymentMethod, items, payments: paymentsFromText(paymentSectionOf(joined)) };
 }
 
 export async function extractNfcePdf(buffer: Buffer): Promise<{ state: 'RJ' | 'MG'; purchase: PurchaseInput }> {

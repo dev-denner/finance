@@ -144,12 +144,25 @@ const notesSchema = z.string().max(1000).nullable().optional();
 
 export const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
 
+export const billAttachmentParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  attachmentId: z.coerce.number().int().positive(),
+});
+
+export const barcodeParseSchema = z.object({ barcode: z.string().max(80) }).strict();
+
+export const billPaymentParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  paymentId: z.coerce.number().int().positive(),
+});
+
 const recurrenceShape = {
   frequency: z.enum(['monthly', 'weekly', 'yearly']),
   interval: z.number().int().min(1).max(120).optional(),
   dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
   weekday: z.number().int().min(0).max(6).nullable().optional(),
   monthOfYear: z.number().int().min(1).max(12).nullable().optional(),
+  lastBusinessDay: z.boolean().optional(),
 };
 
 export const billRecurrenceSchema = z.object(recurrenceShape).strict();
@@ -166,6 +179,7 @@ const billFields = {
   paymentMethodId: z.number().int().positive().nullable().optional(),
   notes: notesSchema,
   scheduledFor: isoDateSchema.nullable().optional(),
+  barcode: z.string().max(80).nullable().optional(),
 };
 
 export const billCreateSchema = z
@@ -191,6 +205,26 @@ export const billForecastQuerySchema = z.object({
   months: z.coerce.number().int().min(1).max(12).default(3),
 });
 
+export const bulkBillIdsSchema = z.array(z.number().int().positive()).min(1).max(500);
+
+export const bulkPayBillsSchema = z.object({ ids: bulkBillIdsSchema, paidAt: isoDateSchema }).strict();
+
+export const bulkSkipBillsSchema = z.object({ ids: bulkBillIdsSchema }).strict();
+
+export const groupPayBillsSchema = z.discriminatedUnion('mode', [
+  z
+    .object({
+      ids: bulkBillIdsSchema,
+      mode: z.literal('transaction'),
+      paidAt: isoDateSchema,
+      paymentMethodId: z.number().int().positive(),
+      categoryId: z.number().int().positive().nullable().optional(),
+      description: z.string().trim().max(200).nullable().optional(),
+    })
+    .strict(),
+  z.object({ ids: bulkBillIdsSchema, mode: z.literal('link'), transactionId: z.number().int().positive() }).strict(),
+]);
+
 export const payBillSchema = z.discriminatedUnion('mode', [
   z
     .object({
@@ -198,6 +232,7 @@ export const payBillSchema = z.discriminatedUnion('mode', [
       paidAt: isoDateSchema,
       paidCents: positiveCentsSchema,
       notes: notesSchema,
+      partial: z.boolean().optional(),
     })
     .strict(),
   z
@@ -207,6 +242,7 @@ export const payBillSchema = z.discriminatedUnion('mode', [
       paidCents: positiveCentsSchema,
       paymentMethodId: z.number().int().positive(),
       notes: notesSchema,
+      partial: z.boolean().optional(),
     })
     .strict(),
   z
@@ -214,6 +250,7 @@ export const payBillSchema = z.discriminatedUnion('mode', [
       mode: z.literal('link'),
       transactionId: z.number().int().positive(),
       notes: notesSchema,
+      partial: z.boolean().optional(),
     })
     .strict(),
 ]);

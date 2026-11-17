@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { blob, check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -235,6 +235,8 @@ export const billTemplates = sqliteTable(
     dayOfMonth: integer('day_of_month'),
     weekday: integer('weekday'),
     monthOfYear: integer('month_of_year'),
+    /** 1 = vence no último dia útil bancário do mês (só monthly); 0 = usa day_of_month. */
+    lastBusinessDay: integer('last_business_day').notNull().default(0),
     startDate: text('start_date').notNull(),
     /** Término por data; vale o que terminar primeiro entre end_date e occurrence_count. */
     endDate: text('end_date'),
@@ -301,6 +303,8 @@ export const scheduledBills = sqliteTable(
       onUpdate: 'cascade',
     }),
     notes: text('notes'),
+    /** Linha digitável do boleto (47 dígitos) ou da conta de consumo (48), só dígitos. */
+    barcode: text('barcode'),
     /** 1 quando o "pago" veio da migração do status PG, sem lançamento vinculado. */
     migratedPayment: integer('migrated_payment').notNull().default(0),
     /** Conta de origem quando esta foi gerada por repetição manual (legado). */
@@ -339,8 +343,8 @@ export const billPayments = sqliteTable(
     billId: integer('bill_id')
       .notNull()
       .references(() => scheduledBills.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    /** Lançamento que pagou; null quando o pagamento foi registrado sem lançamento. */
     transactionId: integer('transaction_id')
-      .notNull()
       .references(() => transactions.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
     amountCents: integer('amount_cents').notNull(),
     paidAt: text('paid_at').notNull(),
@@ -351,13 +355,39 @@ export const billPayments = sqliteTable(
     createdAt: text('created_at').notNull().default(now),
   },
   (table) => [
-    uniqueIndex('bill_payments_transaction_uq').on(table.transactionId),
+    // Um lançamento pode pagar várias contas (boleto agrupado), mas cada conta só uma vez.
+    uniqueIndex('bill_payments_bill_transaction_uq').on(table.billId, table.transactionId),
+    index('bill_payments_transaction_idx').on(table.transactionId),
     index('bill_payments_bill_idx').on(table.billId),
     check('bill_payments_amount_check', sql`${table.amountCents} > 0`),
     check(
       'bill_payments_origin_check',
       sql`${table.origin} IN ('manual', 'import_match', 'migration')`,
     ),
+  ],
+);
+
+/**
+ * Anexos de uma conta a pagar (boleto em PDF, foto da conta). O arquivo fica no
+ * próprio banco para entrar no backup junto com a conta.
+ */
+export const billAttachments = sqliteTable(
+  'bill_attachments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    billId: integer('bill_id')
+      .notNull()
+      .references(() => scheduledBills.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    filename: text('filename').notNull(),
+    /** application/pdf | image/png | image/jpeg */
+    contentType: text('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    data: blob('data', { mode: 'buffer' }).notNull(),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    index('bill_attachments_bill_idx').on(table.billId),
+    check('bill_attachments_size_check', sql`${table.sizeBytes} > 0`),
   ],
 );
 
@@ -473,10 +503,32 @@ export const purchaseItems = sqliteTable(
     totalCents: integer('total_cents').notNull(),
     categoryId: integer('category_id').references(() => categories.id, { onDelete: 'set null', onUpdate: 'cascade' }),
     reconciliationPreviousCategoryId: integer('reconciliation_previous_category_id'),
+    /** Código do produto no emitente (cProd), quando a nota informa. Base do Módulo 4. */
+    code: text('code'),
+    /** GTIN/EAN do produto, quando a nota informa um código válido. */
+    ean: text('ean'),
   },
   (table) => [
     uniqueIndex('purchase_items_purchase_position_uq').on(table.purchaseId, table.position),
     index('purchase_items_purchase_id_idx').on(table.purchaseId),
+  ],
+);
+
+/** Formas de pagamento declaradas na nota (detPag), uma linha por forma. Só informativo: não liquida a compra. */
+export const purchasePayments = sqliteTable(
+  'purchase_payments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    purchaseId: integer('purchase_id')
+      .notNull()
+      .references(() => purchases.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    position: integer('position').notNull(),
+    method: text('method').notNull(),
+    amountCents: integer('amount_cents').notNull(),
+  },
+  (table) => [
+    uniqueIndex('purchase_payments_purchase_position_uq').on(table.purchaseId, table.position),
+    check('purchase_payments_amount_check', sql`${table.amountCents} > 0`),
   ],
 );
 

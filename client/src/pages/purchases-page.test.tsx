@@ -203,6 +203,21 @@ describe('PurchasesPage', () => {
     expect(container.querySelector('a[href="/importacoes/nfce"]')).toBeTruthy();
   });
 
+  it('mostra o código do item e as formas de pagamento da nota quando existem', async () => {
+    vi.mocked(api.getPurchase).mockResolvedValue({
+      ...detail,
+      items: [{ ...detail.items![0]!, code: 'A-01', ean: '7891000100103' }],
+      payments: [{ method: 'Cartão de crédito', amountCents: 2000 }, { method: 'Vale-refeição', amountCents: 1000 }],
+    });
+    await mount(['/compras/1']);
+
+    expect(container.textContent).toContain('Cód. A-01 · EAN 7891000100103');
+    const payments = container.querySelector('[aria-label="Pagamentos da nota"]');
+    expect(payments?.textContent).toContain('Cartão de crédito');
+    expect(payments?.textContent).toContain('R$ 20,00');
+    expect(payments?.textContent).toContain('Vale-refeição');
+  });
+
   it('seleciona um item, aplica categoria e permite criar categoria rapidamente', async () => {
     await mount(['/compras/1']);
 

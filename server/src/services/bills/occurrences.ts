@@ -1,14 +1,16 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../../db/client';
 import { billPayments, categories, paymentMethods, scheduledBills } from '../../db/schema';
 import { parseDateValue, todayIso } from '../../lib/dates';
 import { badRequest, conflict, notFound, nowIso } from '../../lib/errors';
+import { parseBarcode } from '../../lib/barcode';
 import { parseAmountToCents } from '../../lib/money';
 import { displayName } from '../../lib/normalize';
 import {
   billSelection,
   billState,
   toBillDto,
+  loadAttachmentMeta,
   loadPayments,
   type BillDto,
   type BillRow,
@@ -25,6 +27,8 @@ export interface BillWriteInput {
   categoryId?: unknown;
   paymentMethodId?: unknown;
   notes?: unknown;
+  /** Linha digitável do boleto; null ou vazio limpa. Validada pelos dígitos verificadores. */
+  barcode?: unknown;
   /** Data de agendamento no banco; null limpa. */
   scheduledFor?: unknown;
   /**
@@ -44,7 +48,8 @@ export function getBill(db: AppDatabase, id: number, today = todayIso()): BillDt
   const row = billSelection(db).where(eq(scheduledBills.id, id)).get();
   if (!row) throw notFound('Conta a pagar não encontrada.');
   const payments = loadPayments(db, [id]).get(id) ?? [];
-  return toBillDto(row, today, payments);
+  const attachments = loadAttachmentMeta(db, [id]).get(id) ?? [];
+  return toBillDto(row, today, payments, attachments);
 }
 
 export function assertCategory(db: AppDatabase, value: unknown): number {
@@ -112,6 +117,15 @@ interface ParsedBill {
   categoryId: number;
   paymentMethodId: number | null;
   notes: string | null;
+  barcode: string | null;
+}
+
+/** Só os dígitos da linha digitável, depois de conferir os dígitos verificadores. */
+export function parseBarcodeInput(value: unknown, today = todayIso()): string | null {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const parsed = parseBarcode(value, today);
+  if (!parsed.ok) throw badRequest(parsed.error);
+  return parsed.value.digits;
 }
 
 function parseBillInput(db: AppDatabase, input: BillWriteInput, existing?: BillRow): ParsedBill {
@@ -138,8 +152,9 @@ function parseBillInput(db: AppDatabase, input: BillWriteInput, existing?: BillR
       : (existing?.paymentMethodId ?? null);
 
   const notes = input.notes !== undefined ? parseNotes(input.notes) : (existing?.notes ?? null);
+  const barcode = input.barcode !== undefined ? parseBarcodeInput(input.barcode) : (existing?.barcode ?? null);
 
-  return { description, amountCents, dueDate: dueDate.value, categoryId, paymentMethodId, notes };
+  return { description, amountCents, dueDate: dueDate.value, categoryId, paymentMethodId, notes, barcode };
 }
 
 /** Cria uma conta avulsa (sem recorrência). */
@@ -183,22 +198,63 @@ export function updateBill(
   if (input.scheduledFor !== undefined) {
     patch.scheduledFor = parseOptionalDate(input.scheduledFor, 'Agendamento');
   }
+  const payments = paymentTotals(db, id);
+  let clearExternalPayments = false;
   if (input.status !== undefined) {
     const legacy = parseLegacyStatus(input.status);
+    if (payments.count > 0 && legacy === 'PG' && billState(existing.state) !== 'paid') {
+      throw conflict('Esta conta tem pagamento parcial. Use "Pagar" para quitá-la.');
+    }
+    if (payments.count > 0 && legacy !== 'PG') {
+      if (payments.linked) {
+        throw conflict('Esta conta tem pagamento vinculado a um lançamento. Desfaça o pagamento antes.');
+      }
+      // A situação da planilha só conhece pagamento externo: reabrir descarta esses registros.
+      clearExternalPayments = true;
+    }
     Object.assign(patch, legacyTransition(existing, legacy, parsed, today));
   }
-  // Conta paga sem lançamento mantém o valor pago igual ao previsto quando este muda.
+  const nextState = billState(patch.state ?? existing.state);
+  // Conta paga sem registro de pagamento (migrada) mantém o valor pago igual ao previsto quando este muda.
   if (
-    billState(patch.state ?? existing.state) === 'paid' &&
+    nextState === 'paid' &&
+    payments.count === 0 &&
     existing.paidCents === existing.amountCents &&
     patch.amountCents !== undefined &&
     patch.paidCents === undefined
   ) {
     patch.paidCents = patch.amountCents;
   }
+  // Conta em aberto com pagamento parcial: o valor não fica abaixo do já pago; igual, ela é quitada.
+  if (nextState === 'open' && !clearExternalPayments && payments.count > 0 && patch.amountCents !== undefined) {
+    if (patch.amountCents < payments.total) {
+      throw badRequest('O valor da conta não pode ficar abaixo do que já foi pago. Desfaça os pagamentos antes.');
+    }
+    if (patch.amountCents === payments.total) {
+      Object.assign(patch, { state: 'paid', paidAt: payments.lastPaidAt, paidCents: payments.total, scheduledFor: null });
+    }
+  }
 
-  db.update(scheduledBills).set(patch).where(eq(scheduledBills.id, id)).run();
+  db.transaction(() => {
+    if (clearExternalPayments) db.delete(billPayments).where(eq(billPayments.billId, id)).run();
+    db.update(scheduledBills).set(patch).where(eq(scheduledBills.id, id)).run();
+  });
   return getBill(db, id, today);
+}
+
+/** Quantidade, soma, data mais recente e se algum pagamento tem lançamento vinculado. */
+function paymentTotals(db: AppDatabase, id: number): { count: number; total: number; lastPaidAt: string | null; linked: boolean } {
+  const row = db
+    .select({
+      count: sql<number>`count(*)`,
+      total: sql<number>`coalesce(sum(${billPayments.amountCents}), 0)`,
+      lastPaidAt: sql<string | null>`max(${billPayments.paidAt})`,
+      linked: sql<number>`count(${billPayments.transactionId})`,
+    })
+    .from(billPayments)
+    .where(eq(billPayments.billId, id))
+    .get();
+  return { count: row?.count ?? 0, total: row?.total ?? 0, lastPaidAt: row?.lastPaidAt ?? null, linked: (row?.linked ?? 0) > 0 };
 }
 
 /** Situação da planilha aplicada ao modelo (só pagamento externo). */
@@ -218,12 +274,6 @@ function legacyTransition(
   return { ...base, scheduledFor: legacy === 'AG' ? parsed.dueDate : null };
 }
 
-function hasPayments(db: AppDatabase, id: number): boolean {
-  return Boolean(
-    db.select({ id: billPayments.id }).from(billPayments).where(eq(billPayments.billId, id)).get(),
-  );
-}
-
 /**
  * Exclui uma conta avulsa. Uma ocorrência de recorrência não é removida (a
  * série a recriaria): ela vira "pulada" e mantém a posição na série.
@@ -233,12 +283,16 @@ export function deleteBill(
   id: number,
 ): { removed: boolean; skipped: boolean } {
   const existing = loadBillRow(db, id);
-  if (hasPayments(db, id)) {
+  // Pagamentos sem lançamento saem junto com uma conta avulsa; com lançamento, não.
+  if (paymentTotals(db, id).linked) {
     throw conflict('Esta conta tem pagamento vinculado a um lançamento. Desfaça o pagamento antes.');
   }
   if (existing.templateId !== null) {
     if (billState(existing.state) === 'paid') {
       throw conflict('Conta paga de uma recorrência não pode ser excluída. Desfaça o pagamento antes.');
+    }
+    if (paymentTotals(db, id).count > 0) {
+      throw conflict('Esta ocorrência tem pagamento parcial. Desfaça os pagamentos antes de excluí-la.');
     }
     db.update(scheduledBills)
       .set({ state: 'skipped', scheduledFor: null, updatedAt: nowIso() })
@@ -254,6 +308,9 @@ export function skipBill(db: AppDatabase, id: number, today = todayIso()): BillD
   const existing = loadBillRow(db, id);
   if (billState(existing.state) === 'paid') {
     throw conflict('Conta paga não pode ser pulada. Desfaça o pagamento antes.');
+  }
+  if (paymentTotals(db, id).count > 0) {
+    throw conflict('Conta com pagamento parcial não pode ser pulada. Desfaça os pagamentos antes.');
   }
   db.update(scheduledBills)
     .set({ state: 'skipped', scheduledFor: null, updatedAt: nowIso() })

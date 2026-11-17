@@ -6,6 +6,7 @@
 import type {
   Bill,
   BillAgenda,
+  BillForecast,
   BillFrequency,
   BillState,
   BillTemplate,
@@ -157,7 +158,11 @@ export interface BillsView {
   state: BillStateFilter;
   q: string;
   categoryId: number | null;
+  /** Lista (padrão) ou calendário do mês. */
+  layout: BillsLayout;
 }
+
+export type BillsLayout = 'list' | 'calendar';
 
 const STATE_FILTERS: readonly BillStateFilter[] = ['all', 'open', 'paid', 'skipped'];
 
@@ -179,6 +184,7 @@ export function parseBillsView(params: URLSearchParams, today: string): BillsVie
     state: STATE_FILTERS.includes(state as BillStateFilter) ? (state as BillStateFilter) : 'all',
     q: (params.get('q') ?? '').slice(0, 200),
     categoryId: positiveInt(params.get('categoryId')),
+    layout: params.get('layout') === 'calendar' ? 'calendar' : 'list',
   };
 }
 
@@ -194,6 +200,7 @@ export function billsViewParams(view: BillsView, today: string): Record<string, 
   if (view.state !== 'all') params.state = view.state;
   if (view.q.trim()) params.q = view.q.trim();
   if (view.categoryId !== null) params.categoryId = String(view.categoryId);
+  if (view.layout === 'calendar') params.layout = 'calendar';
   return params;
 }
 
@@ -214,6 +221,8 @@ export interface BillForm {
   repeat: boolean;
   frequency: BillFrequency;
   interval: string;
+  /** Só mensal: vence no último dia útil do mês em vez do dia da primeira data. */
+  lastBusinessDay: boolean;
   endMode: EndMode;
   endDate: string;
   occurrenceCount: string;
@@ -232,6 +241,7 @@ export function emptyBillForm(today: string, categoryId: number | null): BillFor
     repeat: false,
     frequency: 'monthly',
     interval: '1',
+    lastBusinessDay: false,
     endMode: 'never',
     endDate: '',
     occurrenceCount: '',
@@ -249,6 +259,7 @@ export function billFormFrom(bill: Bill, template?: BillTemplate): BillForm {
     repeat: Boolean(template),
     frequency: template?.recurrence.frequency ?? 'monthly',
     interval: String(template?.recurrence.interval ?? 1),
+    lastBusinessDay: template?.recurrence.lastBusinessDay === true,
     endMode: template?.occurrenceCount ? 'count' : template?.endDate ? 'date' : 'never',
     endDate: template?.endDate ?? '',
     occurrenceCount: template?.occurrenceCount ? String(template.occurrenceCount) : '',
@@ -299,15 +310,21 @@ export function billInputFrom(form: BillForm) {
 /**
  * Recorrência derivada da primeira data: o dia do mês (e o mês, se anual) vêm
  * dela, e o dia da semana fica com o servidor. Dia 31 recua para o fim dos
- * meses curtos sem perder o dia nos meses longos.
+ * meses curtos sem perder o dia nos meses longos. Com "último dia útil", o
+ * servidor calcula o dia de cada mês.
  */
-export function recurrenceFrom(form: Pick<BillForm, 'dueDate' | 'frequency' | 'interval'>): BillTemplateInput['recurrence'] {
+export function recurrenceFrom(
+  form: Pick<BillForm, 'dueDate' | 'frequency' | 'interval'> & Partial<Pick<BillForm, 'lastBusinessDay'>>,
+): BillTemplateInput['recurrence'] {
   const day = Number(form.dueDate.slice(8, 10));
   const month = Number(form.dueDate.slice(5, 7));
   const interval = Number(form.interval) || 1;
-  if (form.frequency === 'weekly') return { frequency: 'weekly', interval, weekday: null };
-  if (form.frequency === 'yearly') return { frequency: 'yearly', interval, dayOfMonth: day, monthOfYear: month };
-  return { frequency: 'monthly', interval, dayOfMonth: day };
+  if (form.frequency === 'weekly') return { frequency: 'weekly', interval, weekday: null, lastBusinessDay: false };
+  if (form.frequency === 'yearly') {
+    return { frequency: 'yearly', interval, dayOfMonth: day, monthOfYear: month, lastBusinessDay: false };
+  }
+  if (form.lastBusinessDay) return { frequency: 'monthly', interval, dayOfMonth: null, lastBusinessDay: true };
+  return { frequency: 'monthly', interval, dayOfMonth: day, lastBusinessDay: false };
 }
 
 export function templateInputFrom(form: BillForm): BillTemplateInput {
@@ -365,7 +382,10 @@ export function futureEditPlan(form: BillForm, bill: Bill, template: BillTemplat
     : retained
       ? nextDayIso(bill.dueDate)
       : bill.dueDate;
-  const keepAnchor = !dateChanged && form.frequency === template.recurrence.frequency;
+  const keepAnchor =
+    !dateChanged &&
+    form.frequency === template.recurrence.frequency &&
+    (form.frequency === 'monthly' && form.lastBusinessDay) === (template.recurrence.lastBusinessDay === true);
   const interval = Number(form.interval) || 1;
   const fullRecurrence: BillTemplateInput['recurrence'] = keepAnchor
     ? {
@@ -374,6 +394,7 @@ export function futureEditPlan(form: BillForm, bill: Bill, template: BillTemplat
         dayOfMonth: template.recurrence.dayOfMonth,
         weekday: template.recurrence.weekday,
         monthOfYear: template.recurrence.monthOfYear,
+        lastBusinessDay: template.recurrence.lastBusinessDay === true,
       }
     : recurrenceFrom(form);
 
@@ -392,4 +413,194 @@ export function futureEditPlan(form: BillForm, bill: Bill, template: BillTemplat
     },
     preview: { ...base, recurrence: fullRecurrence, startDate: dateChanged ? form.dueDate : from },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Pagamentos
+// ---------------------------------------------------------------------------
+
+/** Quanto falta pagar: o valor previsto menos os pagamentos parciais. */
+export function remainingCents(bill: Pick<Bill, 'amountCents' | 'partialPaidCents'>): number {
+  return Math.max(0, bill.amountCents - bill.partialPaidCents);
+}
+
+/**
+ * Linha de apoio sob a descrição da conta: progresso do pagamento parcial,
+ * conta de onde saiu o lançamento, pagamento migrado ou observação.
+ */
+export function billNote(
+  bill: Pick<Bill, 'state' | 'amountCents' | 'partialPaidCents' | 'payments' | 'migratedPayment' | 'notes'>,
+  formatMoney: (cents: number) => string,
+): string | null {
+  if (bill.state === 'open' && bill.partialPaidCents > 0) {
+    return `Pago ${formatMoney(bill.partialPaidCents)} de ${formatMoney(bill.amountCents)} · faltam ${formatMoney(remainingCents(bill))}`;
+  }
+  const linked = bill.payments.find((payment) => payment.transactionId !== null);
+  if (linked) return `Lançamento em ${linked.paymentMethodName ?? 'Movimentações'}`;
+  if (bill.migratedPayment) return 'Paga antes da atualização (sem lançamento)';
+  return bill.notes;
+}
+
+// ---------------------------------------------------------------------------
+// Previsão
+// ---------------------------------------------------------------------------
+
+export interface ForecastCard {
+  year: number;
+  month: number;
+  label: string;
+  totalCents: number;
+  openCents: number;
+  paidCents: number;
+  overdueCents: number;
+  /** Fração já paga do previsto, de 0 a 1 (0 quando não há contas no mês). */
+  paidShare: number;
+  /** Mês aberto na lista abaixo. */
+  selected: boolean;
+}
+
+/** Cartões da previsão mensal, marcando o mês que está aberto na lista. */
+export function forecastCards(forecast: BillForecast | null, view: Pick<BillsView, 'year' | 'month'>): ForecastCard[] {
+  return (forecast?.months ?? []).map(({ year, month, summary }) => ({
+    year,
+    month,
+    label: monthLabel(year, month),
+    totalCents: summary.totalCents,
+    openCents: summary.openCents,
+    paidCents: summary.paidCents,
+    overdueCents: summary.overdueCents,
+    paidShare: summary.totalCents > 0 ? Math.min(1, summary.paidCents / summary.totalCents) : 0,
+    selected: year === view.year && month === view.month,
+  }));
+}
+
+
+/** Ações em massa só valem para contas em aberto. */
+export function isBulkSelectable(bill: Pick<Bill, 'state'>): boolean {
+  return bill.state === 'open';
+}
+
+export interface BulkSelection {
+  bills: Bill[];
+  /** Soma do que falta pagar nas selecionadas. */
+  remainingCents: number;
+  /** Selecionadas com pagamento parcial: não podem ser puladas. */
+  partial: Bill[];
+}
+
+/** Contas selecionadas que continuam na lista e em aberto, na ordem da lista. */
+export function bulkSelection(bills: readonly Bill[], selectedIds: ReadonlySet<number>): BulkSelection {
+  const selected = bills.filter((bill) => selectedIds.has(bill.id) && isBulkSelectable(bill));
+  return {
+    bills: selected,
+    remainingCents: selected.reduce((sum, bill) => sum + remainingCents(bill), 0),
+    partial: selected.filter((bill) => bill.partialPaidCents > 0),
+  };
+}
+
+/** Atalho de teclado da tela de contas, ou null quando a tecla não é atalho. */
+export type BillsShortcut = 'new' | 'pay';
+
+export function billsShortcut(event: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  target: EventTarget | null;
+}): BillsShortcut | null {
+  if (event.ctrlKey || event.metaKey || event.altKey) return null;
+  if (isTypingTarget(event.target)) return null;
+  const key = event.key.toLowerCase();
+  if (key === 'n') return 'new';
+  if (key === 'p') return 'pay';
+  return null;
+}
+
+/** Campos de input que não recebem texto: com o foco neles (ex.: a caixa recém-marcada), o atalho vale. */
+const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'color', 'range', 'image']);
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as { tagName?: unknown }).tagName !== 'string') return false;
+  const element = target as HTMLElement & { type?: unknown };
+  const tag = element.tagName.toLowerCase();
+  if (tag === 'input') return !NON_TEXT_INPUTS.has(String(element.type ?? 'text').toLowerCase());
+  return tag === 'textarea' || tag === 'select' || element.isContentEditable === true;
+}
+
+// ---------------------------------------------------------------------------
+// Calendário do mês
+// ---------------------------------------------------------------------------
+
+export const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const;
+
+export interface CalendarDay {
+  date: string;
+  day: number;
+  /** Contas que vencem no dia, na ordem da lista. */
+  bills: Bill[];
+  /** Previsto do dia, sem as puladas. */
+  totalCents: number;
+  /** O que ainda falta pagar no dia (descontados os parciais). */
+  openCents: number;
+  /** Tom mais urgente entre as contas do dia, para o marcador da célula. */
+  tone: StatusTone | null;
+  isToday: boolean;
+}
+
+/** Semana de domingo a sábado; null nas casas fora do mês. */
+export type CalendarWeek = (CalendarDay | null)[];
+
+const TONE_PRIORITY: readonly StatusTone[] = ['danger', 'warning', 'info', 'neutral', 'success', 'muted'];
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** Grade do mês com as contas pelo vencimento. */
+export function calendarWeeks(year: number, month: number, bills: readonly Bill[], today: string): CalendarWeek[] {
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const byDate = new Map<string, Bill[]>();
+  for (const bill of bills) {
+    const list = byDate.get(bill.dueDate);
+    if (list) list.push(bill);
+    else byDate.set(bill.dueDate, [bill]);
+  }
+
+  const cells: (CalendarDay | null)[] = Array.from({ length: firstWeekday }, () => null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = `${year}-${pad2(month)}-${pad2(day)}`;
+    const dayBills = byDate.get(date) ?? [];
+    const counted = dayBills.filter((bill) => bill.state !== 'skipped');
+    const tones = dayBills.map((bill) => statusInfo(bill, today).tone);
+    cells.push({
+      date,
+      day,
+      bills: dayBills,
+      totalCents: counted.reduce((sum, bill) => sum + bill.amountCents, 0),
+      openCents: counted.filter((bill) => bill.state === 'open').reduce((sum, bill) => sum + remainingCents(bill), 0),
+      tone: TONE_PRIORITY.find((tone) => tones.includes(tone)) ?? null,
+      isToday: date === today,
+    });
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const weeks: CalendarWeek[] = [];
+  for (let index = 0; index < cells.length; index += 7) weeks.push(cells.slice(index, index + 7));
+  return weeks;
+}
+
+/**
+ * Dia aberto ao entrar no calendário: hoje, se for do mês exibido; senão o
+ * primeiro dia com conta em aberto, o primeiro com qualquer conta ou o dia 1.
+ */
+export function defaultCalendarDay(weeks: readonly CalendarWeek[]): string | null {
+  const days = weeks.flat().filter((cell): cell is CalendarDay => cell !== null);
+  if (days.length === 0) return null;
+  return (
+    days.find((cell) => cell.isToday)?.date ??
+    days.find((cell) => cell.bills.some((bill) => bill.state === 'open'))?.date ??
+    days.find((cell) => cell.bills.length > 0)?.date ??
+    days[0].date
+  );
 }

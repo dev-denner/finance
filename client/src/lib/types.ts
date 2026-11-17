@@ -35,6 +35,16 @@ export interface PurchaseItem {
   unitPriceCents: number;
   discountCents: number | null;
   totalCents: number;
+  /** Código do produto no emitente (cProd), quando a nota informa. */
+  code?: string | null;
+  /** GTIN/EAN do produto, quando a nota informa. */
+  ean?: string | null;
+}
+
+/** Forma de pagamento declarada na nota. */
+export interface PurchasePayment {
+  method: string;
+  amountCents: number;
 }
 
 export interface Purchase {
@@ -55,6 +65,7 @@ export interface Purchase {
   itemCount?: number;
   reconciledAt?: string | null;
   items?: PurchaseItem[];
+  payments?: PurchasePayment[];
 }
 
 
@@ -535,7 +546,8 @@ export interface BillPaymentCandidate {
   dayDistance: number;
   amountDiffCents: number;
   party: TransferParty;
-  bill: { id: number; description: string; amountCents: number; dueDate: string; categoryName: string };
+  /** `paidCents`: parciais já pagos; a sugestão casa com o que falta. */
+  bill: { id: number; description: string; amountCents: number; dueDate: string; categoryName: string; paidCents: number };
 }
 
 export interface ImportPreview {
@@ -619,16 +631,38 @@ export type BillState = 'open' | 'paid' | 'skipped';
 /** Derivado no servidor a partir do estado e das datas. */
 export type BillDisplayStatus = 'overdue' | 'due_today' | 'scheduled' | 'upcoming' | 'paid' | 'skipped';
 
+export interface BillAttachment {
+  id: number;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export type BarcodeParseResult =
+  | {
+      valid: true;
+      digits: string;
+      kind: 'bank' | 'utility';
+      amountCents: number | null;
+      dueDate: string | null;
+      formatted: string;
+    }
+  | { valid: false; error: string };
+
 export interface BillPayment {
   id: number;
-  transactionId: number;
+  /** null quando o pagamento foi registrado sem lançamento. */
+  transactionId: number | null;
   amountCents: number;
   paidAt: string;
   origin: 'manual' | 'import_match' | 'migration';
   /** true quando o lançamento foi criado pelo próprio pagamento (desfazer apaga). */
   createdTransaction: boolean;
   paymentMethodName: string | null;
-  transactionDescription: string;
+  transactionDescription: string | null;
+  /** Contas pagas pelo mesmo lançamento (boleto agrupado); 1 no pagamento comum. */
+  groupSize: number;
 }
 
 export interface Bill {
@@ -644,13 +678,19 @@ export interface Bill {
   scheduledFor: string | null;
   paidAt: string | null;
   paidCents: number | null;
+  /** Soma dos pagamentos parciais de uma conta ainda em aberto; 0 nos demais casos. */
+  partialPaidCents: number;
   migratedPayment: boolean;
   categoryId: number;
   categoryName: string;
   paymentMethodId: number | null;
   paymentMethodName: string | null;
   notes: string | null;
+  /** Linha digitável (só dígitos) e a mesma formatada para leitura. */
+  barcode: string | null;
+  barcodeFormatted: string | null;
   payments: BillPayment[];
+  attachments: BillAttachment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -685,6 +725,8 @@ export interface BillRecurrence {
   dayOfMonth: number | null;
   weekday: number | null;
   monthOfYear: number | null;
+  /** Mensal no último dia útil bancário (fins de semana e feriados nacionais fora). */
+  lastBusinessDay?: boolean;
 }
 
 export interface BillTemplate {
@@ -720,6 +762,7 @@ export interface BillTemplateInput {
     dayOfMonth?: number | null;
     weekday?: number | null;
     monthOfYear?: number | null;
+    lastBusinessDay?: boolean;
   };
   startDate: string;
   endDate?: string | null;
@@ -732,10 +775,14 @@ export type BillTemplateUpdate = Partial<Omit<BillTemplateInput, 'recurrence'>> 
   recurrence?: Partial<BillTemplateInput['recurrence']>;
 };
 
-export type PayBillInput =
+export type PayBillInput = (
   | { mode: 'external'; paidAt: string; paidCents: number; notes?: string | null }
   | { mode: 'transaction'; paidAt: string; paidCents: number; paymentMethodId: number; notes?: string | null }
-  | { mode: 'link'; transactionId: number; notes?: string | null };
+  | { mode: 'link'; transactionId: number; notes?: string | null }
+) & {
+  /** Pagamento parcial: a conta continua em aberto até a soma alcançar o valor previsto. */
+  partial?: boolean;
+};
 
 export interface BillListFilters {
   state?: 'all' | BillState;
@@ -790,4 +837,59 @@ export interface InstallmentRecoveryProposal {
   previous: string | null;
   conflict: boolean;
   reason: string;
+}
+
+// ---------------------------------------------------------------------------
+// Importação de contas a pagar por planilha
+// ---------------------------------------------------------------------------
+
+export type BillImportField = 'description' | 'amount' | 'dueDate' | 'status' | 'category' | 'repeat';
+
+export type BillImportMapping = Partial<Record<BillImportField, number | null>>;
+
+export interface BillImportPreviewRow {
+  rowNumber: number;
+  raw: Record<string, string>;
+  values: {
+    description: string;
+    amountCents: number | null;
+    dueDate: string | null;
+    status: '' | 'AG' | 'PG';
+    category: string;
+    recurrence: {
+      frequency: BillFrequency;
+      interval: number;
+      lastBusinessDay: boolean;
+      occurrenceCount: number | null;
+      label: string;
+    } | null;
+  };
+  errors: string[];
+  duplicate: boolean;
+}
+
+export interface BillImportPreview {
+  filename: string;
+  sheetName: string;
+  headers: string[];
+  mapping: BillImportMapping;
+  mappingErrors: string[];
+  mappingWarnings: string[];
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  rows: BillImportPreviewRow[];
+}
+
+export interface BillImportSummary {
+  filename: string;
+  totalRows: number;
+  importedRows: number;
+  rejectedRows: number;
+  duplicateRows: number;
+  skippedDuplicates: number;
+  invalidRows: number;
+  createdTemplates: number;
+  errors: { rowNumber: number; errors: string[] }[];
 }

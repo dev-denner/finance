@@ -86,6 +86,8 @@ describe('importação local de texto copiado da NFC-e', () => {
       unitPriceCents: 2000,
       totalCents: 1000,
     });
+    expect(purchase?.items.map((item) => item.code)).toEqual(['1001', '1002']);
+    expect(purchase?.payments).toEqual([{ method: 'Pix', amountCents: 1800 }]);
     const response = JSON.stringify(result);
     expect(response).not.toContain(accessKey);
     expect(response).not.toContain('99988877766');

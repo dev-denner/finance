@@ -64,6 +64,8 @@ Com `purchase_settlements` como fonte da verdade, `transaction_id` guarda só o 
 ### R7 — Dados para o Módulo 4
 Guardar o **código do item** (`cProd`, EAN quando houver) em `purchase_items` já nos parsers atuais evita reimportar notas depois; e separar as formas de pagamento da nota em linhas (`purchase_payments`) permite conciliar cartão + dinheiro + VR na mesma compra sem depender do texto.
 
+**Resolvido (2026-11-16):** a migração `0017` acrescenta `code` e `ean` a `purchase_items` e cria `purchase_payments` (forma e valor, por posição). Todos os canais leem o código: "(Código: X)" no RJ, em SP, no texto copiado e nos PDFs; `cProd`/`cEAN` no XML do TO. Os pagamentos vêm das linhas após "Forma de pagamento" no RJ e em SP, de `detPag` no TO e da seção de pagamento no texto copiado e nos PDFs. Só são gravados quando cobrem o total. Eles são informativos: a conciliação automática por forma de pagamento fica para depois.
+
 ## Ordem sugerida
 1. Mesclar `feat/module3-purchases` após ajustar R3 (regra de itens) e atualizar o baseline.
 2. Rebasear `feat/bills-recurrence` sobre o resultado, renumerando a migração para `0015`.

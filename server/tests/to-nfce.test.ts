@@ -43,6 +43,16 @@ describe('adaptador NFC-e TO', () => {
     expect(parseToNfceXml(mismatched, new JSDOM("").window.DOMParser, key()).error).toBe("invoice-mismatch");
     expect(parseToNfceXml(document.replace("<mod>65</mod>", "<mod>55</mod>"), new JSDOM("").window.DOMParser, key()).error).toBe("invoice-mismatch");
   });
+  it('lê código, EAN e as formas de pagamento com valor (R7)', () => {
+    const document = xml()
+      .replace('<prod><xProd>Item Sintético A</xProd>', '<prod><cProd>A-01</cProd><cEAN>7891000100103</cEAN><xProd>Item Sintético A</xProd>')
+      .replace('<prod><xProd>Item Sintético B</xProd>', '<prod><cProd>B-02</cProd><cEAN>SEM GTIN</cEAN><xProd>Item Sintético B</xProd>')
+      .replace('<pag><detPag><tPag>17</tPag></detPag></pag>', '<pag><detPag><tPag>17</tPag><vPag>20.00</vPag></detPag><detPag><tPag>01</tPag><vPag>10.00</vPag></detPag><vTroco>2.00</vTroco></pag>');
+    const result = parseToNfceXml(document, new JSDOM('').window.DOMParser, key());
+    expect(result.purchase?.items.map((item) => [item.code, item.ean])).toEqual([['A-01', '7891000100103'], ['B-02', null]]);
+    expect(result.purchase?.payments).toEqual([{ method: 'Pix', amountCents: 2000 }, { method: 'Dinheiro', amountCents: 1000 }]);
+    expect(result.purchase?.paymentMethod).toBe('Pagamento misto');
+  });
   it('rejeita divergência da soma e entidades XML', () => {
     expect(parseToNfceXml(xml().replace('<vProd>30.00</vProd>', '<vProd>31.00</vProd>'), new JSDOM('').window.DOMParser, key()).error).toBe('total-mismatch');
     expect(parseToNfceXml('<!DOCTYPE x [<!ENTITY e "x">]><x/>', new JSDOM('').window.DOMParser, key()).error).toBe('xml-invalid');

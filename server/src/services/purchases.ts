@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../db/client';
-import { categories, purchaseItems, purchases } from '../db/schema';
+import { categories, purchaseItems, purchasePayments, purchases } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
-import type { PurchaseInput } from './rj-nfce';
+import { consistentPayments, normalizeEan, type PurchaseInput } from './purchase-input';
 
 export function listPurchases(db: AppDatabase) {
   return db
@@ -54,13 +54,21 @@ export function getPurchase(db: AppDatabase, id: number) {
       categoryId: purchaseItems.categoryId,
       categoryName: categories.name,
       categoryColor: categories.color,
+      code: purchaseItems.code,
+      ean: purchaseItems.ean,
     })
     .from(purchaseItems)
     .leftJoin(categories, eq(categories.id, purchaseItems.categoryId))
     .where(eq(purchaseItems.purchaseId, id))
     .orderBy(purchaseItems.position)
     .all();
-  return { ...purchase, items };
+  const payments = db
+    .select({ method: purchasePayments.method, amountCents: purchasePayments.amountCents })
+    .from(purchasePayments)
+    .where(eq(purchasePayments.purchaseId, id))
+    .orderBy(purchasePayments.position)
+    .all();
+  return { ...purchase, items, payments };
 }
 
 export function updatePurchaseItemsCategory(
@@ -135,8 +143,21 @@ export function importPurchase(db: AppDatabase, purchase: PurchaseInput) {
           unitPriceCents: item.unitPriceCents,
           discountCents: item.discountCents,
           totalCents: item.totalCents,
+          code: item.code?.trim().slice(0, 60) || null,
+          ean: normalizeEan(item.ean),
         })))
         .run();
+      const payments = consistentPayments(purchase.payments, purchase.totalCents);
+      if (payments.length > 0) {
+        tx.insert(purchasePayments)
+          .values(payments.map((payment, index) => ({
+            purchaseId: inserted.id,
+            position: index + 1,
+            method: payment.method.trim().slice(0, 100),
+            amountCents: payment.amountCents,
+          })))
+          .run();
+      }
       return { id: inserted.id, duplicate: false };
     });
   } catch (error) {

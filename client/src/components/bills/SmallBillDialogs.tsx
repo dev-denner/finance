@@ -200,3 +200,85 @@ export function EditScopeDialog({
     </Modal>
   );
 }
+
+function paymentSource(payment: Bill['payments'][number]): string {
+  if (payment.transactionId === null) return 'Sem lançamento';
+  const parts = [payment.transactionDescription ?? 'Lançamento', payment.paymentMethodName].filter(Boolean);
+  if (payment.origin === 'import_match') parts.push('importado');
+  if (payment.groupSize > 1) parts.push(`boleto agrupado com ${payment.groupSize} contas`);
+  return parts.join(' · ');
+}
+
+/**
+ * Pagamentos de uma conta, para desfazer um de cada vez. Desfazer o pagamento
+ * que quitou a conta (o último) a reabre; os demais continuam registrados.
+ */
+export function PaymentsDialog({
+  bill,
+  onClose,
+  onUndo,
+  onUndoAll,
+}: {
+  bill: Bill;
+  onClose: () => void;
+  onUndo: (paymentId: number) => Promise<void>;
+  onUndoAll: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<number | 'all' | null>(null);
+  const run = async (target: number | 'all', action: () => Promise<void>) => {
+    setBusy(target);
+    try {
+      await action();
+    } finally {
+      setBusy(null);
+    }
+  };
+  const total = bill.payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+
+  return (
+    <Modal
+      title="Pagamentos da conta"
+      description={`${bill.description} · previsto ${formatBRL(bill.amountCents)} · pago ${formatBRL(total)}`}
+      size="md"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="danger-soft" onClick={() => void run('all', onUndoAll)} disabled={busy !== null} className="mr-auto">
+            Desfazer todos
+          </Button>
+          <Button variant="secondary" onClick={onClose} disabled={busy !== null}>
+            Fechar
+          </Button>
+        </>
+      }
+    >
+      <ul className="divide-y divide-ink-100 rounded-lg border border-ink-200 text-[13px] dark:divide-ink-800 dark:border-ink-800">
+        {bill.payments.map((payment) => (
+          <li key={payment.id} className="flex items-center gap-3 px-3 py-2">
+            <span className="w-[84px] shrink-0 tabular-nums text-ink-500 dark:text-ink-400">{formatDateBR(payment.paidAt)}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-ink-500 dark:text-ink-400">{paymentSource(payment)}</span>
+            <span className="shrink-0 font-medium tabular-nums">{formatBRL(payment.amountCents)}</span>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Desfazer pagamento de ${formatBRL(payment.amountCents)} em ${formatDateBR(payment.paidAt)}`}
+              onClick={() => void run(payment.id, () => onUndo(payment.id))}
+              loading={busy === payment.id}
+              disabled={busy !== null && busy !== payment.id}
+            >
+              Desfazer
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-[12px] text-ink-500 dark:text-ink-400">
+        {bill.state === 'paid'
+          ? 'Desfazer o último pagamento, o que quitou a conta, a reabre com os demais como parciais. Desfazer um anterior mantém a conta paga.'
+          : 'A conta continua em aberto; o que falta é recalculado.'}{' '}
+        Lançamentos criados pelo pagamento são apagados; os importados continuam em Movimentações.
+        {bill.payments.some((payment) => payment.groupSize > 1) &&
+          ' Desfazer um boleto agrupado desfaz o pagamento de todas as contas pagas por ele.'}
+      </p>
+    </Modal>
+  );
+}

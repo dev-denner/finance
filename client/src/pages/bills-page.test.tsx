@@ -12,7 +12,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BillsPage } from './BillsPage';
 import { todayISO } from '../lib/format';
-import type { Bill, BillAgenda, BillListResponse, BillTemplate } from '../lib/types';
+import type { Bill, BillAgenda, BillForecast, BillListResponse, BillTemplate } from '../lib/types';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -22,10 +22,20 @@ declare global {
 const apiMock = {
   getBills: vi.fn(),
   getBillAgenda: vi.fn(),
+  getBillForecast: vi.fn(),
   listBillTemplates: vi.fn(),
   getBillTemplate: vi.fn(),
   payBill: vi.fn(),
+  getBill: vi.fn(),
+  parseBarcode: vi.fn(),
+  uploadBillAttachment: vi.fn(),
+  deleteBillAttachment: vi.fn(),
+  billAttachmentUrl: vi.fn((id: number, attachmentId: number) => `/api/bills/${id}/attachments/${attachmentId}`),
+  bulkPayBills: vi.fn(),
+  bulkSkipBills: vi.fn(),
+  payBillsGroup: vi.fn(),
   unpayBill: vi.fn(),
+  undoBillPayment: vi.fn(),
   skipBill: vi.fn(),
   unskipBill: vi.fn(),
   scheduleBill: vi.fn(),
@@ -73,13 +83,17 @@ function bill(overrides: Partial<Bill> = {}): Bill {
     scheduledFor: null,
     paidAt: null,
     paidCents: null,
+    partialPaidCents: 0,
     migratedPayment: false,
     categoryId: 3,
     categoryName: 'Moradia',
     paymentMethodId: null,
     paymentMethodName: null,
     notes: null,
+    barcode: null,
+    barcodeFormatted: null,
     payments: [],
+    attachments: [],
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -119,7 +133,12 @@ const TEMPLATE: BillTemplate = {
 let container: HTMLDivElement;
 let root: Root;
 
-async function render(url = '/contas', bills: Bill[] = [bill()], agenda?: Partial<BillAgenda>) {
+async function render(
+  url = '/contas',
+  bills: Bill[] = [bill()],
+  agenda?: Partial<BillAgenda>,
+  forecastMonths: BillForecast['months'] = [],
+) {
   apiMock.getBills.mockResolvedValue({ bills, summary: summary() });
   apiMock.getBillAgenda.mockResolvedValue({
     today: TODAY,
@@ -130,6 +149,7 @@ async function render(url = '/contas', bills: Bill[] = [bill()], agenda?: Partia
     summary: summary(),
     ...agenda,
   });
+  apiMock.getBillForecast.mockResolvedValue({ today: TODAY, months: forecastMonths });
   await act(async () => {
     root.render(
       <MemoryRouter initialEntries={[url]}>
@@ -197,7 +217,7 @@ describe('tela de contas a pagar', () => {
     await render();
 
     await click(buttons('Pagar')[0]);
-    const toggle = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const toggle = document.querySelector('[role="dialog"] input[type="checkbox"]') as HTMLInputElement;
     expect(toggle.checked).toBe(false);
     await click(buttons('Confirmar pagamento')[0]);
 
@@ -218,13 +238,55 @@ describe('tela de contas a pagar', () => {
     await render('/contas', [bill({ paymentMethodId: 2, paymentMethodName: 'Nubank' })]);
 
     await click(buttons('Pagar')[0]);
-    expect((document.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
+    expect((document.querySelector('[role="dialog"] input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
     expect((document.getElementById('pay-account') as HTMLSelectElement).value).toBe('2');
     await type(document.getElementById('pay-amount') as HTMLInputElement, '790,10');
     await click(buttons('Confirmar pagamento')[0]);
 
     expect(apiMock.payBill).toHaveBeenCalledWith(1, { mode: 'transaction', paidAt: TODAY, paidCents: 79010, paymentMethodId: 2 });
     expect(showToast.mock.calls.at(-1)?.[0]).toBe('Conta paga e lançamento registrado.');
+  });
+
+  it('pagamento parcial mantém a conta em aberto e mostra quanto falta (sem Desfazer após o primeiro)', async () => {
+    const partialPayment = { id: 7, transactionId: null, amountCents: 30000, paidAt: TODAY, origin: 'manual' as const, createdTransaction: false, paymentMethodName: null, transactionDescription: null, groupSize: 1 };
+    apiMock.payBill.mockResolvedValue({ bill: bill({ partialPaidCents: 30000, payments: [partialPayment] }) });
+    await render('/contas', [bill({ partialPaidCents: 30000, payments: [partialPayment] })]);
+
+    expect(document.body.textContent).toContain('Pago R$ 300,00 de R$ 782,00 · faltam R$ 482,00');
+    expect(document.querySelector('[aria-label="Desfazer pagamento de Condomínio"]')).not.toBeNull();
+
+    await click(buttons('Pagar')[0]);
+    expect((document.getElementById('pay-amount') as HTMLInputElement).value).toBe('482,00');
+    const partial = [...document.querySelectorAll('label')].find((label) => label.textContent?.includes('Pagamento parcial'))?.querySelector('input') as HTMLInputElement;
+    await click(partial);
+    await type(document.getElementById('pay-amount') as HTMLInputElement, '100,00');
+    await click(buttons('Confirmar pagamento')[0]);
+
+    expect(apiMock.payBill).toHaveBeenCalledWith(1, { mode: 'external', paidAt: TODAY, paidCents: 10000, partial: true });
+    const [message, , options] = showToast.mock.calls.at(-1) as [string, string, unknown];
+    expect(message).toBe('Pagamento parcial registrado; faltam R$ 482,00.');
+    expect(options).toBeUndefined();
+  });
+
+  it('mostra a previsão dos próximos meses e abre o mês clicado', async () => {
+    const forecastSummary = (totalCents: number, paidCents: number, overdueCents = 0) => ({
+      ...summary(), totalCents, paidCents, openCents: totalCents - paidCents, overdueCents,
+    });
+    await render('/contas?year=2026&month=3', [bill()], undefined, [
+      { year: 2026, month: 3, from: '2026-03-01', to: '2026-03-31', summary: forecastSummary(250000, 100000, 20000) },
+      { year: 2026, month: 4, from: '2026-04-01', to: '2026-04-30', summary: forecastSummary(180000, 0) },
+      { year: 2026, month: 5, from: '2026-05-01', to: '2026-05-31', summary: forecastSummary(0, 0) },
+    ]);
+
+    expect(apiMock.getBillForecast).toHaveBeenCalledWith(3);
+    const cards = [...document.querySelectorAll('#bills-forecast-title ~ div button')] as HTMLButtonElement[];
+    expect(cards.map((card) => card.textContent?.split('R$')[0])).toEqual(['Março de 2026', 'Abril de 2026', 'Maio de 2026']);
+    expect(cards[0]!.getAttribute('aria-pressed')).toBe('true');
+    expect(cards[0]!.textContent).toContain('Atrasado R$ 200,00');
+    expect(cards[1]!.textContent).toContain('Em aberto R$ 1.800,00');
+
+    await click(cards[1]!);
+    expect(apiMock.getBills).toHaveBeenLastCalledWith(2026, 4, expect.anything());
   });
 
   it('valor inválido no pagamento não chama a API', async () => {
@@ -300,11 +362,39 @@ describe('tela de contas a pagar', () => {
         startDate: '2026-04-05',
         occurrenceCount: 6,
         endDate: null,
-        recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: 5 },
+        recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: 5, lastBusinessDay: false },
       }),
     );
     expect(apiMock.createBill).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('Recorrência criada: Mensal, dia 5.', 'success', undefined);
+  });
+
+  it('recorrência mensal no último dia útil manda a opção e some ao trocar a frequência', async () => {
+    apiMock.createBillTemplate.mockResolvedValue({ template: { ...TEMPLATE, recurrenceLabel: 'Mensal, último dia útil' } });
+    await render('/contas', []);
+
+    await click(buttons('Nova conta')[0]);
+    await type(document.getElementById('bill-description') as HTMLInputElement, 'Salário diarista');
+    await type(document.getElementById('bill-amount') as HTMLInputElement, '800');
+    await type(document.getElementById('bill-due') as HTMLInputElement, '2026-04-01');
+    await type(document.getElementById('bill-category') as HTMLSelectElement, '3');
+    await click([...document.querySelectorAll('label')].find((label) => label.textContent?.trim() === 'Repetir')!.querySelector('input')!);
+    const lastBusinessDay = () =>
+      [...document.querySelectorAll('label')].find((label) => label.textContent?.includes('No último dia útil do mês'))?.querySelector('input') ?? null;
+
+    await type(document.getElementById('bill-frequency') as HTMLSelectElement, 'weekly');
+    expect(lastBusinessDay()).toBeNull();
+    await type(document.getElementById('bill-frequency') as HTMLSelectElement, 'monthly');
+    await click(lastBusinessDay() as HTMLInputElement);
+    await click(buttons('Salvar')[0]);
+
+    expect(apiMock.createBillTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startDate: '2026-04-01',
+        recurrence: { frequency: 'monthly', interval: 1, dayOfMonth: null, lastBusinessDay: true },
+      }),
+    );
+    expect(showToast).toHaveBeenCalledWith('Recorrência criada: Mensal, último dia útil.', 'success', undefined);
   });
 
   it('excluir ocorrência de recorrência oferece pular só esta', async () => {
@@ -315,5 +405,274 @@ describe('tela de contas a pagar', () => {
     await click(buttons('Pular só esta')[0]);
     expect(apiMock.deleteBill).toHaveBeenCalledWith(4);
     expect(apiMock.deleteBillTemplate).not.toHaveBeenCalled();
+  });
+});
+
+describe('contas — ações em massa e atalhos', () => {
+  const monthBills = () => [
+    bill({ id: 1, description: 'Luz', amountCents: 18000 }),
+    bill({ id: 2, description: 'Água', amountCents: 9000, partialPaidCents: 4000 }),
+    bill({ id: 3, description: 'Paga', state: 'paid', displayStatus: 'paid', paidAt: TODAY, paidCents: 5000 }),
+  ];
+
+  const checkbox = (label: string) => document.querySelector(`input[aria-label="${label}"]`) as HTMLInputElement | null;
+
+  async function press(key: string, target: EventTarget = document.body) {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    });
+  }
+
+  it('seleciona só as contas em aberto e paga todas pelo valor que falta', async () => {
+    apiMock.bulkPayBills.mockResolvedValue({ updated: 2, paidCents: 23000 });
+    await render('/contas', monthBills());
+
+    expect(checkbox('Selecionar Paga')).toBeNull();
+    await click(checkbox('Selecionar as contas em aberto do mês') as HTMLInputElement);
+    expect(document.body.textContent).toContain('selecionadas · R$ 230,00');
+
+    await click(buttons('Marcar como pagas')[0]);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.getAttribute('aria-label')).toBe('Marcar 2 contas como pagas');
+    expect(dialog.textContent).toContain('R$ 50,00');
+    await type(document.getElementById('bulk-paid-at') as HTMLInputElement, '2026-03-04');
+    await click([...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Marcar como pagas') as HTMLButtonElement);
+
+    expect(apiMock.bulkPayBills).toHaveBeenCalledWith([1, 2], '2026-03-04');
+    expect(showToast).toHaveBeenCalledWith('2 contas marcadas como pagas (R$ 230,00).', 'success', undefined);
+    expect(document.body.textContent).not.toContain('selecionadas ·');
+  });
+
+  it('boleto agrupado: pede a conta de saída e paga todas com um lançamento só', async () => {
+    apiMock.payBillsGroup.mockResolvedValue({ updated: 2, paidCents: 23000, transactionId: 50 });
+    await render('/contas', monthBills());
+
+    await click(checkbox('Selecionar as contas em aberto do mês') as HTMLInputElement);
+    await click(buttons('Marcar como pagas')[0]);
+    const groupToggle = [...document.querySelectorAll('[role="dialog"] label')]
+      .find((label) => label.textContent?.includes('Registrar um lançamento só'))
+      ?.querySelector('input') as HTMLInputElement;
+    await click(groupToggle);
+    // Mesma categoria nas duas: não pergunta a categoria.
+    expect(document.getElementById('bulk-group-category')).toBeNull();
+    const confirm = () => [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Marcar como pagas') as HTMLButtonElement;
+    await click(confirm());
+    expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe('Escolha a conta de onde saiu o pagamento.');
+    expect(apiMock.payBillsGroup).not.toHaveBeenCalled();
+
+    await type(document.getElementById('bulk-group-account') as HTMLSelectElement, '1');
+    await click(confirm());
+    expect(apiMock.payBillsGroup).toHaveBeenCalledWith([1, 2], { paidAt: TODAY, paymentMethodId: 1, categoryId: null, description: null });
+    expect(apiMock.bulkPayBills).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('2 contas pagas com um lançamento de R$ 230,00.', 'success', undefined);
+  });
+
+  it('pular em massa é bloqueado com conta de pagamento parcial e envia as demais', async () => {
+    apiMock.bulkSkipBills.mockResolvedValue({ updated: 1 });
+    await render('/contas', monthBills());
+
+    await click(checkbox('Selecionar Luz') as HTMLInputElement);
+    await click(checkbox('Selecionar Água') as HTMLInputElement);
+    await click(buttons('Pular')[0]);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Água tem pagamento parcial');
+    const confirm = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Pular') as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    await click(buttons('Cancelar')[0]);
+
+    await click(checkbox('Selecionar Água') as HTMLInputElement);
+    await click(buttons('Pular')[0]);
+    await click([...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Pular') as HTMLButtonElement);
+    expect(apiMock.bulkSkipBills).toHaveBeenCalledWith([1]);
+    expect(showToast).toHaveBeenCalledWith('1 conta pulada.', 'success', undefined);
+  });
+
+  it('N abre nova conta; P paga a selecionada; atalhos ignoram campos de texto', async () => {
+    await render('/contas', monthBills());
+
+    await press('p');
+    expect(showToast).toHaveBeenCalledWith('Marque na lista as contas a pagar.', 'info');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    await press('n', document.querySelector('input[placeholder="Buscar"]') as HTMLInputElement);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    await press('n');
+    expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Nova conta a pagar');
+    await click(buttons('Cancelar')[0]);
+
+    await click(checkbox('Selecionar Luz') as HTMLInputElement);
+    await press('P', checkbox('Selecionar Luz') as HTMLInputElement);
+    expect(document.getElementById('pay-amount')).not.toBeNull();
+    // Com um diálogo aberto, N não troca o diálogo.
+    await press('n');
+    expect(document.getElementById('pay-amount')).not.toBeNull();
+  });
+});
+
+describe('contas — calendário do mês', () => {
+  it('alterna para o calendário pela URL, abre o dia e mostra só as contas dele', async () => {
+    await render('/contas?year=2026&month=3&layout=calendar', [
+      bill({ id: 1, description: 'Luz', dueDate: '2026-03-02', displayStatus: 'overdue', amountCents: 18000 }),
+      bill({ id: 2, description: 'Água', dueDate: '2026-03-02', displayStatus: 'overdue', amountCents: 9000 }),
+      bill({ id: 3, description: 'Internet', dueDate: '2026-03-12', displayStatus: 'upcoming', amountCents: 9900 }),
+    ]);
+
+    expect(document.querySelector('[aria-pressed="true"]')?.textContent).toContain('Calendário');
+    expect(document.querySelector('caption')?.textContent).toBe('Calendário de Março de 2026');
+    // Sem hoje no mês, abre o primeiro dia com conta em aberto.
+    expect(document.getElementById('bills-day-title')?.textContent).toBe('Vencem em 02/03/2026');
+    const rows = () => [...document.querySelectorAll('tbody tr')].filter((row) => row.querySelector('td.td'));
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining('Luz'), expect.stringContaining('Água')]);
+
+    const day12 = document.querySelector('button[aria-label^="Dia 12:"]') as HTMLButtonElement;
+    expect(day12.getAttribute('aria-label')).toBe('Dia 12: 1 conta, previsto R$ 99,00, em aberto R$ 99,00');
+    await click(day12);
+    expect(day12.getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('bills-day-title')?.textContent).toBe('Vencem em 12/03/2026');
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining('Internet')]);
+
+    await click(document.querySelector('button[aria-label="Dia 13: sem contas"]') as HTMLButtonElement);
+    expect(document.body.textContent).toContain('Nenhuma conta vence neste dia.');
+
+    await click(buttons('Lista')[0]);
+    expect(document.querySelector('caption')).toBeNull();
+    expect(rows()).toHaveLength(3);
+  });
+});
+
+describe('contas — pagamentos um a um', () => {
+  const payment = (id: number, amountCents: number, paidAt: string) => ({
+    id, transactionId: null, amountCents, paidAt, origin: 'manual' as const, createdTransaction: false, paymentMethodName: null, transactionDescription: null, groupSize: 1,
+  });
+
+  it('pagamento de boleto agrupado abre a lista com o aviso, mesmo sendo o único', async () => {
+    const grouped = { ...payment(20, 78200, '2026-03-06'), transactionId: 50, transactionDescription: 'Boleto agrupado: Condomínio, Taxa', groupSize: 2 };
+    await render('/contas', [bill({ state: 'paid', displayStatus: 'paid', paidAt: '2026-03-06', paidCents: 78200, payments: [grouped] })]);
+    await click(buttons('Pagamentos de Condomínio')[0]);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain('boleto agrupado com 2 contas');
+    expect(dialog.textContent).toContain('Desfazer um boleto agrupado desfaz o pagamento de todas as contas pagas por ele.');
+
+    apiMock.undoBillPayment.mockResolvedValue({ bill: bill() });
+    await click(buttons('Desfazer pagamento de R$ 782,00 em 06/03/2026')[0]);
+    expect(apiMock.undoBillPayment).toHaveBeenCalledWith(1, 20);
+    expect(showToast).toHaveBeenCalledWith('Boleto agrupado desfeito: 2 contas reabertas.', 'success', undefined);
+  });
+
+  it('com mais de um pagamento, o desfazer abre a lista e desfaz só o escolhido', async () => {
+    const paid = bill({
+      state: 'paid', displayStatus: 'paid', paidAt: '2026-03-06', paidCents: 78200,
+      payments: [payment(10, 30000, '2026-03-02'), payment(11, 48200, '2026-03-06')],
+    });
+    apiMock.undoBillPayment.mockResolvedValue({
+      bill: bill({ partialPaidCents: 30000, payments: [payment(10, 30000, '2026-03-02')] }),
+    });
+    await render('/contas', [paid]);
+
+    await click(buttons('Pagamentos de Condomínio')[0]);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.getAttribute('aria-label')).toBe('Pagamentos da conta');
+    expect(dialog.textContent).toContain('pago R$ 782,00');
+    expect(dialog.textContent).toContain('Desfazer o último pagamento');
+
+    await click(buttons('Desfazer pagamento de R$ 482,00 em 06/03/2026')[0]);
+    expect(apiMock.undoBillPayment).toHaveBeenCalledWith(1, 11);
+    expect(apiMock.unpayBill).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('Pagamento desfeito; faltam R$ 482,00.', 'success', undefined);
+    // Sobrou um pagamento: o diálogo fecha.
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
+describe('contas — boleto e anexos', () => {
+  const LINE = '00190000090123456789012345678901234567890123456';
+
+  it('confere a linha digitável, oferece usar valor e vencimento do boleto e salva', async () => {
+    const target = bill({ amountCents: 78200, dueDate: '2026-03-10' });
+    const withLine = bill({ amountCents: 80000, dueDate: '2026-03-12', barcode: LINE, barcodeFormatted: '00190.00009 …' });
+    apiMock.parseBarcode.mockImplementation((value: string) =>
+      Promise.resolve(
+        value.replace(/\D/g, '').length === 47
+          ? { valid: true, digits: LINE, kind: 'bank', amountCents: 80000, dueDate: '2026-03-12', formatted: '00190.00009 …' }
+          : { valid: false, error: 'A linha digitável tem 47 dígitos (boleto) ou 48 (conta de consumo ou tributo).' },
+      ),
+    );
+    apiMock.updateBill.mockResolvedValue({ bill: withLine });
+    apiMock.getBill.mockResolvedValue({ bill: withLine });
+    await render('/contas', [target]);
+
+    await click(buttons('Boleto e anexos de Condomínio')[0]);
+    const input = document.getElementById('boleto-barcode') as HTMLInputElement;
+    vi.useFakeTimers();
+    try {
+      await type(input, '123');
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('47 dígitos');
+      await type(input, LINE);
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain('Boleto bancário válido · R$ 800,00 · vence 12/03/2026');
+
+    // Editar o código esconde o resultado anterior até a nova conferência voltar.
+    vi.useFakeTimers();
+    try {
+      await type(input, `${LINE.slice(0, 46)}9`);
+      expect(dialog.textContent).not.toContain('Boleto bancário válido');
+      expect(buttons('Usar R$ 800,00 e vencimento 12/03/2026')).toHaveLength(0);
+      await type(input, LINE);
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await click(buttons('Usar R$ 800,00 e vencimento 12/03/2026')[0]);
+    expect(apiMock.updateBill).toHaveBeenCalledWith(1, { barcode: LINE, amountCents: 80000, dueDate: '2026-03-12' });
+    expect(apiMock.getBill).toHaveBeenCalledWith(1);
+    expect(showToast).toHaveBeenCalledWith('Conta atualizada com o valor e o vencimento do boleto.', 'success');
+  });
+
+  it('anexa, lista com link para abrir e exclui; a linha mostra quantos anexos há', async () => {
+    const attachment = { id: 5, filename: 'boleto.pdf', contentType: 'application/pdf', sizeBytes: 2048, createdAt: '2026-03-01T00:00:00Z' };
+    const withFile = bill({ attachments: [attachment] });
+    apiMock.uploadBillAttachment.mockResolvedValue({ attachment });
+    apiMock.deleteBillAttachment.mockResolvedValue({ ok: true });
+    apiMock.getBill.mockResolvedValueOnce({ bill: withFile }).mockResolvedValueOnce({ bill: bill() });
+    await render('/contas', [bill()]);
+
+    await click(buttons('Boleto e anexos de Condomínio')[0]);
+    const fileInput = document.querySelector('input[aria-label="Arquivo do anexo"]') as HTMLInputElement;
+    const file = new File(['%PDF-1.4'], 'boleto.pdf', { type: 'application/pdf' });
+    Object.defineProperty(fileInput, 'files', { configurable: true, value: [file] });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(apiMock.uploadBillAttachment).toHaveBeenCalledWith(1, file);
+    const link = document.querySelector('[role="dialog"] a') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/api/bills/1/attachments/5');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('2 KB');
+
+    await click(buttons('Excluir anexo boleto.pdf')[0]);
+    expect(apiMock.deleteBillAttachment).toHaveBeenCalledWith(1, 5);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Nenhum anexo');
+  });
+
+  it('copia a linha digitável direto da linha da conta', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    await render('/contas', [bill({ barcode: LINE, barcodeFormatted: 'x' }), bill({ id: 2, description: 'Sem boleto' })]);
+    expect(buttons('Copiar linha digitável de Sem boleto')).toHaveLength(0);
+    await click(buttons('Copiar linha digitável de Condomínio')[0]);
+    expect(writeText).toHaveBeenCalledWith(LINE);
+    expect(showToast).toHaveBeenCalledWith('Linha digitável copiada.', 'success');
   });
 });
