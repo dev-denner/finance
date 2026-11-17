@@ -55,7 +55,9 @@
 ## Git
 
 - Conventional Commits com Gitmoji: `<gitmoji> <type>(<scope>): <resumo>`.
-- Branch: `feat/`, `fix/`, `chore/` + slug curto.
+- Branch: `feat/`, `fix/`, `chore/` + slug curto, **criada a partir da `develop`** atualizada.
+- `develop` é a branch de integração: todo PR vai para a `develop`, inclusive os empilhados. O `master` só recebe a `develop` por um PR de release, quando o usuário pedir.
+- Depois do merge, apague a branch do PR, no remoto e na máquina. Commits que não serão mesclados, mas que valem guardar, viram tag local `archive/<branch>`.
 - Commit atômico após os gates de qualidade. Um commit local **não** conclui a entrega remota.
 - Depois de commitar, informe branch, upstream, commits à frente/atrás e peça autorização explícita para publicar. Sem essa autorização, não execute `git push`.
 - Com autorização explícita do usuário para a branch atual, publique somente essa branch e confirme o resultado no remoto. PR, merge, force push, `--no-verify` e rebase em branch compartilhada continuam exigindo autorização explícita e separada.

@@ -37,9 +37,11 @@ Tudo o que foi feito está em `master`. Merges de 2026-11-12, em ordem:
 | #13 | `fix/purchase-reconcile-item-categories` | R3: conciliação só categoriza itens sem categoria | `1040b49` |
 | #14, #15 | `chore/nfce-portal-query-opt-in`, `chore/drop-purchases-transaction-id` | R2 e R4; mesclados nas bases empilhadas, não no `master` | `381e3a5`, `4332e07` |
 
-Em andamento: **#16** leva ao `master` os commits da R2 e da R4, que ficaram fora dele, e `chore/module3-maintenance` (R6), aberta contra o `master` por cima deles. As branches mescladas não foram apagadas; `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` são locais e sem uso.
+O #16 levou ao `master` a R2 e a R4, e o #17 (R6) foi mesclado em seguida (`cabbf68`).
 
-O CI (`.github/workflows/ci.yml`, build + testes em Linux) roda em todo push no `master` e em PRs. Ele só passou a valer depois de chegar ao `master`; trocar a base de um PR não o dispara, só um push. O Codex revisa cada PR automaticamente e, nos PRs deste trabalho, sempre encontrou algo real: espere a revisão terminar antes de mesclar, ou trate o apontamento em PR de acompanhamento.
+**Fluxo de branches (desde 2026-11-16):** a `develop` nasceu de `cabbf68` e concentra os PRs; o `master` só a recebe por PR de release, a pedido do usuário. Branches novas saem da `develop` e são apagadas depois do merge. No remoto ficam só `master`, `develop` e as branches de PRs abertos. As antigas `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` (versões pré-rebase do Módulo 1, já substituídas) viraram tags locais `archive/…`.
+
+O CI (`.github/workflows/ci.yml`, build + testes em Linux) roda em todo push no `master` e na `develop` e em PRs. Ele só passou a valer depois de chegar ao `master`; trocar a base de um PR não o dispara, só um push. O Codex revisa cada PR automaticamente e, nos PRs deste trabalho, sempre encontrou algo real: espere a revisão terminar antes de mesclar, ou trate o apontamento em PR de acompanhamento.
 
 O usuário autorizou (2026-11-12) **publicar cada PR assim que concluído** (push da branch e abertura do PR); merge continua sendo decisão dele.
 
@@ -90,7 +92,7 @@ O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído:
 - **`npx vitest run … -w`**: `-w` é **watch**, não workspace; trava o comando. Rode dentro de `server/` ou `client/`.
 - **`git commit` commita tudo que está no índice**: após `git checkout <branch> -- arquivos`, os arquivos ficam staged; faça `git reset` antes de commits por unidade.
 - A tela atual de contas e os lembretes dependem do campo legado `status`/`counts` do DTO até o PR4.
-- **PRs empilhados**: depois de mesclar um PR, troque a base do seguinte para `master` (`gh pr edit N --base master`) antes de mesclá-lo. O #14 e o #15 foram mesclados nas bases antigas e não chegaram ao `master`; o #16 corrigiu isso. Para PRs novos, prefira abrir contra o `master` mesmo empilhados.
+- **PRs empilhados**: abra todos contra a `develop`, mesmo empilhados. Se um PR tiver como base outra branch de PR, troque a base para `develop` (`gh pr edit N --base develop`) antes de mesclá-lo. O #14 e o #15 foram mesclados nas bases antigas e não chegaram ao `master`; o #16 corrigiu isso.
 - O `.gitattributes` do `origin/master` já define `* text=auto eol=lf`; não renormalizar retroativamente (decisão registrada lá).
 
 - **`@fastify/static` com `wildcard: false`** registra a lista de arquivos ao iniciar: depois de um `vite build`, o servidor de produção precisa ser reiniciado, senão o bundle novo responde `index.html` (tela branca, erro de MIME no console).
