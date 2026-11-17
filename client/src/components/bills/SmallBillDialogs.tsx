@@ -205,6 +205,7 @@ function paymentSource(payment: Bill['payments'][number]): string {
   if (payment.transactionId === null) return 'Sem lançamento';
   const parts = [payment.transactionDescription ?? 'Lançamento', payment.paymentMethodName].filter(Boolean);
   if (payment.origin === 'import_match') parts.push('importado');
+  if (payment.groupSize > 1) parts.push(`boleto agrupado com ${payment.groupSize} contas`);
   return parts.join(' · ');
 }
 
@@ -275,6 +276,8 @@ export function PaymentsDialog({
           ? 'Desfazer o último pagamento, o que quitou a conta, a reabre com os demais como parciais. Desfazer um anterior mantém a conta paga.'
           : 'A conta continua em aberto; o que falta é recalculado.'}{' '}
         Lançamentos criados pelo pagamento são apagados; os importados continuam em Movimentações.
+        {bill.payments.some((payment) => payment.groupSize > 1) &&
+          ' Desfazer um boleto agrupado desfaz o pagamento de todas as contas pagas por ele.'}
       </p>
     </Modal>
   );

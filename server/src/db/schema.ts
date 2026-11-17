@@ -353,7 +353,9 @@ export const billPayments = sqliteTable(
     createdAt: text('created_at').notNull().default(now),
   },
   (table) => [
-    uniqueIndex('bill_payments_transaction_uq').on(table.transactionId),
+    // Um lançamento pode pagar várias contas (boleto agrupado), mas cada conta só uma vez.
+    uniqueIndex('bill_payments_bill_transaction_uq').on(table.billId, table.transactionId),
+    index('bill_payments_transaction_idx').on(table.transactionId),
     index('bill_payments_bill_idx').on(table.billId),
     check('bill_payments_amount_check', sql`${table.amountCents} > 0`),
     check(

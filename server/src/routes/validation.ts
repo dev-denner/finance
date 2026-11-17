@@ -203,6 +203,20 @@ export const bulkPayBillsSchema = z.object({ ids: bulkBillIdsSchema, paidAt: iso
 
 export const bulkSkipBillsSchema = z.object({ ids: bulkBillIdsSchema }).strict();
 
+export const groupPayBillsSchema = z.discriminatedUnion('mode', [
+  z
+    .object({
+      ids: bulkBillIdsSchema,
+      mode: z.literal('transaction'),
+      paidAt: isoDateSchema,
+      paymentMethodId: z.number().int().positive(),
+      categoryId: z.number().int().positive().nullable().optional(),
+      description: z.string().trim().max(200).nullable().optional(),
+    })
+    .strict(),
+  z.object({ ids: bulkBillIdsSchema, mode: z.literal('link'), transactionId: z.number().int().positive() }).strict(),
+]);
+
 export const payBillSchema = z.discriminatedUnion('mode', [
   z
     .object({

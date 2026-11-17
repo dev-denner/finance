@@ -10,6 +10,7 @@ import {
 import {
   bulkPayBills,
   bulkSkipBills,
+  payBillsWithOneTransaction,
   createBill,
   createTemplate,
   deleteBill,
@@ -44,6 +45,7 @@ import {
   billUpdateSchema,
   bulkPayBillsSchema,
   bulkSkipBillsSchema,
+  groupPayBillsSchema,
   idParamSchema,
   parseWith,
   payBillSchema,
@@ -137,6 +139,12 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
   app.post('/api/bills/bulk-pay', async (request) => {
     const body = parseWith(bulkPayBillsSchema, request.body, 'Dados do pagamento em massa inválidos.');
     return bulkPayBills(db, body.ids, { paidAt: body.paidAt });
+  });
+
+  /** Boleto agrupado: um lançamento (novo ou existente) paga todas as contas. */
+  app.post('/api/bills/group-pay', async (request) => {
+    const { ids, ...input } = parseWith(groupPayBillsSchema, request.body, 'Dados do pagamento agrupado inválidos.');
+    return payBillsWithOneTransaction(db, ids, input);
   });
 
   app.post('/api/bills/bulk-skip', async (request) => {

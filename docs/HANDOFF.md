@@ -96,7 +96,8 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 - ~~Tela para a importação de contas por planilha~~ (`/importacoes/contas`, com cartão no hub e botão em Contas a pagar; a prévia marca as duplicadas por linha).
 - ~~M1-06: cálculo de duplicidade repetido em `bills-import.ts` (prévia e importação)~~ (`duplicateRowNumbers` compartilhado).
 - ~~Recorrência no "último dia útil" do mês~~ (migração `0019`, coluna `bill_templates.last_business_day`; `lib/business-days.ts` com feriados bancários nacionais e Páscoa).
-- Um lançamento pagando várias contas (boleto agrupado); hoje `bill_payments.transaction_id` é único.
+- ~~Um lançamento pagando várias contas (boleto agrupado)~~ (migração `0020`: único passa a ser `bill_id + transaction_id`; `POST /api/bills/group-pay` e opção no pagamento em massa; desfazer uma conta desfaz o grupo).
+- Sugerir na importação de extrato um boleto agrupado (uma linha cujo valor é a soma de várias contas em aberto); hoje a sugestão é uma linha para uma conta.
 - ~~Sobras do pagamento parcial: desfazer um pagamento de cada vez; sugerir na importação o restante de uma conta com parcial~~ (`DELETE /api/bills/:id/payments/:paymentId` e diálogo "Pagamentos da conta"; a detecção compara a conta com parcial pelo valor exato que falta).
 
 ### Módulo 2 — Movimentações e importação (fase 2)
@@ -151,7 +152,7 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638); calendário: 542 + 99 (641); sobras do parcial: 548 + 101 (649); último dia útil: 555 + 102 (657); repetição na planilha: 558 + 102 (660); tela da planilha: 558 + 105 (663).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638); calendário: 542 + 99 (641); sobras do parcial: 548 + 101 (649); último dia útil: 555 + 102 (657); repetição na planilha: 558 + 102 (660); tela da planilha: 558 + 105 (663); boleto agrupado: 563 + 107 (670).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 

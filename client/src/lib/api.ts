@@ -370,6 +370,16 @@ export const api = {
       body: JSON.stringify({ ids, paidAt }),
     }),
 
+  /** Boleto agrupado: um lançamento novo paga todas as contas. */
+  payBillsGroup: (
+    ids: number[],
+    input: { paidAt: string; paymentMethodId: number; categoryId?: number | null; description?: string | null },
+  ) =>
+    request<{ updated: number; paidCents: number; transactionId: number }>('/bills/group-pay', {
+      method: 'POST',
+      body: JSON.stringify({ ids, mode: 'transaction', ...input }),
+    }),
+
   bulkSkipBills: (ids: number[]) =>
     request<{ updated: number }>('/bills/bulk-skip', { method: 'POST', body: JSON.stringify({ ids }) }),
 

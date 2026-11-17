@@ -236,7 +236,7 @@ describe('futureEditPlan ("esta e as futuras")', () => {
     expect(futureEditPlan(billFormFrom(paid, day31), paid, day31).from).toBe('2026-03-01');
     const skipped = { ...february, state: 'skipped' as const, displayStatus: 'skipped' as const };
     expect(futureEditPlan(billFormFrom(skipped, day31), skipped, day31).from).toBe('2026-03-01');
-    const linkedButOpen = { ...february, payments: [{ id: 1, transactionId: 9, amountCents: 1, paidAt: '2026-02-20', origin: 'manual' as const, createdTransaction: true, paymentMethodName: null, transactionDescription: 'x' }] };
+    const linkedButOpen = { ...february, payments: [{ id: 1, transactionId: 9, amountCents: 1, paidAt: '2026-02-20', origin: 'manual' as const, createdTransaction: true, paymentMethodName: null, transactionDescription: 'x', groupSize: 1 }] };
     expect(futureEditPlan(billFormFrom(linkedButOpen, day31), linkedButOpen, day31).from).toBe('2026-03-01');
   });
 
@@ -267,7 +267,7 @@ describe('pagamento parcial', () => {
   const brl = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace('.', ',')}`;
   const payment = (transactionId: number | null, paymentMethodName: string | null = null) => ({
     id: 1, transactionId, amountCents: 100, paidAt: TODAY, origin: 'manual' as const,
-    createdTransaction: transactionId !== null, paymentMethodName, transactionDescription: null,
+    createdTransaction: transactionId !== null, paymentMethodName, transactionDescription: null, groupSize: 1,
   });
 
   it('o restante desconta os parciais e nunca fica negativo', () => {

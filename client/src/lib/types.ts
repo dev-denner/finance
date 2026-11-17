@@ -642,6 +642,8 @@ export interface BillPayment {
   createdTransaction: boolean;
   paymentMethodName: string | null;
   transactionDescription: string | null;
+  /** Contas pagas pelo mesmo lançamento (boleto agrupado); 1 no pagamento comum. */
+  groupSize: number;
 }
 
 export interface Bill {
