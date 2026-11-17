@@ -1,5 +1,6 @@
 import type { Page } from 'playwright-core';
 import { badRequest } from '../lib/errors';
+import type { DomDocument, DomElement, DomParserConstructor } from '../lib/dom-lite';
 import { MAX_NFCE_DOCUMENT_BYTES, MAX_NFCE_NAVIGATION_MS, withNfceBrowser, type BrowserRequest } from './nfce-browser';
 import type { PurchaseInput } from './purchase-input';
 
@@ -86,15 +87,15 @@ export function isAllowedToFinalUrl(url: URL): boolean {
 }
 
 /** Extrai somente os campos necessários do XML que o portal já carregou no navegador. */
-export function parseToNfceXml(xml: string, Parser: typeof DOMParser, expectedAccessKey: string): ToNfceParseResult {
+export function parseToNfceXml(xml: string, Parser: DomParserConstructor, expectedAccessKey: string): ToNfceParseResult {
   const maxDocumentSize = 2 * 1024 * 1024;
   const maxItems = 300;
   if (xml.length === 0 || xml.length > maxDocumentSize || /<!DOCTYPE|<!ENTITY/i.test(xml)) return { error: 'xml-invalid' };
   const document = new Parser().parseFromString(xml, 'application/xml');
   if (document.getElementsByTagName('parsererror').length > 0) return { error: 'xml-invalid' };
-  const all = (root: Document | Element, localName: string): Element[] => Array.from(root.getElementsByTagNameNS('*', localName));
-  const first = (root: Document | Element, localName: string): Element | null => all(root, localName)[0] ?? null;
-  const text = (root: Document | Element | null, localName: string): string => first(root ?? document, localName)?.textContent?.trim() ?? '';
+  const all = (root: DomDocument | DomElement, localName: string): DomElement[] => Array.from(root.getElementsByTagNameNS('*', localName));
+  const first = (root: DomDocument | DomElement, localName: string): DomElement | null => all(root, localName)[0] ?? null;
+  const text = (root: DomDocument | DomElement | null, localName: string): string => first(root ?? document, localName)?.textContent?.trim() ?? '';
   const infNfe = first(document, 'infNFe');
   const ide = first(infNfe ?? document, 'ide');
   const emit = first(infNfe ?? document, 'emit');

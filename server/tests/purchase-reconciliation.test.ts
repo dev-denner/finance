@@ -208,8 +208,8 @@ describe('conciliação manual de compras', () => {
       const wallet = ensureLookup(handle.db, 'payment', 'Bônus');
       handle.sqlite.prepare("UPDATE payment_methods SET balance_type = 'wallet' WHERE id = ?").run(wallet.id);
       expect(() => reconcilePurchase(handle.db, purchaseId, { transactionIds: [first.id, second.id], walletPayments: [{ paymentMethodId: wallet.id, amountCents: 1000 }], categoryId: null })).toThrow(/categoria/i);
-      expect(() => reconcilePurchase(handle.db, purchaseId, { transactionIds: [first.id], walletPayments: [], categoryId: 1 })).toThrow(/somam/i);
-      expect(() => reconcilePurchase(handle.db, purchaseId, { transactionIds: [first.id, second.id], walletPayments: [{ paymentMethodId: wallet.id, amountCents: 1000 }], categoryId: 1 })).toThrow(/saldo insuficiente/i);
+      expect(() => reconcilePurchase(handle.db, purchaseId, { transactionIds: [first.id], walletPayments: [], categoryId: 1 })).toThrow('Os pagamentos somam R$ 10,00; o total da compra é R$ 30,00.');
+      expect(() => reconcilePurchase(handle.db, purchaseId, { transactionIds: [first.id, second.id], walletPayments: [{ paymentMethodId: wallet.id, amountCents: 1000 }], categoryId: 1 })).toThrow('Saldo insuficiente em Bônus: faltam R$ 10,00 em 20/10/2026.');
       expect(handle.sqlite.prepare('SELECT count(*) AS count FROM purchase_settlements').get()).toMatchObject({ count: 0 });
       expect(() => reconcilePurchase(handle.db, purchaseId, { transactionIds: [first.id, first.id], walletPayments: [], categoryId: 1 })).toThrow(/repetida/i);
     } finally { handle.sqlite.close(); }

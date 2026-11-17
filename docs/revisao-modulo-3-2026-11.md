@@ -59,6 +59,8 @@ Com `purchase_settlements` como fonte da verdade, `transaction_id` guarda só o 
 - `AGENTS.md` da branch ainda diz baseline 362; o real nela é 471.
 - `TransactionsImportPage.tsx` (3.048 linhas) é a antiga `ImportsPage` renomeada: o wizard por etapas continua pendente.
 
+**Resolvido em parte (2026-11-12):** o server compila sem `lib: DOM`; as funções que rodam no Chromium usam tipos estruturais mínimos de `server/src/lib/dom-lite.ts` (uma diretiva `/// <reference lib="dom" />` ligaria o DOM no programa inteiro). A extração do RJ virou função tipada e serializável, coberta por `rj-nfce.test.ts` com retrato fixo do portal. As mensagens de saldo e de soma usam BRL, `DD/MM/AAAA` e o nome da conta. O README documenta as prévias em memória. Os commits gigantes e o baseline já foram tratados; a quebra de `TransactionsImportPage.tsx` fica na fase 2 do Módulo 2.
+
 ### R7 — Dados para o Módulo 4
 Guardar o **código do item** (`cProd`, EAN quando houver) em `purchase_items` já nos parsers atuais evita reimportar notas depois; e separar as formas de pagamento da nota em linhas (`purchase_payments`) permite conciliar cartão + dinheiro + VR na mesma compra sem depender do texto.
 

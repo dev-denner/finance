@@ -232,3 +232,10 @@ export function daysBetweenIso(a: string, b: string): number | null {
   if (from === null || to === null) return null;
   return to - from;
 }
+
+/** Converte ISO (AAAA-MM-DD) em DD/MM/AAAA; outros textos voltam como vieram. */
+export function formatIsoDateBR(date: string): string {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return date;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}

@@ -1,5 +1,6 @@
 import type { Page } from 'playwright-core';
 import { badRequest } from '../lib/errors';
+import type { DomDocument, DomTableRow } from '../lib/dom-lite';
 import { classifyNfcePortalStatus, MAX_NFCE_NAVIGATION_MS, withNfceBrowser, type BrowserRequest } from './nfce-browser';
 import type { PurchaseInput } from './purchase-input';
 export type { PurchaseInput, PurchaseItemInput } from './purchase-input';
@@ -10,7 +11,7 @@ const ALLOWED_SCRIPT_HOST = 'code.jquery.com';
 const ALLOWED_SCRIPT_PATH = '/jquery-1.9.1.js';
 const MAX_ITEMS = 300;
 
-interface RjNfceDomSnapshot {
+export interface RjNfceDomSnapshot {
   supplierName: string;
   supplierCnpjText: string;
   generalInfo: string;
@@ -175,49 +176,62 @@ export function parseRjNfceSnapshot(snapshot: RjNfceDomSnapshot): PurchaseInput 
   };
 }
 
-async function readRenderedNfce(page: Page): Promise<RjNfceDomSnapshot> {
-  return page.evaluate<RjNfceDomSnapshot>(String.raw`(() => {
-    const value = (selector, root = document) =>
-      root.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-    const info = (heading) => {
-      const title = Array.from(document.querySelectorAll('h4.ui-collapsible-heading'))
-        .find((candidate) => candidate.textContent?.replace(/click to (?:expand|collapse) contents/gi, '').trim() === heading);
-      return title?.parentElement?.querySelector('.ui-collapsible-content')?.textContent ?? '';
-    };
-    const totalRows = Array.from(document.querySelectorAll('#totalNota > #linhaTotal'));
-    const payableRow = totalRows.find((row) => /Valor a pagar/i.test(row.textContent ?? ''));
-    const grossTotalRow = totalRows.find((row) => /Valor total/i.test(row.textContent ?? ''));
-    const discountRow = totalRows.find((row) => /Descontos?/i.test(row.textContent ?? ''));
-    const paymentHeader = document.querySelector('#linhaForma');
-    const paymentRow = paymentHeader?.nextElementSibling;
-    const paymentMethod = paymentRow?.querySelector('.txtTit, .tx')?.textContent?.trim() ?? null;
-    const rows = Array.from(document.querySelectorAll('#tabResult tr'));
-    if (rows.length > 300) throw new Error('item-limit');
-    const items = rows.map((row) => {
-      const left = row.cells[0];
-      const right = row.cells[1];
-      return {
-        description: value('.txtTit', left),
-        quantityText: value('.Rqtd', left),
-        unitText: value('.RUN', left),
-        unitPriceText: value('.RvlUnit', left),
-        discountText: value('.RvlDesc', left) || null,
-        totalText: value('.valor', right),
-      };
-    });
+/**
+ * Extração DOM do portal do RJ. É serializada e executada no Chromium via
+ * `page.evaluate`; mantenha suas dependências locais/autocontidas.
+ */
+export function extractRjNfceSnapshotFromDocument(doc: DomDocument): RjNfceDomSnapshot {
+  const maxItems = 300;
+  const value = (selector: string, root: Pick<DomDocument, 'querySelector'> = doc): string =>
+    root.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  const info = (heading: string): string => {
+    const title = Array.from(doc.querySelectorAll('h4.ui-collapsible-heading'))
+      .find((candidate) => candidate.textContent?.replace(/click to (?:expand|collapse) contents/gi, '').trim() === heading);
+    return title?.parentElement?.querySelector('.ui-collapsible-content')?.textContent ?? '';
+  };
+  const totalRows = Array.from(doc.querySelectorAll('#totalNota > #linhaTotal'));
+  const payableRow = totalRows.find((row) => /Valor a pagar/i.test(row.textContent ?? ''));
+  const grossTotalRow = totalRows.find((row) => /Valor total/i.test(row.textContent ?? ''));
+  const discountRow = totalRows.find((row) => /Descontos?/i.test(row.textContent ?? ''));
+  const paymentHeader = doc.querySelector('#linhaForma');
+  const paymentRow = paymentHeader?.nextElementSibling;
+  const paymentMethod = paymentRow?.querySelector('.txtTit, .tx')?.textContent?.trim() ?? null;
+  const rows = Array.from(doc.querySelectorAll('#tabResult tr')) as DomTableRow[];
+  if (rows.length > maxItems) throw new Error('item-limit');
+  const items = rows.map((row) => {
+    const left = row.cells[0];
+    const right = row.cells[1];
     return {
-      supplierName: value('.txtTopo', document.querySelector('.txtCenter') ?? document),
-      supplierCnpjText: value('.text', document.querySelector('.txtCenter') ?? document),
-      generalInfo: info('Informações gerais da Nota'),
-      accessKeyText: info('Chave de acesso'),
-      grossTotalText: grossTotalRow?.querySelector('.totalNumb')?.textContent ?? null,
-      discountText: discountRow?.querySelector('.totalNumb')?.textContent ?? null,
-      totalText: payableRow?.querySelector('.totalNumb')?.textContent ??
-        grossTotalRow?.querySelector('.totalNumb')?.textContent ?? '',
-      paymentMethod,
-      items,
+      description: value('.txtTit', left),
+      quantityText: value('.Rqtd', left),
+      unitText: value('.RUN', left),
+      unitPriceText: value('.RvlUnit', left),
+      discountText: value('.RvlDesc', left) || null,
+      totalText: value('.valor', right),
     };
-  })()`);
+  });
+  const supplierRoot = doc.querySelector('.txtCenter') ?? doc;
+  return {
+    supplierName: value('.txtTopo', supplierRoot),
+    supplierCnpjText: value('.text', supplierRoot),
+    generalInfo: info('Informações gerais da Nota'),
+    accessKeyText: info('Chave de acesso'),
+    grossTotalText: grossTotalRow?.querySelector('.totalNumb')?.textContent ?? null,
+    discountText: discountRow?.querySelector('.totalNumb')?.textContent ?? null,
+    totalText: payableRow?.querySelector('.totalNumb')?.textContent
+      ?? grossTotalRow?.querySelector('.totalNumb')?.textContent ?? '',
+    paymentMethod,
+    items,
+  };
+}
+
+/** Expressão enviada ao Chromium; o transpilador pode gerar um `__name` ausente no navegador. */
+export function rjNfceSnapshotExpression(): string {
+  return `(() => { const __name = (fn) => fn; return (${extractRjNfceSnapshotFromDocument.toString()})(document); })()`;
+}
+
+async function readRenderedNfce(page: Page): Promise<RjNfceDomSnapshot> {
+  return page.evaluate<RjNfceDomSnapshot>(rjNfceSnapshotExpression());
 }
 
 export async function previewRjNfce(qrUrl: string): Promise<PurchaseInput> {
