@@ -4,6 +4,9 @@ import type {
   BillAgenda,
   BillDecision,
   BillForecast,
+  BillImportMapping,
+  BillImportPreview,
+  BillImportSummary,
   BillListFilters,
   BillListResponse,
   BillTemplate,
@@ -372,6 +375,22 @@ export const api = {
 
   undoBillPayment: (id: number, paymentId: number) =>
     request<{ bill: Bill }>(`/bills/${id}/payments/${paymentId}`, { method: 'DELETE' }),
+
+  previewBillsImport: (file: File, mapping?: BillImportMapping) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (mapping) form.append('mapping', JSON.stringify(mapping));
+    return request<BillImportPreview>('/bills/import/preview', { method: 'POST', body: form });
+  },
+
+  importBills: (file: File, options: { mapping: BillImportMapping; skipDuplicates: boolean; rejectedRows: number[] }) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('mapping', JSON.stringify(options.mapping));
+    form.append('skipDuplicates', String(options.skipDuplicates));
+    form.append('rejectedRows', JSON.stringify(options.rejectedRows));
+    return request<BillImportSummary>('/bills/import', { method: 'POST', body: form });
+  },
 
   unpayBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/unpay`, { method: 'POST' }),
 

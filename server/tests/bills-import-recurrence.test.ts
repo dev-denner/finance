@@ -59,7 +59,8 @@ describe('importação de contas — coluna Repetição', () => {
     expect(ipva.errors).toEqual([expect.stringContaining('Situação: só vale para conta avulsa')]);
     expect(market.errors).toEqual([expect.stringContaining('Repetição inválida')]);
     expect(dentist.values.recurrence).toBeNull();
-    expect(preview).toMatchObject({ validRows: 2, invalidRows: 2 });
+    expect(preview).toMatchObject({ validRows: 2, invalidRows: 2, duplicateRows: 0 });
+    expect(preview.rows.map((row) => row.duplicate)).toEqual([false, false, false, false]);
   });
 
   it('importar cria a recorrência com as ocorrências e a conta avulsa ao lado', () => {
@@ -81,6 +82,7 @@ describe('importação de contas — coluna Repetição', () => {
     const loose = handle.sqlite.prepare("SELECT template_id AS t, scheduled_for AS s FROM scheduled_bills WHERE description = 'Dentista'").get() as { t: number | null; s: string };
     expect(loose).toEqual({ t: null, s: plus(0) });
 
+    expect(previewBillsImport(handle.db, buffer, 'contas.csv').rows.map((row) => row.duplicate)).toEqual([true, true]);
     // Reimportar acusa a duplicidade pela primeira ocorrência e, pulando duplicadas, não cria outra recorrência.
     const again = importBills(handle.db, buffer, 'contas.csv', { mapping: {}, skipDuplicates: true });
     expect(again).toMatchObject({ importedRows: 0, skippedDuplicates: 2, duplicateRows: 2, createdTemplates: 0 });
