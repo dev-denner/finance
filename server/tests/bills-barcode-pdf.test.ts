@@ -4,6 +4,7 @@ import { buildApp } from '../src/app';
 import { bankMod11, findBarcodeInText, formatBarcodeDigits, mod10 } from '../src/lib/barcode';
 import { addBillAttachment, createBill, readBarcodeFromAttachment } from '../src/services/bills';
 import { ensureLookup } from '../src/services/lookups';
+import { readPdfTextLines } from '../src/lib/pdf-text';
 import { createTestDatabase } from './helpers';
 
 const TODAY = '2026-11-17';
@@ -22,7 +23,10 @@ function validLine(): string {
 /** PDF mínimo de uma página com uma linha de texto por item (Helvetica), com xref correto. */
 function textPdf(lines: string[]): Buffer {
   const escape = (text: string) => text.replace(/[\\()]/g, (char) => `\\${char}`);
-  const stream = lines.map((text, index) => `BT /F1 10 Tf 40 ${780 - index * 20} Td (${escape(text)}) Tj ET`).join('\n');
+  return pdfFromStream(lines.map((text, index) => `BT /F1 10 Tf 40 ${780 - index * 20} Td (${escape(text)}) Tj ET`).join('\n'));
+}
+
+function pdfFromStream(stream: string): Buffer {
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -91,4 +95,25 @@ describe('linha digitável no PDF anexado', () => {
       await app.close();
     }
   });
+});
+
+describe('texto do PDF', () => {
+  const limits = { maxPages: 10, maxChars: 200_000, pagesError: 'páginas', textError: 'texto demais' };
+
+  it('agrupa trechos na mesma altura e separa alturas diferentes', async () => {
+    const lines = await readPdfTextLines(textPdf(['A', 'B', 'C']), limits);
+    expect(lines.map((line) => line.parts.map((part) => part.text).join(''))).toEqual(['A', 'B', 'C']);
+  });
+
+  it('recusa PDF fragmentado demais em vez de travar o servidor', async () => {
+    // Grade de trechos de um caractere (50 por linha): o pdfjs mantém cada um como item separado.
+    const grid = (count: number) =>
+      pdfFromStream(
+        Array.from({ length: count }, (_, index) => `BT /F1 2 Tf ${20 + (index % 50) * 11} ${820 - Math.floor(index / 50) * 2} Td (x) Tj ET`).join('\n'),
+      );
+    const fine = await readPdfTextLines(grid(3_000), limits);
+    expect(fine).toHaveLength(60);
+    expect(fine.every((line) => line.parts.length === 50)).toBe(true);
+    await expect(readPdfTextLines(grid(20_001), limits)).rejects.toThrow('texto demais');
+  }, 30_000);
 });
