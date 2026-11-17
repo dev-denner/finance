@@ -109,6 +109,29 @@ describe('detecção de pagamento de contas (AC14, AC15)', () => {
     expect(detectBillPaymentCandidates([party(2)], [bill(1, { paidCents: 14287 })])).toEqual([]);
   });
 
+  it('boleto agrupado: sem conta que case sozinha, sugere a soma de 2 a 4 contas próximas, sempre como possível', () => {
+    const row = party(2, { amountCents: -95000, description: 'PAG BOLETO' });
+    const condo = bill(1, { description: 'Condomínio', amountCents: 80000, dueDate: '2026-03-10' });
+    const fee = bill(2, { description: 'Taxa extra', amountCents: 20000, dueDate: '2026-03-09', paidCents: 5000 });
+    const far = bill(3, { description: 'Longe', amountCents: 15000, dueDate: '2026-04-30' });
+    const [group, ...rest] = detectBillPaymentCandidates([row], [condo, fee, far]);
+    expect(rest).toEqual([]);
+    expect(group).toMatchObject({ key: 'file:2:bills:2+1', confidence: 'possible', ambiguous: false, amountDiffCents: 0, bill: { id: 2 } });
+    expect(group.groupBills.map((item) => item.id)).toEqual([2, 1]);
+    expect(group.reasons[0]).toBe('Soma de 2 contas igual ao valor (R$ 950,00)');
+
+    // Uma conta que casa sozinha tem preferência: nenhum grupo é sugerido.
+    const exact = bill(4, { amountCents: 95000, dueDate: '2026-03-10' });
+    expect(detectBillPaymentCandidates([row], [condo, fee, exact]).map((candidate) => candidate.key)).toEqual(['file:2:bill:4']);
+
+    // Duas somas possíveis para a mesma linha: as duas ficam ambíguas.
+    const other = [bill(5, { amountCents: 70000 }), bill(6, { amountCents: 25000 })];
+    const ambiguous = detectBillPaymentCandidates([row], [condo, fee, ...other]);
+    expect(ambiguous).toHaveLength(2);
+    expect(ambiguous.every((candidate) => candidate.ambiguous)).toBe(true);
+    expect(confirmedBillCandidates(ambiguous, { [ambiguous[0].key]: 'confirm' }).conflicts).toEqual([]);
+  });
+
   it('decisões confirmadas não podem repetir linha nem conta', () => {
     const candidates = detectBillPaymentCandidates([party(2), party(3)], [bill(1)]);
     expect(confirmedBillCandidates(candidates, { [candidates[0].key]: 'confirm' }).conflicts).toEqual([]);

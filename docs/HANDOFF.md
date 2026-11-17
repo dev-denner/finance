@@ -94,12 +94,13 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 - ~~Ações em massa (marcar várias como pagas ou puladas) e atalhos de teclado (N nova conta, P pagar)~~ (seleção na lista do mês, `POST /api/bills/bulk-pay` e `/bulk-skip`, tudo ou nada; pagar em massa é sempre externo, sem lançamento).
 - Sugerir recorrências pelo histórico de lançamentos ("find schedules"); depende das regras do Módulo 2.
 - ~~Criar a conta a partir do boleto anexado~~ ("Preencher pelo boleto" em Nova conta; `services/bills/boleto-reader.ts`: linha digitável, beneficiário e sugestão pelo histórico — mesma empresa no código de barras ou beneficiário parecido).
+- Gráficos: pago × previsto por mês (barras lado a lado, 12 meses) e contas por categoria no mês (barras horizontais ordenadas); atrasos por mês como linha de apoio.
 - ~~Recorrência na importação de contas por planilha~~ (coluna **Repetição**: `mensal`, `trimestral 4x`, `mensal, último dia útil`…; importação atômica).
 - ~~Tela para a importação de contas por planilha~~ (`/importacoes/contas`, com cartão no hub e botão em Contas a pagar; a prévia marca as duplicadas por linha).
 - ~~M1-06: cálculo de duplicidade repetido em `bills-import.ts` (prévia e importação)~~ (`duplicateRowNumbers` compartilhado).
 - ~~Recorrência no "último dia útil" do mês~~ (migração `0019`, coluna `bill_templates.last_business_day`; `lib/business-days.ts` com feriados bancários nacionais e Páscoa).
 - ~~Um lançamento pagando várias contas (boleto agrupado)~~ (migração `0020`: único passa a ser `bill_id + transaction_id`; `POST /api/bills/group-pay` e opção no pagamento em massa; desfazer uma conta desfaz o grupo).
-- Sugerir na importação de extrato um boleto agrupado (uma linha cujo valor é a soma de várias contas em aberto); hoje a sugestão é uma linha para uma conta.
+- ~~Sugerir na importação de extrato um boleto agrupado~~ (`groupBills` no candidato; 2 a 4 contas, sempre "possível"; confirmar usa `payBillsWithOneTransaction` com `origin: import_match`).
 - ~~Sobras do pagamento parcial: desfazer um pagamento de cada vez; sugerir na importação o restante de uma conta com parcial~~ (`DELETE /api/bills/:id/payments/:paymentId` e diálogo "Pagamentos da conta"; a detecção compara a conta com parcial pelo valor exato que falta).
 
 ### Módulo 2 — Movimentações e importação (fase 2)
@@ -112,6 +113,13 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 - Desfazer lote de importação (M2-07).
 - Quebrar `services/import.ts` em módulos e `TransactionsImportPage.tsx` (3 mil linhas) em assistente por etapas (M2-08).
 - Listagem: gráfico de tendência mensal e orçamento por categoria no consolidado.
+- Gráficos (sugestões de 2026-11-17):
+  - Entradas, saídas e saldo por mês (barras de entradas e saídas com linha de saldo; 12 meses, clicar abre o mês na listagem).
+  - Despesas por categoria no período (barras horizontais ordenadas, com o mês anterior como marca de comparação) e evolução das 5 maiores categorias (linhas).
+  - Saldo acumulado por conta (linha por conta; depende da entidade conta, M2-01).
+  - Parcelas já comprometidas nos próximos meses (barras empilhadas por cartão/conta; usa as parcelas futuras gravadas).
+  - Maiores estabelecimentos/descrições do período (barras horizontais, top 10).
+  - Calendário de calor dos gastos por dia do mês (identifica picos de fatura e de débito automático).
 
 ### Módulo 3 — Compras/NFC-e
 - ~~Ressalvas R2–R7 da revisão~~ (#13–#18).
@@ -122,12 +130,27 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 - Parcelas no cartão na conciliação (depende do grupo de parcelas do Módulo 2).
 - Dinheiro, cashback e bônus: escolher se geram movimento.
 - Parser do RJ lê só duas casas do preço unitário (`6,6667` vira R$ 6,66); o total do item não é afetado.
+- Gráficos (sugestões de 2026-11-17):
+  - Gasto em compras por mês, empilhado por fornecedor (os 5 maiores e "outros").
+  - Ticket médio e número de compras por mês (barras com linha).
+  - Gasto por categoria de item no período (barras horizontais) e a variação contra o período anterior.
+  - Formas de pagamento das notas por mês (barras empilhadas; usa `purchase_payments`).
+  - Conciliação: notas conciliadas, parciais e sem movimento por mês (depende da tela de conciliação).
 
 ### Módulo 4 — Produtos (não iniciado)
 - Normalização de produtos (mesmo produto com descrições diferentes, como "coca-cola 1,5l" e "2,5l").
 - Preço por unidade de medida.
 - Histórico de preço por produto e por fornecedor.
 - Base já gravada: descrição, quantidade, unidade, `code` e `ean` dos itens (R7).
+- Sugestões de 2026-11-17:
+  - Catálogo de produtos: tabela `products` (nome normalizado, marca, embalagem, unidade base) e vínculo dos itens de compra; casar primeiro pelo EAN, depois pelo código do fornecedor e por fim pela descrição normalizada, com revisão das sugestões (mesmo padrão de confirmação da importação).
+  - Extrair embalagem e quantidade da descrição ("1,5L", "500g", "c/12") para calcular o preço por litro/kg/unidade e comparar tamanhos diferentes do mesmo produto.
+  - Variantes e equivalentes: agrupar marca e tamanho sob um produto genérico ("refrigerante cola") para comparar marcas.
+  - Alerta de preço: item comprado acima da média dos últimos N preços do produto, mostrado na prévia da NFC-e.
+  - Melhor lugar para comprar: menor preço recente por fornecedor para os produtos mais comprados.
+  - Frequência de compra e previsão de reposição (intervalo médio entre compras) e lista de compras sugerida.
+  - Inflação pessoal: índice da cesta dos produtos comprados com regularidade, mês contra mês.
+  - Gráficos: evolução de preço por produto (linha por fornecedor), preço por unidade entre tamanhos e marcas (barras), dispersão preço × data com a média móvel e o índice da cesta por mês (linha).
 
 ### Transversal
 - ESLint e Prettier no gate de qualidade.
@@ -154,7 +177,7 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638); calendário: 542 + 99 (641); sobras do parcial: 548 + 101 (649); último dia útil: 555 + 102 (657); repetição na planilha: 558 + 102 (660); tela da planilha: 558 + 105 (663); boleto agrupado: 563 + 107 (670); anexos e linha digitável: 574 + 110 (684); linha do PDF: 578 + 111 (689); conta pelo boleto: 583 + 115 (698).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638); calendário: 542 + 99 (641); sobras do parcial: 548 + 101 (649); último dia útil: 555 + 102 (657); repetição na planilha: 558 + 102 (660); tela da planilha: 558 + 105 (663); boleto agrupado: 563 + 107 (670); anexos e linha digitável: 574 + 110 (684); linha do PDF: 578 + 111 (689); agrupado na importação: 580 + 113 (693); conta pelo boleto: 585 + 117 (702).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 
