@@ -428,7 +428,7 @@ describe('contas — ações em massa e atalhos', () => {
     await render('/contas', monthBills());
 
     await press('p');
-    expect(showToast).toHaveBeenCalledWith('Marque na lista do mês as contas a pagar.', 'info');
+    expect(showToast).toHaveBeenCalledWith('Marque na lista as contas a pagar.', 'info');
     expect(document.querySelector('[role="dialog"]')).toBeNull();
 
     await press('n', document.querySelector('input[placeholder="Buscar"]') as HTMLInputElement);
@@ -444,5 +444,36 @@ describe('contas — ações em massa e atalhos', () => {
     // Com um diálogo aberto, N não troca o diálogo.
     await press('n');
     expect(document.getElementById('pay-amount')).not.toBeNull();
+  });
+});
+
+describe('contas — calendário do mês', () => {
+  it('alterna para o calendário pela URL, abre o dia e mostra só as contas dele', async () => {
+    await render('/contas?year=2026&month=3&layout=calendar', [
+      bill({ id: 1, description: 'Luz', dueDate: '2026-03-02', displayStatus: 'overdue', amountCents: 18000 }),
+      bill({ id: 2, description: 'Água', dueDate: '2026-03-02', displayStatus: 'overdue', amountCents: 9000 }),
+      bill({ id: 3, description: 'Internet', dueDate: '2026-03-12', displayStatus: 'upcoming', amountCents: 9900 }),
+    ]);
+
+    expect(document.querySelector('[aria-pressed="true"]')?.textContent).toContain('Calendário');
+    expect(document.querySelector('caption')?.textContent).toBe('Calendário de Março de 2026');
+    // Sem hoje no mês, abre o primeiro dia com conta em aberto.
+    expect(document.getElementById('bills-day-title')?.textContent).toBe('Vencem em 02/03/2026');
+    const rows = () => [...document.querySelectorAll('tbody tr')].filter((row) => row.querySelector('td.td'));
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining('Luz'), expect.stringContaining('Água')]);
+
+    const day12 = document.querySelector('button[aria-label^="Dia 12:"]') as HTMLButtonElement;
+    expect(day12.getAttribute('aria-label')).toBe('Dia 12: 1 conta, previsto R$ 99,00, em aberto R$ 99,00');
+    await click(day12);
+    expect(day12.getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('bills-day-title')?.textContent).toBe('Vencem em 12/03/2026');
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining('Internet')]);
+
+    await click(document.querySelector('button[aria-label="Dia 13: sem contas"]') as HTMLButtonElement);
+    expect(document.body.textContent).toContain('Nenhuma conta vence neste dia.');
+
+    await click(buttons('Lista')[0]);
+    expect(document.querySelector('caption')).toBeNull();
+    expect(rows()).toHaveLength(3);
   });
 });

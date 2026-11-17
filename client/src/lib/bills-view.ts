@@ -158,7 +158,11 @@ export interface BillsView {
   state: BillStateFilter;
   q: string;
   categoryId: number | null;
+  /** Lista (padrão) ou calendário do mês. */
+  layout: BillsLayout;
 }
+
+export type BillsLayout = 'list' | 'calendar';
 
 const STATE_FILTERS: readonly BillStateFilter[] = ['all', 'open', 'paid', 'skipped'];
 
@@ -180,6 +184,7 @@ export function parseBillsView(params: URLSearchParams, today: string): BillsVie
     state: STATE_FILTERS.includes(state as BillStateFilter) ? (state as BillStateFilter) : 'all',
     q: (params.get('q') ?? '').slice(0, 200),
     categoryId: positiveInt(params.get('categoryId')),
+    layout: params.get('layout') === 'calendar' ? 'calendar' : 'list',
   };
 }
 
@@ -195,6 +200,7 @@ export function billsViewParams(view: BillsView, today: string): Record<string, 
   if (view.state !== 'all') params.state = view.state;
   if (view.q.trim()) params.q = view.q.trim();
   if (view.categoryId !== null) params.categoryId = String(view.categoryId);
+  if (view.layout === 'calendar') params.layout = 'calendar';
   return params;
 }
 
@@ -505,4 +511,82 @@ function isTypingTarget(target: EventTarget | null): boolean {
   const tag = element.tagName.toLowerCase();
   if (tag === 'input') return !NON_TEXT_INPUTS.has(String(element.type ?? 'text').toLowerCase());
   return tag === 'textarea' || tag === 'select' || element.isContentEditable === true;
+}
+
+// ---------------------------------------------------------------------------
+// Calendário do mês
+// ---------------------------------------------------------------------------
+
+export const WEEKDAYS_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const;
+
+export interface CalendarDay {
+  date: string;
+  day: number;
+  /** Contas que vencem no dia, na ordem da lista. */
+  bills: Bill[];
+  /** Previsto do dia, sem as puladas. */
+  totalCents: number;
+  /** O que ainda falta pagar no dia (descontados os parciais). */
+  openCents: number;
+  /** Tom mais urgente entre as contas do dia, para o marcador da célula. */
+  tone: StatusTone | null;
+  isToday: boolean;
+}
+
+/** Semana de domingo a sábado; null nas casas fora do mês. */
+export type CalendarWeek = (CalendarDay | null)[];
+
+const TONE_PRIORITY: readonly StatusTone[] = ['danger', 'warning', 'info', 'neutral', 'success', 'muted'];
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** Grade do mês com as contas pelo vencimento. */
+export function calendarWeeks(year: number, month: number, bills: readonly Bill[], today: string): CalendarWeek[] {
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const byDate = new Map<string, Bill[]>();
+  for (const bill of bills) {
+    const list = byDate.get(bill.dueDate);
+    if (list) list.push(bill);
+    else byDate.set(bill.dueDate, [bill]);
+  }
+
+  const cells: (CalendarDay | null)[] = Array.from({ length: firstWeekday }, () => null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = `${year}-${pad2(month)}-${pad2(day)}`;
+    const dayBills = byDate.get(date) ?? [];
+    const counted = dayBills.filter((bill) => bill.state !== 'skipped');
+    const tones = dayBills.map((bill) => statusInfo(bill, today).tone);
+    cells.push({
+      date,
+      day,
+      bills: dayBills,
+      totalCents: counted.reduce((sum, bill) => sum + bill.amountCents, 0),
+      openCents: counted.filter((bill) => bill.state === 'open').reduce((sum, bill) => sum + remainingCents(bill), 0),
+      tone: TONE_PRIORITY.find((tone) => tones.includes(tone)) ?? null,
+      isToday: date === today,
+    });
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const weeks: CalendarWeek[] = [];
+  for (let index = 0; index < cells.length; index += 7) weeks.push(cells.slice(index, index + 7));
+  return weeks;
+}
+
+/**
+ * Dia aberto ao entrar no calendário: hoje, se for do mês exibido; senão o
+ * primeiro dia com conta em aberto, o primeiro com qualquer conta ou o dia 1.
+ */
+export function defaultCalendarDay(weeks: readonly CalendarWeek[]): string | null {
+  const days = weeks.flat().filter((cell): cell is CalendarDay => cell !== null);
+  if (days.length === 0) return null;
+  return (
+    days.find((cell) => cell.isToday)?.date ??
+    days.find((cell) => cell.bills.some((bill) => bill.state === 'open'))?.date ??
+    days.find((cell) => cell.bills.length > 0)?.date ??
+    days[0].date
+  );
 }
