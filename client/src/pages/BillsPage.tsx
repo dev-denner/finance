@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   CalendarCheck,
@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
+  FileUp,
   List,
   Pencil,
   Plus,
@@ -568,15 +569,21 @@ export function BillsPage() {
         title="Contas a pagar"
         subtitle="Agenda do que vence, do que já foi agendado no banco e do que foi pago."
         actions={
-          <Button
-            variant="primary"
-            title="Nova conta (atalho N)"
-            aria-keyshortcuts="N"
-            onClick={() => setDialog({ kind: 'form', target: { kind: 'create' } })}
-          >
-            <Plus className="h-4 w-4" />
-            Nova conta
-          </Button>
+          <>
+            <Link to="/importacoes/contas" className="btn-secondary">
+              <FileUp className="h-4 w-4" />
+              Importar planilha
+            </Link>
+            <Button
+              variant="primary"
+              title="Nova conta (atalho N)"
+              aria-keyshortcuts="N"
+              onClick={() => setDialog({ kind: 'form', target: { kind: 'create' } })}
+            >
+              <Plus className="h-4 w-4" />
+              Nova conta
+            </Button>
+          </>
         }
       />
 

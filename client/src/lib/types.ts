@@ -813,3 +813,58 @@ export interface InstallmentRecoveryProposal {
   conflict: boolean;
   reason: string;
 }
+
+// ---------------------------------------------------------------------------
+// Importação de contas a pagar por planilha
+// ---------------------------------------------------------------------------
+
+export type BillImportField = 'description' | 'amount' | 'dueDate' | 'status' | 'category' | 'repeat';
+
+export type BillImportMapping = Partial<Record<BillImportField, number | null>>;
+
+export interface BillImportPreviewRow {
+  rowNumber: number;
+  raw: Record<string, string>;
+  values: {
+    description: string;
+    amountCents: number | null;
+    dueDate: string | null;
+    status: '' | 'AG' | 'PG';
+    category: string;
+    recurrence: {
+      frequency: BillFrequency;
+      interval: number;
+      lastBusinessDay: boolean;
+      occurrenceCount: number | null;
+      label: string;
+    } | null;
+  };
+  errors: string[];
+  duplicate: boolean;
+}
+
+export interface BillImportPreview {
+  filename: string;
+  sheetName: string;
+  headers: string[];
+  mapping: BillImportMapping;
+  mappingErrors: string[];
+  mappingWarnings: string[];
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  rows: BillImportPreviewRow[];
+}
+
+export interface BillImportSummary {
+  filename: string;
+  totalRows: number;
+  importedRows: number;
+  rejectedRows: number;
+  duplicateRows: number;
+  skippedDuplicates: number;
+  invalidRows: number;
+  createdTemplates: number;
+  errors: { rowNumber: number; errors: string[] }[];
+}

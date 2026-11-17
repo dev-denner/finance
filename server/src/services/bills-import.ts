@@ -123,6 +123,8 @@ export interface BillPreviewRow {
   raw: Record<string, string>;
   values: BillPreviewValues;
   errors: string[];
+  /** Repete uma conta já gravada ou uma linha anterior do arquivo. */
+  duplicate: boolean;
 }
 
 export interface BillImportPreview {
@@ -375,13 +377,16 @@ export function previewBillsImport(
       ) as Record<string, string>,
       values: parsed.values,
       errors: parsed.errors,
+      duplicate: false,
     };
   });
 
   const validRows = rows.filter((r) => r.errors.length === 0).length;
   const invalidRows = rows.filter((r) => r.errors.length > 0).length;
 
-  const duplicateRows = duplicateRowNumbers(db, rows).size;
+  const duplicates = duplicateRowNumbers(db, rows);
+  for (const row of rows) row.duplicate = duplicates.has(row.rowNumber);
+  const duplicateRows = duplicates.size;
 
   return {
     filename,
