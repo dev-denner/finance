@@ -12,11 +12,15 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
+import { CategoryBars } from '../components/charts/CategoryBars';
+import { ChartCard } from '../components/charts/ChartCard';
+import { FLOW_SERIES, MonthlyFlowChart } from '../components/charts/MonthlyFlowChart';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState, PageHeader } from '../components/ui/Page';
 import { useMeta } from '../context/MetaContext';
 import { api, errorMessage } from '../lib/api';
+import { monthlyFlow, topCategories } from '../lib/charts';
 import {
   categoryColorHex,
   formatBRL,
@@ -260,6 +264,8 @@ export function ConsolidatedPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  /** Receitas e despesas do ano para o gráfico mensal, independentes da aba escolhida. */
+  const [flow, setFlow] = useState<{ income: ConsolidationResponse; expenses: ConsolidationResponse } | null>(null);
   const [cashFlow, setCashFlow] = useState<AccountCashFlowResult | null>(null);
   const [cashFlowLoading, setCashFlowLoading] = useState(true);
   const [cashFlowError, setCashFlowError] = useState<string | null>(null);
@@ -319,6 +325,21 @@ export function ConsolidatedPage() {
 
   useEffect(() => {
     let active = true;
+    Promise.all([api.getConsolidation(year, dateField, 'income'), api.getConsolidation(year, dateField, 'expenses')])
+      .then(([income, expenses]) => {
+        if (active) setFlow({ income, expenses });
+      })
+      .catch(() => {
+        // O erro do consolidado já aparece na tela; sem os dados, o gráfico mensal não é mostrado.
+        if (active) setFlow(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [year, dateField, refreshKey]);
+
+  useEffect(() => {
+    let active = true;
     setCashFlowLoading(true);
     setCashFlowError(null);
     api
@@ -347,6 +368,9 @@ export function ConsolidatedPage() {
   const categories = data?.categories ?? [];
   const totals = data?.totals;
   const kindInfo = KIND_LABELS[kind];
+  const flowRows = useMemo(() => (flow ? monthlyFlow(flow.income, flow.expenses) : null), [flow]);
+  const categoryShares = useMemo(() => topCategories(categories), [categories]);
+  const dateLabel = dateField === 'due' ? 'por vencimento' : 'por data da compra';
 
   const changeYear = (nextYear: number) => {
     if (nextYear < 1900 || nextYear > 2200) return;
@@ -464,6 +488,72 @@ export function ConsolidatedPage() {
           detail={`Com ${kindInfo.plural.toLowerCase()} no ano`}
           icon={Tags}
         />
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        {flowRows && flowRows.some((row) => row.inCents > 0 || row.outCents > 0) && (
+          <ChartCard
+            title={`Entradas e saídas por mês em ${year}`}
+            subtitle={`Saldo do mês = entradas − saídas, ${dateLabel}. Transferências internas e pagamentos de fatura ficam de fora.`}
+            legend={[
+              { label: FLOW_SERIES.in.label, color: FLOW_SERIES.in.color, shape: 'box' },
+              { label: FLOW_SERIES.out.label, color: FLOW_SERIES.out.color, shape: 'box' },
+              { label: FLOW_SERIES.net.label, color: FLOW_SERIES.net.color, shape: 'line' },
+            ]}
+            table={
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="text-left text-ink-500 dark:text-ink-400">
+                    <th className="py-1 font-medium">Mês</th>
+                    <th className="py-1 text-right font-medium">Entradas</th>
+                    <th className="py-1 text-right font-medium">Saídas</th>
+                    <th className="py-1 text-right font-medium">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {flowRows.map((row) => (
+                    <tr key={row.month} className="border-t border-ink-100 dark:border-ink-800">
+                      <td className="py-1">{MONTHS_LONG[row.month - 1]}</td>
+                      <td className="py-1 text-right">{formatBRL(row.inCents)}</td>
+                      <td className="py-1 text-right">{formatBRL(row.outCents)}</td>
+                      <td className="py-1 text-right">{formatBRL(row.netCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            }
+          >
+            <MonthlyFlowChart rows={flowRows} year={year} />
+          </ChartCard>
+        )}
+        {categoryShares.length > 0 && (
+          <ChartCard
+            title={`${kindInfo.plural} por categoria em ${year}`}
+            subtitle={`Total do ano ${dateLabel}; as menores somadas em “Outras”.`}
+            table={
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="text-left text-ink-500 dark:text-ink-400">
+                    <th className="py-1 font-medium">Categoria</th>
+                    <th className="py-1 text-right font-medium">Total</th>
+                    <th className="py-1 text-right font-medium">Participação</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {categoryShares.map((item) => (
+                    <tr key={item.key} className="border-t border-ink-100 dark:border-ink-800">
+                      <td className="py-1">{item.label}</td>
+                      <td className="py-1 text-right">{formatBRL(item.cents)}</td>
+                      <td className="py-1 text-right">{(item.share * 100).toFixed(1).replace('.', ',')}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            }
+          >
+            <CategoryBars items={categoryShares} />
+          </ChartCard>
+        )}
       </div>
 
       <div className="card mt-4 overflow-hidden">

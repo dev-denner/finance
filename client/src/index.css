@@ -102,3 +102,32 @@
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30;
   }
 }
+
+/* Gráficos: cores por papel (paleta validada contra o fundo dos cartões, claro e escuro). */
+@layer base {
+  :root {
+    --chart-series-1: #2a78d6;
+    --chart-series-2: #eb6834;
+    --chart-series-3: #1baf7a;
+    --chart-series-4: #eda100;
+    --chart-series-5: #e87ba4;
+    --chart-series-6: #008300;
+    --chart-other: #a3a29b;
+    --chart-grid: #e8e7e1;
+    --chart-axis: #c3c2b7;
+    --chart-surface: #ffffff;
+  }
+
+  html.dark {
+    --chart-series-1: #3987e5;
+    --chart-series-2: #d95926;
+    --chart-series-3: #199e70;
+    --chart-series-4: #c98500;
+    --chart-series-5: #d55181;
+    --chart-series-6: #0ca30c;
+    --chart-other: #6b6a64;
+    --chart-grid: #263041;
+    --chart-axis: #3b4658;
+    --chart-surface: #111827;
+  }
+}
