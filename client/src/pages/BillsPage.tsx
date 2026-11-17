@@ -26,7 +26,7 @@ import { BillsCalendar } from '../components/bills/BillsCalendar';
 import { BulkBillsDialog } from '../components/bills/BulkBillsDialog';
 import { ForecastStrip } from '../components/bills/ForecastStrip';
 import { PayDialog } from '../components/bills/PayDialog';
-import { DeleteBillDialog, ScheduleDialog } from '../components/bills/SmallBillDialogs';
+import { DeleteBillDialog, PaymentsDialog, ScheduleDialog } from '../components/bills/SmallBillDialogs';
 import { StatusChip } from '../components/bills/StatusChip';
 import { useBillsBadge } from '../context/BillsBadgeContext';
 import { useMeta } from '../context/MetaContext';
@@ -58,6 +58,7 @@ type Dialog =
   | { kind: 'pay'; bill: Bill }
   | { kind: 'schedule'; bill: Bill }
   | { kind: 'delete'; bill: Bill }
+  | { kind: 'payments'; bill: Bill }
   | { kind: 'bulk'; action: 'pay' | 'skip' };
 
 const STATE_OPTIONS: { value: BillStateFilter; label: string }[] = [
@@ -293,6 +294,23 @@ export function BillsPage() {
     }
   };
 
+  const undoPayment = async (bill: Bill, paymentId: number) => {
+    try {
+      const { bill: updated } = await api.undoBillPayment(bill.id, paymentId);
+      const message =
+        updated.state === 'paid'
+          ? 'Pagamento desfeito; a conta continua paga.'
+          : updated.partialPaidCents > 0
+            ? `Pagamento desfeito; faltam ${formatBRL(remainingCents(updated))}.`
+            : 'Pagamento desfeito.';
+      await afterChange(message);
+      // Com mais de um pagamento restante, o diálogo continua aberto com a conta atualizada.
+      if (updated.payments.length > 1) setDialog({ kind: 'payments', bill: updated });
+    } catch (err) {
+      showToast(errorMessage(err), 'error');
+    }
+  };
+
   const runBulk = async (action: 'pay' | 'skip', paidAt: string) => {
     const ids = selection.bills.map((bill) => bill.id);
     try {
@@ -354,9 +372,15 @@ export function BillsPage() {
         <button
           type="button"
           className="icon-btn"
-          title={bill.payments.length > 1 ? 'Desfazer todos os pagamentos' : 'Desfazer pagamento'}
-          aria-label={`Desfazer pagamento de ${bill.description}`}
-          onClick={() => void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.')}
+          title={bill.payments.length > 1 ? 'Ver e desfazer pagamentos' : 'Desfazer pagamento'}
+          aria-label={
+            bill.payments.length > 1 ? `Pagamentos de ${bill.description}` : `Desfazer pagamento de ${bill.description}`
+          }
+          onClick={() =>
+            bill.payments.length > 1
+              ? setDialog({ kind: 'payments', bill })
+              : void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.')
+          }
         >
           <Undo2 className="h-4 w-4" />
         </button>
@@ -836,6 +860,14 @@ export function BillsPage() {
           today={today}
           onClose={() => setDialog(null)}
           onConfirm={(paidAt) => runBulk(dialog.action, paidAt)}
+        />
+      )}
+      {dialog?.kind === 'payments' && (
+        <PaymentsDialog
+          bill={dialog.bill}
+          onClose={() => setDialog(null)}
+          onUndo={(paymentId) => undoPayment(dialog.bill, paymentId)}
+          onUndoAll={() => run(() => api.unpayBill(dialog.bill.id), 'Pagamentos desfeitos.')}
         />
       )}
       {dialog?.kind === 'schedule' && (

@@ -370,6 +370,9 @@ export const api = {
   bulkSkipBills: (ids: number[]) =>
     request<{ updated: number }>('/bills/bulk-skip', { method: 'POST', body: JSON.stringify({ ids }) }),
 
+  undoBillPayment: (id: number, paymentId: number) =>
+    request<{ bill: Bill }>(`/bills/${id}/payments/${paymentId}`, { method: 'DELETE' }),
+
   unpayBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/unpay`, { method: 'POST' }),
 
   skipBill: (id: number) => request<{ bill: Bill }>(`/bills/${id}/skip`, { method: 'POST' }),

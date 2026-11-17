@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DatabaseHandle } from '../src/db/client';
-import { createBill, getBill } from '../src/services/bills';
+import { createBill, getBill, payBill } from '../src/services/bills';
 import { importWorkbook, previewImport } from '../src/services/import';
 import { ensureLookup } from '../src/services/lookups';
 import { createTestDatabase, makeCsv } from './helpers';
@@ -133,5 +133,21 @@ describe('importação × contas a pagar (AC14–AC16)', () => {
     expect(summary.skippedBillPayments).toEqual([
       { rowNumber: 2, billDescription: 'Reserva mensal', reason: 'A linha foi vinculada como transferência.' },
     ]);
+  });
+
+  it('conta com pagamento parcial é sugerida pelo valor que falta e o vínculo a quita', () => {
+    const condo = openBill('Condomínio', 100000, '2026-03-10');
+    payBill(handle.db, condo.id, { mode: 'external', paidAt: '2026-03-05', paidCents: 14375, partial: true }, '2026-03-05');
+    // 1.000,00 − 143,75 = 856,25, o valor da linha 3 do extrato.
+    const preview = previewImport(handle.db, csv(), 'extrato.csv');
+    const [candidate] = preview.billCandidates;
+    expect(preview.billCandidates).toHaveLength(1);
+    expect(candidate).toMatchObject({ confidence: 'high', amountDiffCents: 0, bill: { id: condo.id, amountCents: 100000, paidCents: 14375 } });
+    expect(candidate.reasons[0]).toBe('Valor igual ao que falta (R$ 856,25; já pago R$ 143,75 de R$ 1.000,00)');
+
+    importWorkbook(handle.db, csv(), 'extrato.csv', { mapping: preview.mapping, billDecisions: { [candidate.key]: 'confirm' } });
+    const paid = getBill(handle.db, condo.id);
+    expect(paid).toMatchObject({ state: 'paid', paidAt: '2026-03-11', paidCents: 100000, partialPaidCents: 0 });
+    expect(paid.payments.map((payment) => [payment.amountCents, payment.origin])).toEqual([[14375, 'manual'], [85625, 'import_match']]);
   });
 });

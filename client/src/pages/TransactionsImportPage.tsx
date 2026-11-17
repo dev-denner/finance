@@ -249,6 +249,12 @@ function BillCandidateRow({
               {formatBRL(candidate.bill.amountCents)}
             </span>
           </div>
+          {candidate.bill.paidCents > 0 && (
+            <p className="mt-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+              Já pago {formatBRL(candidate.bill.paidCents)} · falta{' '}
+              {formatBRL(candidate.bill.amountCents - candidate.bill.paidCents)}
+            </p>
+          )}
           <p className="mt-0.5 truncate text-[12px] font-medium text-ink-700 dark:text-ink-200">
             {candidate.bill.description}
           </p>

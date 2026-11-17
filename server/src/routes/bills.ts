@@ -24,6 +24,7 @@ import {
   previewTemplateDates,
   scheduleBill,
   skipBill,
+  undoBillPayment,
   unpayBill,
   unskipBill,
   updateBill,
@@ -35,6 +36,7 @@ import {
   billCreateSchema,
   billForecastQuerySchema,
   billListQuerySchema,
+  billPaymentParamSchema,
   billTemplateCreateSchema,
   billTemplateListQuerySchema,
   billTemplateUpdateQuerySchema,
@@ -165,6 +167,12 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
   });
 
   app.post('/api/bills/:id/unpay', async (request) => ({ bill: unpayBill(db, idOf(request)) }));
+
+  /** Desfaz só um pagamento; a conta reabre quando ele era o que a quitou. */
+  app.delete('/api/bills/:id/payments/:paymentId', async (request) => {
+    const params = parseWith(billPaymentParamSchema, request.params, 'Identificador inválido.');
+    return { bill: undoBillPayment(db, params.id, params.paymentId) };
+  });
 
   app.post('/api/bills/:id/skip', async (request) => ({ bill: skipBill(db, idOf(request)) }));
 

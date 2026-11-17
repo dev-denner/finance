@@ -295,7 +295,7 @@ describe('decisões de pagamento de contas na importação', () => {
     dayDistance: 0,
     amountDiffCents: 0,
     party: party(rowNumber),
-    bill: { id: billId, description: `Conta ${billId}`, amountCents: 14287, dueDate: '2026-03-10', categoryName: 'Contas' },
+    bill: { id: billId, description: `Conta ${billId}`, amountCents: 14287, dueDate: '2026-03-10', categoryName: 'Contas', paidCents: 0 },
     ...overrides,
   });
 

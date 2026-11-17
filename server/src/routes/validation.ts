@@ -144,6 +144,11 @@ const notesSchema = z.string().max(1000).nullable().optional();
 
 export const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
 
+export const billPaymentParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  paymentId: z.coerce.number().int().positive(),
+});
+
 const recurrenceShape = {
   frequency: z.enum(['monthly', 'weekly', 'yearly']),
   interval: z.number().int().min(1).max(120).optional(),
