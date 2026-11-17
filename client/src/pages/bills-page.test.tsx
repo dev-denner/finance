@@ -28,6 +28,7 @@ const apiMock = {
   payBill: vi.fn(),
   getBill: vi.fn(),
   parseBarcode: vi.fn(),
+  readBoleto: vi.fn(),
   uploadBillAttachment: vi.fn(),
   readBarcodeFromAttachment: vi.fn(),
   deleteBillAttachment: vi.fn(),
@@ -696,5 +697,58 @@ describe('contas — boleto e anexos', () => {
     await click(buttons('Copiar linha digitável de Condomínio')[0]);
     expect(writeText).toHaveBeenCalledWith(LINE);
     expect(showToast).toHaveBeenCalledWith('Linha digitável copiada.', 'success');
+  });
+});
+
+describe('contas — nova conta pelo boleto', () => {
+  it('lê o PDF, preenche o formulário e, ao salvar, cria a conta com a linha e anexa o boleto', async () => {
+    const LINE = '3'.repeat(47);
+    apiMock.readBoleto.mockResolvedValue({
+      barcode: { digits: LINE, kind: 'bank', amountCents: 150000, dueDate: '2026-11-25', formatted: 'x' },
+      beneficiary: 'COLEGIO SAO PAULO LTDA',
+      suggestion: { description: 'Colégio São Paulo', categoryId: 3, categoryName: 'Moradia', source: 'similar_bill', basedOn: { id: 9, description: 'Colégio São Paulo', dueDate: '2026-10-05' } },
+    });
+    apiMock.createBill.mockResolvedValue({ bill: bill({ id: 40 }) });
+    apiMock.uploadBillAttachment.mockResolvedValue({ attachment: { id: 1 } });
+    await render('/contas', []);
+
+    await click(buttons('Nova conta')[0]);
+    const input = document.querySelector('input[aria-label="Boleto em PDF"]') as HTMLInputElement;
+    const file = new File(['%PDF-1.4'], 'boleto-escola.pdf', { type: 'application/pdf' });
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(apiMock.readBoleto).toHaveBeenCalledWith(file);
+    expect((document.getElementById('bill-description') as HTMLInputElement).value).toBe('Colégio São Paulo');
+    expect((document.getElementById('bill-amount') as HTMLInputElement).value).toBe('1500,00');
+    expect((document.getElementById('bill-due') as HTMLInputElement).value).toBe('2026-11-25');
+    expect((document.getElementById('bill-category') as HTMLSelectElement).value).toBe('3');
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('beneficiário parecido');
+
+    await click(buttons('Salvar')[0]);
+    expect(apiMock.createBill).toHaveBeenCalledWith(expect.objectContaining({ description: 'Colégio São Paulo', amountCents: 150000, dueDate: '2026-11-25', categoryId: 3, barcode: LINE }));
+    expect(apiMock.uploadBillAttachment).toHaveBeenCalledWith(40, file);
+    expect(showToast).toHaveBeenCalledWith('Conta criada com o boleto anexado.', 'success', undefined);
+  });
+});
+
+describe('contas — salvar enquanto o boleto é lido', () => {
+  it('Salvar fica desligado até a leitura terminar', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    apiMock.readBoleto.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    await render('/contas', []);
+    await click(buttons('Nova conta')[0]);
+    const input = document.querySelector('input[aria-label="Boleto em PDF"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['%PDF-1.4'], 'b.pdf', { type: 'application/pdf' })] });
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(buttons('Salvar')[0].disabled).toBe(true);
+    await click(buttons('Salvar')[0]);
+    expect(apiMock.createBill).not.toHaveBeenCalled();
+    await act(async () => finish({ barcode: null, beneficiary: null, suggestion: null }));
+    expect(buttons('Salvar')[0].disabled).toBe(false);
   });
 });

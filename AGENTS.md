@@ -37,7 +37,7 @@
 
 1. `npm run build` sem erro (server + client)
 2. `npm test` verde (Vitest)
-3. nenhuma regressão vs baseline (693 testes: 580 no server + 113 no client)
+3. nenhuma regressão vs baseline (702 testes: 585 no server + 117 no client)
 4. sem `console.log`, `debugger`, `.only`, `.skip`
 5. nenhuma variável de ambiente nova sem entrada no README
 6. sem segredo, token ou PII em código, log ou teste

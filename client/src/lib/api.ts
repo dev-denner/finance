@@ -2,6 +2,7 @@ import type {
   AccountCashFlowResult,
   Bill,
   BarcodeFromPdfResult,
+  BoletoReading,
   BarcodeParseResult,
   BillAgenda,
   BillAttachment,
@@ -471,8 +472,16 @@ export const api = {
     paymentMethodId?: number | null;
     notes?: string | null;
     scheduledFor?: string | null;
+    barcode?: string | null;
   }) =>
     request<{ bill: Bill }>('/bills', { method: 'POST', body: JSON.stringify(input) }),
+
+  /** Lê um boleto em PDF: valor e vencimento pela linha digitável, descrição e categoria sugeridas; não grava. */
+  readBoleto: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<BoletoReading>('/bills/boleto/read', { method: 'POST', body: form });
+  },
 
   updateBill: (
     id: number,

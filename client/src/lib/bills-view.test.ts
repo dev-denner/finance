@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyBoletoReading,
   calendarWeeks,
   defaultCalendarDay,
   billsShortcut,
@@ -373,5 +374,47 @@ describe('calendário do mês', () => {
     expect(defaultCalendarDay(weeks)).toBe('2027-02-15');
     expect(defaultCalendarDay(calendarWeeks(2027, 2, [], '2026-03-04'))).toBe('2027-02-01');
     expect(defaultCalendarDay(calendarWeeks(2026, 3, [bill({ dueDate: '2026-03-20' })], '2026-03-04'))).toBe('2026-03-04');
+  });
+});
+
+describe('conta a partir do boleto', () => {
+  const barcode = { digits: '1'.repeat(47), kind: 'bank' as const, amountCents: 150000, dueDate: '2026-11-25', formatted: 'x' };
+  const br = (iso: string) => iso.split('-').reverse().join('/');
+
+  it('valor e vencimento vêm da linha; descrição e categoria só preenchem campos vazios', () => {
+    const empty = emptyBillForm('2026-11-17', null);
+    const reading = {
+      barcode,
+      beneficiary: 'COLEGIO SAO PAULO LTDA',
+      suggestion: {
+        description: 'Colégio São Paulo',
+        categoryId: 4,
+        categoryName: 'Educação',
+        source: 'similar_bill' as const,
+        basedOn: { id: 9, description: 'Colégio São Paulo', dueDate: '2026-10-05' },
+      },
+    };
+    const applied = applyBoletoReading(empty, reading, br);
+    expect(applied.form).toMatchObject({ amount: '1500,00', dueDate: '2026-11-25', description: 'Colégio São Paulo', categoryId: 4 });
+    expect(applied.notes).toEqual([
+      'Valor e vencimento pela linha digitável.',
+      'Descrição e categoria como em “Colégio São Paulo” de 05/10/2026 (beneficiário parecido).',
+    ]);
+
+    const typed = { ...empty, description: 'Mensalidade', categoryId: 7 };
+    expect(applyBoletoReading(typed, reading, br).form).toMatchObject({ description: 'Mensalidade', categoryId: 7, amount: '1500,00' });
+  });
+
+  it('sem linha digitável avisa; só com o beneficiário, sugere a descrição e pede a categoria', () => {
+    const applied = applyBoletoReading(
+      emptyBillForm('2026-11-17', null),
+      { barcode: null, beneficiary: 'Energia Rio', suggestion: { description: 'Energia Rio', categoryId: null, categoryName: null, source: 'boleto', basedOn: null } },
+      br,
+    );
+    expect(applied.form).toMatchObject({ description: 'Energia Rio', categoryId: null, amount: '', dueDate: '2026-11-17' });
+    expect(applied.notes).toEqual([
+      'Linha digitável não encontrada no PDF: preencha valor e vencimento.',
+      'Descrição pelo beneficiário do boleto; escolha a categoria.',
+    ]);
   });
 });

@@ -19,6 +19,7 @@ import {
   deleteBill,
   deleteBillAttachment,
   readBarcodeFromAttachment,
+  readBoleto,
   getBillAttachmentFile,
   deleteTemplate,
   getAgenda,
@@ -165,6 +166,13 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
     const body = parseWith(barcodeParseSchema, request.body, 'Linha digitável inválida.');
     const parsed = parseBarcode(body.barcode, todayIso());
     return parsed.ok ? { valid: true, ...parsed.value } : { valid: false, error: parsed.error };
+  });
+
+  /** Lê um boleto em PDF para preencher uma conta nova; não grava. */
+  app.post('/api/bills/boleto/read', async (request) => {
+    const form = await readMultipartForm(request);
+    if (!form.file) throw badRequest('Envie o boleto em PDF.');
+    return readBoleto(db, form.file.buffer, todayIso());
   });
 
   // ---- Anexos ------------------------------------------------------------

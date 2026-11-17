@@ -8,7 +8,7 @@ import type { AppDatabase } from '../../db/client';
 import { billAttachments } from '../../db/schema';
 import { findBarcodeInText, type BarcodeDetails } from '../../lib/barcode';
 import { badRequest, conflict, notFound } from '../../lib/errors';
-import { readPdfTextLines } from '../../lib/pdf-text';
+import { pdfLineTexts, readPdfTextLines } from '../../lib/pdf-text';
 import type { BillAttachmentDto } from './dto';
 import { loadBillRow } from './occurrences';
 
@@ -109,10 +109,8 @@ export async function readBarcodeFromAttachment(
     pagesError: 'O PDF deve ter no máximo dez páginas para a leitura da linha digitável.',
     textError: 'O texto do PDF passa do limite para a leitura da linha digitável.',
   });
-  // Cada linha com as partes em ordem horizontal; depois o texto todo, para códigos quebrados em duas linhas.
-  const texts = lines
-    .sort((a, b) => b.y - a.y)
-    .map((line) => line.parts.sort((a, b) => a.x - b.x).map((part) => part.text).join(' '));
+  // Cada linha; depois o texto todo, para códigos quebrados em duas linhas.
+  const texts = pdfLineTexts(lines);
   for (const text of [...texts, texts.join(' ')]) {
     const found = findBarcodeInText(text, today);
     if (found) return found;
