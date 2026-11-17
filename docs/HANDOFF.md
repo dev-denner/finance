@@ -114,8 +114,8 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 - Quebrar `services/import.ts` em módulos e `TransactionsImportPage.tsx` (3 mil linhas) em assistente por etapas (M2-08).
 - Listagem: gráfico de tendência mensal e orçamento por categoria no consolidado.
 - Gráficos (sugestões de 2026-11-17):
-  - Entradas, saídas e saldo por mês (barras de entradas e saídas com linha de saldo; 12 meses, clicar abre o mês na listagem).
-  - Despesas por categoria no período (barras horizontais ordenadas, com o mês anterior como marca de comparação) e evolução das 5 maiores categorias (linhas).
+  - ~~Entradas, saídas e saldo por mês~~ (Consolidado, `MonthlyFlowChart`; falta: clicar no mês abrir a listagem).
+  - ~~Despesas por categoria no período~~ (Consolidado, `CategoryBars`, segue a aba despesas/receitas/transferências; falta: marca de comparação com o período anterior) e evolução das 5 maiores categorias (linhas).
   - Saldo acumulado por conta (linha por conta; depende da entidade conta, M2-01).
   - Parcelas já comprometidas nos próximos meses (barras empilhadas por cartão/conta; usa as parcelas futuras gravadas).
   - Maiores estabelecimentos/descrições do período (barras horizontais, top 10).
@@ -177,7 +177,7 @@ Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Mó
 ## 7. Ambiente e comandos
 
 - Node 24, npm workspaces. `npm install` → `npm run build` → `npm test` (gate). `npm run db:backup` antes de qualquer migração. `npm run dev` sobe API em 3001 e web em 5173.
-- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638); calendário: 542 + 99 (641); sobras do parcial: 548 + 101 (649); último dia útil: 555 + 102 (657); repetição na planilha: 558 + 102 (660); tela da planilha: 558 + 105 (663); boleto agrupado: 563 + 107 (670); anexos e linha digitável: 574 + 110 (684); linha do PDF: 578 + 111 (689); agrupado na importação: 580 + 113 (693); conta pelo boleto: 585 + 117 (702).
+- Baseline de testes (já incluindo os do Módulo 3): PR #5 418 + 53; PR1 465 + 53 (518); PR2 482 + 53 (535); PR3 494 + 53 (547); PR4 489 + 73 (562); PR4 após trazer o `master` (com a correção do review do #6) e a do próprio review: 496 + 78 (574). O PR1 ganhou +5 testes com a correção do review (470 + 53). PR5: 511 + 83 (594); #11: 511 + 84 (595); R3 do Módulo 3: 512 + 84 (596); R2 do Módulo 3: 515 + 85 (600); R4 do Módulo 3: 516 + 85 (601); R6 do Módulo 3: 520 + 85 (605); R7 do Módulo 3: 528 + 86 (614); pagamento parcial: 538 + 89 (627); previsão na tela: 538 + 91 (629); ações em massa: 542 + 96 (638); calendário: 542 + 99 (641); sobras do parcial: 548 + 101 (649); último dia útil: 555 + 102 (657); repetição na planilha: 558 + 102 (660); tela da planilha: 558 + 105 (663); boleto agrupado: 563 + 107 (670); anexos e linha digitável: 574 + 110 (684); linha do PDF: 578 + 111 (689); agrupado na importação: 580 + 113 (693); conta pelo boleto: 585 + 117 (702); gráficos do consolidado: 585 + 126 (711).
 - CI em `.github/workflows/ci.yml` (na branch `feat/bills-recurrence`).
 - Memória persistente da sessão Claude para este diretório: `~/.claude/projects/-mnt-Dados-projects-finance/memory/` (índice `MEMORY.md`), com os mesmos fatos deste arquivo em forma curta.
 
