@@ -1,6 +1,6 @@
 # HANDOFF — estado do projeto Finance e como continuar
 
-Atualizado em 2026-11-12 (sessão com Claude Fable 5.1; PR2 a PR6, publicação e merges na sessão com Claude Opus 5.5). **O Módulo 1 do plano está concluído**; os próximos trabalhos estão na seção 5. Leia este arquivo antes de qualquer trabalho; ele resume o que já foi decidido, feito e o que falta, com ponteiros para os documentos detalhados. Os documentos de referência estão em `docs/`:
+Atualizado em 2026-11-12 (sessão com Claude Fable 5.1; PR2 a PR6, publicação e merges na sessão com Claude Opus 5.5). **O plano do Módulo 1 e as ressalvas do Módulo 3 estão concluídos**; o backlog oficial está na seção 5 (atualizado em 2026-11-16). Leia este arquivo antes de qualquer trabalho; ele resume o que já foi decidido, feito e o que falta, com ponteiros para os documentos detalhados. Os documentos de referência estão em `docs/`:
 
 | Documento | Conteúdo |
 |---|---|
@@ -39,11 +39,17 @@ Tudo o que foi feito está em `master`. Merges de 2026-11-12, em ordem:
 
 O #16 levou ao `master` a R2 e a R4, e o #17 (R6) foi mesclado em seguida (`cabbf68`).
 
-**Fluxo de branches (desde 2026-11-16):** a `develop` nasceu de `cabbf68` e concentra os PRs; o `master` só a recebe por PR de release, a pedido do usuário. Branches novas saem da `develop` e são apagadas depois do merge. No remoto ficam só `master`, `develop` e as branches de PRs abertos. As antigas `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` (versões pré-rebase do Módulo 1, já substituídas) viraram tags locais `archive/…`.
+**Fluxo de branches (desde 2026-11-16):** a `develop` nasceu de `cabbf68` e concentra os PRs; o `master` só a recebe por PR de release, aberto ao concluir um módulo. Branches novas saem da `develop` e são apagadas depois do merge. No remoto ficam só `master`, `develop` e as branches de PRs abertos. As antigas `feat/bills-recurrence-oldbase` e `feat/import-installments-category-matching` (versões pré-rebase do Módulo 1, já substituídas) viraram tags locais `archive/…`.
 
 O CI (`.github/workflows/ci.yml`, build + testes em Linux) roda em todo push no `master` e na `develop` e em PRs. Ele só passou a valer depois de chegar ao `master`; trocar a base de um PR não o dispara, só um push. O Codex revisa cada PR automaticamente e, nos PRs deste trabalho, sempre encontrou algo real: espere a revisão terminar antes de mesclar, ou trate o apontamento em PR de acompanhamento.
 
 O usuário autorizou (2026-11-12) **publicar cada PR assim que concluído** (push da branch e abertura do PR); merge continua sendo decisão dele.
+
+**Release (regra do usuário, 2026-11-16):** quando um módulo for concluído, abra um PR de release da `develop` para o `master` (o primeiro, ao terminar o Módulo 1). O merge da release continua sendo decisão do usuário.
+
+**GitHub (2026-11-16):** a branch padrão do repositório é a `develop`, e as branches de PR mescladas são apagadas automaticamente pelo GitHub.
+
+**Dados:** o banco local (`server/data/finance.db`) só tem dados de teste; nada é de produção ainda. O backup antes de migração continua sendo regra do `AGENTS.md`.
 
 O usuário trabalha em mais de uma máquina (Windows e Linux) e com sessões paralelas de IA que fazem merge no remoto. **Sempre `git fetch origin` e criar branches a partir de `origin/develop`**, que concentra os PRs; o `master` só recebe releases.
 
@@ -74,14 +80,57 @@ Schema/migração: `bill_templates`, `bill_payments`, `scheduled_bills` recriada
 
 Testes novos: `bills-recurrence`, `bills-templates`, `bills-occurrences`, `bills-migration` (aplica migrações até `0014`, semeia dados legados e lembretes, aplica `0015`, confere). Os testes antigos de status/repeat continuam válidos pela camada legada.
 
-## 5. O que falta (em ordem sugerida)
+## 5. Backlog oficial (registrado em 2026-11-16)
 
-O plano do Módulo 1 (`docs/plano-modulo-1-contas-a-pagar.md`) está concluído: PR1–PR6 mesclados (#6 a #12). O registro de cada PR está na seção 9 do plano.
+Estado: Módulo 1 com o plano concluído e pagamento parcial entregue (#20); Módulo 3 com as ressalvas R2–R7 resolvidas; Módulo 2 na fase 1; Módulo 4 não iniciado. Itens riscados ficam como histórico; ao concluir um item, risque-o aqui no mesmo PR.
 
-1. **Módulo 3 — ressalvas da revisão** (`docs/revisao-modulo-3-2026-11.md`): R3 resolvida (a conciliação só categoriza itens sem categoria ou em "Sem categoria"); R2 resolvida (consulta aos portais atrás de `NFCE_PORTAL_QUERY_ENABLED`, desligada por padrão); R4 resolvida (migração `0016` remove `purchases.transaction_id`); R6 resolvida (server sem `lib: DOM`, extração do RJ testada com retrato fixo, mensagens de saldo em BRL); R7 resolvida (migração `0017`: `purchase_items.code`/`ean` e `purchase_payments`). Todas as ressalvas da revisão estão tratadas. Achado pequeno: o parser do RJ lê só duas casas do preço unitário (`6,6667` vira R$ 6,66); o total do item não é afetado.
-2. **Módulo 1 — sobras fora de escopo** (plano, seção 8): ~~pagamento parcial na tela~~ (feito em 2026-11-16: opção "Pagamento parcial", migração `0018` deixa `bill_payments.transaction_id` opcional), notificações locais/PWA, anexos e linha digitável, visão calendário, "find schedules" (sugerir recorrências pelo histórico), recorrência na importação de contas por planilha, M1-06 (duplicidade duplicada em `bills-import.ts`), ações em massa e atalhos.
-3. **Módulo 2** (fase 2 da análise): entidade conta evoluindo `payment_methods.balance_type`, perfis de arquivo por banco, OFX, grupo de parcelas, rateio/tags, regras, desfazer lote, quebrar `import.ts`/`TransactionsImportPage.tsx` (3 mil linhas) em wizard.
-4. **Transversal**: ESLint/Prettier, `packages/domain` e `api-client` (análise, seção 5), PWA.
+### Módulo 1 — Contas a pagar
+- ~~Pagamento parcial na tela~~ (#20, migração `0018`).
+- Notificações locais (navegador/celular) com antecedência configurável; hoje só há o contador no menu e o e-mail. Depende da PWA.
+- Anexos (boleto em PDF) e linha digitável.
+- Visão em calendário do mês.
+- Previsão dos próximos meses na tela (`GET /api/bills/forecast` existe; a tela não usa).
+- Ações em massa (marcar várias como pagas ou puladas) e atalhos de teclado (N nova conta, P pagar).
+- Sugerir recorrências pelo histórico de lançamentos ("find schedules"); depende das regras do Módulo 2.
+- Recorrência na importação de contas por planilha (hoje cria só contas avulsas).
+- M1-06: cálculo de duplicidade repetido em `bills-import.ts` (prévia e importação).
+- Recorrência no "último dia útil" do mês.
+- Um lançamento pagando várias contas (boleto agrupado); hoje `bill_payments.transaction_id` é único.
+- Sobras do pagamento parcial: desfazer um pagamento de cada vez; sugerir na importação o restante de uma conta com parcial.
+
+### Módulo 2 — Movimentações e importação (fase 2)
+- Entidade conta (corrente, cartão, benefício, dinheiro) evoluindo `payment_methods.balance_type`, com saldo por conta e fatura de cartão (M2-01, M2-09).
+- Perfis de arquivo por banco: Nubank, Itaú, Inter, C6, BB, Caixa, Mercado Pago (M2-02).
+- Importação de OFX (M2-03; parser próprio ou dependência a aprovar).
+- Grupo de parcelas de uma compra (M2-04).
+- Rateio entre categorias e tags (M2-05).
+- Regras automáticas "condição → ação" (M2-06).
+- Desfazer lote de importação (M2-07).
+- Quebrar `services/import.ts` em módulos e `TransactionsImportPage.tsx` (3 mil linhas) em assistente por etapas (M2-08).
+- Listagem: gráfico de tendência mensal e orçamento por categoria no consolidado.
+
+### Módulo 3 — Compras/NFC-e
+- ~~Ressalvas R2–R7 da revisão~~ (#13–#18).
+- Fornecedores e filiais em tabelas próprias (hoje o fornecedor fica em cada compra).
+- Prévia editável: corrigir itens antes de gravar.
+- Novos canais: JSON, foto da nota com OCR, leitura do QR Code pela câmera.
+- Conciliação automática pelas formas de pagamento da nota (`purchase_payments`) e tela própria de conciliação (conciliada / parcial / sem movimento / sem compra).
+- Parcelas no cartão na conciliação (depende do grupo de parcelas do Módulo 2).
+- Dinheiro, cashback e bônus: escolher se geram movimento.
+- Parser do RJ lê só duas casas do preço unitário (`6,6667` vira R$ 6,66); o total do item não é afetado.
+
+### Módulo 4 — Produtos (não iniciado)
+- Normalização de produtos (mesmo produto com descrições diferentes, como "coca-cola 1,5l" e "2,5l").
+- Preço por unidade de medida.
+- Histórico de preço por produto e por fornecedor.
+- Base já gravada: descrição, quantidade, unidade, `code` e `ean` dos itens (R7).
+
+### Transversal
+- ESLint e Prettier no gate de qualidade.
+- `packages/domain` e `api-client` (análise, seção 5), base para o mobile.
+- PWA; depois app com Expo.
+- Teste de ponta a ponta de um fluxo de importação.
+- README com comandos de Linux/macOS (hoje quase todos estão como `npm.cmd`).
 
 ## 6. Armadilhas aprendidas (evite repetir)
 
