@@ -12,7 +12,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BillsPage } from './BillsPage';
 import { todayISO } from '../lib/format';
-import type { Bill, BillAgenda, BillListResponse, BillTemplate } from '../lib/types';
+import type { Bill, BillAgenda, BillForecast, BillListResponse, BillTemplate } from '../lib/types';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -22,6 +22,7 @@ declare global {
 const apiMock = {
   getBills: vi.fn(),
   getBillAgenda: vi.fn(),
+  getBillForecast: vi.fn(),
   listBillTemplates: vi.fn(),
   getBillTemplate: vi.fn(),
   payBill: vi.fn(),
@@ -120,7 +121,12 @@ const TEMPLATE: BillTemplate = {
 let container: HTMLDivElement;
 let root: Root;
 
-async function render(url = '/contas', bills: Bill[] = [bill()], agenda?: Partial<BillAgenda>) {
+async function render(
+  url = '/contas',
+  bills: Bill[] = [bill()],
+  agenda?: Partial<BillAgenda>,
+  forecastMonths: BillForecast['months'] = [],
+) {
   apiMock.getBills.mockResolvedValue({ bills, summary: summary() });
   apiMock.getBillAgenda.mockResolvedValue({
     today: TODAY,
@@ -131,6 +137,7 @@ async function render(url = '/contas', bills: Bill[] = [bill()], agenda?: Partia
     summary: summary(),
     ...agenda,
   });
+  apiMock.getBillForecast.mockResolvedValue({ today: TODAY, months: forecastMonths });
   await act(async () => {
     root.render(
       <MemoryRouter initialEntries={[url]}>
@@ -247,6 +254,27 @@ describe('tela de contas a pagar', () => {
     const [message, , options] = showToast.mock.calls.at(-1) as [string, string, unknown];
     expect(message).toBe('Pagamento parcial registrado; faltam R$ 482,00.');
     expect(options).toBeUndefined();
+  });
+
+  it('mostra a previsão dos próximos meses e abre o mês clicado', async () => {
+    const forecastSummary = (totalCents: number, paidCents: number, overdueCents = 0) => ({
+      ...summary(), totalCents, paidCents, openCents: totalCents - paidCents, overdueCents,
+    });
+    await render('/contas?year=2026&month=3', [bill()], undefined, [
+      { year: 2026, month: 3, from: '2026-03-01', to: '2026-03-31', summary: forecastSummary(250000, 100000, 20000) },
+      { year: 2026, month: 4, from: '2026-04-01', to: '2026-04-30', summary: forecastSummary(180000, 0) },
+      { year: 2026, month: 5, from: '2026-05-01', to: '2026-05-31', summary: forecastSummary(0, 0) },
+    ]);
+
+    expect(apiMock.getBillForecast).toHaveBeenCalledWith(3);
+    const cards = [...document.querySelectorAll('#bills-forecast-title ~ div button')] as HTMLButtonElement[];
+    expect(cards.map((card) => card.textContent?.split('R$')[0])).toEqual(['Março de 2026', 'Abril de 2026', 'Maio de 2026']);
+    expect(cards[0]!.getAttribute('aria-pressed')).toBe('true');
+    expect(cards[0]!.textContent).toContain('Atrasado R$ 200,00');
+    expect(cards[1]!.textContent).toContain('Em aberto R$ 1.800,00');
+
+    await click(cards[1]!);
+    expect(apiMock.getBills).toHaveBeenLastCalledWith(2026, 4, expect.anything());
   });
 
   it('valor inválido no pagamento não chama a API', async () => {

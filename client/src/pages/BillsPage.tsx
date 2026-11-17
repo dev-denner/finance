@@ -20,6 +20,7 @@ import {
 import { Button } from '../components/ui/Button';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Page';
 import { BillFormDialog, type BillFormTarget } from '../components/bills/BillFormDialog';
+import { ForecastStrip } from '../components/bills/ForecastStrip';
 import { PayDialog } from '../components/bills/PayDialog';
 import { DeleteBillDialog, ScheduleDialog } from '../components/bills/SmallBillDialogs';
 import { StatusChip } from '../components/bills/StatusChip';
@@ -29,6 +30,7 @@ import { useToast } from '../context/ToastContext';
 import { api, errorMessage } from '../lib/api';
 import {
   billNote,
+  forecastCards,
   billsViewParams,
   monthLabel,
   parseBillsView,
@@ -39,7 +41,7 @@ import {
   type BillsView,
 } from '../lib/bills-view';
 import { formatBRL, formatDateBR, todayISO } from '../lib/format';
-import type { Bill, BillAgenda, BillListResponse, BillTemplate, PayBillInput } from '../lib/types';
+import type { Bill, BillAgenda, BillForecast, BillListResponse, BillTemplate, PayBillInput } from '../lib/types';
 
 type Dialog =
   | { kind: 'form'; target: BillFormTarget }
@@ -57,6 +59,8 @@ const STATE_OPTIONS: { value: BillStateFilter; label: string }[] = [
 const UNDO_MS = 6000;
 /** Linhas da agenda visíveis antes de "Mostrar todas". */
 const AGENDA_PREVIEW_ROWS = 8;
+/** Mês corrente e os dois seguintes. */
+const FORECAST_MONTHS = 3;
 
 function SummaryTile({
   label,
@@ -103,6 +107,7 @@ export function BillsPage() {
 
   const [month, setMonth] = useState<BillListResponse | null>(null);
   const [agenda, setAgenda] = useState<BillAgenda | null>(null);
+  const [forecast, setForecast] = useState<BillForecast | null>(null);
   const [templates, setTemplates] = useState<Map<number, BillTemplate>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +130,7 @@ export function BillsPage() {
     const requestId = ++loadRequest.current;
     setError(null);
     try {
-      const [monthResult, agendaResult, templateResult] = await Promise.all([
+      const [monthResult, agendaResult, templateResult, forecastResult] = await Promise.all([
         api.getBills(view.year, view.month, {
           state: view.state,
           q: view.q || undefined,
@@ -133,10 +138,12 @@ export function BillsPage() {
         }),
         api.getBillAgenda(7),
         api.listBillTemplates(true),
+        api.getBillForecast(FORECAST_MONTHS),
       ]);
       if (requestId !== loadRequest.current) return;
       setMonth(monthResult);
       setAgenda(agendaResult);
+      setForecast(forecastResult);
       setTemplates(new Map(templateResult.templates.map((template) => [template.id, template])));
     } catch (err) {
       if (requestId === loadRequest.current) setError(errorMessage(err));
@@ -410,6 +417,11 @@ export function BillsPage() {
           )}
         </section>
       )}
+
+      <ForecastStrip
+        cards={forecastCards(forecast, view)}
+        onSelect={(year, month) => setView({ year, month })}
+      />
 
       <section aria-labelledby="bills-month-title" className="space-y-3">
         <div className="card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
