@@ -203,6 +203,7 @@ export const billAgendaQuerySchema = z.object({
 
 export const billForecastQuerySchema = z.object({
   months: z.coerce.number().int().min(1).max(12).default(3),
+  past: z.coerce.number().int().min(0).max(12).default(0),
 });
 
 export const bulkBillIdsSchema = z.array(z.number().int().positive()).min(1).max(500);

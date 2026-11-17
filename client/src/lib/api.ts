@@ -363,7 +363,8 @@ export const api = {
 
   getBillAgenda: (days = 7) => request<BillAgenda>(`/bills/agenda${queryString({ days })}`),
 
-  getBillForecast: (months = 3) => request<BillForecast>(`/bills/forecast${queryString({ months })}`),
+  getBillForecast: (months = 3, past = 0) =>
+    request<BillForecast>(`/bills/forecast${queryString({ months, past: past || undefined })}`),
 
   payBill: (id: number, input: PayBillInput) =>
     request<{ bill: Bill }>(`/bills/${id}/pay`, { method: 'POST', body: JSON.stringify(input) }),

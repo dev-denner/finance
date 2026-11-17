@@ -149,16 +149,21 @@ export interface BillForecast {
  */
 export function getForecast(
   db: AppDatabase,
-  options: { months?: number; today?: string } = {},
+  options: { months?: number; past?: number; today?: string } = {},
 ): BillForecast {
   const months = options.months ?? 3;
   if (!Number.isInteger(months) || months < 1 || months > 12) {
     throw badRequest('Informe entre 1 e 12 meses.');
   }
+  // Meses anteriores ao corrente (para comparar o pago com o previsto).
+  const past = options.past ?? 0;
+  if (!Number.isInteger(past) || past < 0 || past > 12) {
+    throw badRequest('Informe entre 0 e 12 meses anteriores.');
+  }
   const today = options.today ?? todayIso();
   const firstOfMonth = `${today.slice(0, 7)}-01`;
   const result: BillForecastMonth[] = [];
-  for (let index = 0; index < months; index += 1) {
+  for (let index = -past; index < months; index += 1) {
     const from = addMonthsIso(firstOfMonth, index);
     const next = addMonthsIso(firstOfMonth, index + 1);
     if (!from || !next) throw badRequest('Data de referência inválida.');

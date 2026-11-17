@@ -127,6 +127,13 @@ async function fillSearch(value: string) {
   });
 }
 
+/** Texto da página sem o gráfico de fornecedores, que não segue os filtros da lista. */
+function textWithoutChart(): string {
+  const clone = container.cloneNode(true) as HTMLElement;
+  clone.querySelector('section[aria-label="Compras por fornecedor"]')?.remove();
+  return clone.textContent ?? '';
+}
+
 describe('PurchasesPage', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -155,10 +162,14 @@ describe('PurchasesPage', () => {
     expect(container.textContent).toContain('Mercado Sintético');
     expect(container.textContent).toContain('Farmácia Exemplo');
     expect(container.textContent).toContain('2 de 2 compra(s)');
+    const chart = container.querySelector('section[aria-label="Compras por fornecedor"]') as HTMLElement;
+    expect(chart.textContent).toContain('Últimos 12 meses até março de 2026');
+    expect(chart.querySelector('svg[aria-label="Compras por fornecedor nos últimos 12 meses"]')).toBeTruthy();
 
     await fillSearch('Farmácia');
 
-    const text = container.textContent ?? '';
+    // O gráfico mostra todas as compras (sem os filtros): a conferência é na lista.
+    const text = textWithoutChart();
     expect(text).toContain('Farmácia Exemplo');
     expect(text).not.toContain('Mercado Sintético');
     expect(text).toContain('1 de 2 compra(s)');
@@ -185,8 +196,8 @@ describe('PurchasesPage', () => {
       filter.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(container.textContent).toContain('1 de 2 compra(s)');
-    expect(container.textContent).toContain('Mercado Sintético');
-    expect(container.textContent).not.toContain('Farmácia Exemplo');
+    expect(textWithoutChart()).toContain('Mercado Sintético');
+    expect(textWithoutChart()).not.toContain('Farmácia Exemplo');
   });
 
   it('abre os detalhes da compra por URL direta', async () => {

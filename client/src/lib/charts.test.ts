@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAxisBRL, monthlyFlow, niceScale, topCategories } from './charts';
+import { billsPaidVsPlanned, formatAxisBRL, lastMonths, monthlyFlow, niceScale, purchasesBySupplier, topCategories } from './charts';
 import type { ConsolidationResponse } from './types';
 
 const totals = (monthTotals: number[]): Pick<ConsolidationResponse, 'totals'> => ({
@@ -52,5 +52,50 @@ describe('dados do consolidado', () => {
     ]);
     expect(topCategories(categories, 8).map((item) => item.label)).toEqual(['Moradia', 'Mercado', 'Saúde', 'Lazer']);
     expect(topCategories([], 8)).toEqual([]);
+  });
+});
+
+describe('dados das contas e das compras', () => {
+  it('previsto × pago por mês a partir da previsão', () => {
+    const forecast = { months: [{ year: 2026, month: 2, summary: { totalCents: 100_000, paidCents: 60_000 } }] };
+    expect(billsPaidVsPlanned(forecast)).toEqual({
+      months: [{ year: 2026, month: 2 }],
+      series: [
+        { key: 'planned', label: 'Previsto', color: 'var(--chart-series-1)', values: [100_000] },
+        { key: 'paid', label: 'Pago', color: 'var(--chart-series-3)', values: [60_000] },
+      ],
+    });
+    expect(billsPaidVsPlanned(null).months).toEqual([]);
+  });
+
+  it('últimos meses atravessam a virada do ano', () => {
+    expect(lastMonths({ year: 2026, month: 2 }, 3)).toEqual([
+      { year: 2025, month: 12 },
+      { year: 2026, month: 1 },
+      { year: 2026, month: 2 },
+    ]);
+  });
+
+  it('compras por fornecedor: agrupa pelo CNPJ, ordena pelo total e soma o resto em "Outros"', () => {
+    const months = lastMonths({ year: 2026, month: 3 }, 2);
+    const purchase = (supplierName: string, supplierCnpj: string, issuedAt: string, totalCents: number) => ({ supplierName, supplierCnpj, issuedAt, totalCents });
+    const series = purchasesBySupplier(
+      [
+        purchase('Mercado Antigo', '11.111.111/0001-11', '2026-02-05T10:00:00', 1_000),
+        purchase('Mercado Novo', '11111111000111', '2026-03-05T10:00:00', 4_000),
+        purchase('Padaria', '', '2026-03-10T08:00:00', 2_000),
+        purchase('Farmácia', '22.222.222/0001-22', '2026-02-01T08:00:00', 500),
+        purchase('Fora da janela', '33.333.333/0001-33', '2025-12-01T08:00:00', 9_000),
+      ],
+      months,
+      2,
+    );
+    expect(series.map((item) => [item.label, item.values])).toEqual([
+      ['Mercado Novo', [1_000, 4_000]],
+      ['Padaria', [0, 2_000]],
+      ['Outros (1)', [500, 0]],
+    ]);
+    expect(series[2].color).toBe('var(--chart-other)');
+    expect(series[0].color).toBe('var(--chart-series-1)');
   });
 });

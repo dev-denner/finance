@@ -26,6 +26,9 @@ import { Button } from '../components/ui/Button';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Page';
 import { BillFormDialog, type BillFormTarget } from '../components/bills/BillFormDialog';
 import { BillsCalendar } from '../components/bills/BillsCalendar';
+import { ChartCard } from '../components/charts/ChartCard';
+import { ColumnChart } from '../components/charts/ColumnChart';
+import { billsPaidVsPlanned } from '../lib/charts';
 import { BoletoDialog } from '../components/bills/BoletoDialog';
 import { BulkBillsDialog, type GroupPaymentChoice } from '../components/bills/BulkBillsDialog';
 import { ForecastStrip } from '../components/bills/ForecastStrip';
@@ -54,7 +57,7 @@ import {
   type BillsLayout,
   type BillsView,
 } from '../lib/bills-view';
-import { formatBRL, formatDateBR, todayISO } from '../lib/format';
+import { formatBRL, formatDateBR, MONTHS_SHORT, todayISO } from '../lib/format';
 import type { Bill, BillAgenda, BillForecast, BillListResponse, BillTemplate, PayBillInput } from '../lib/types';
 
 type Dialog =
@@ -83,6 +86,8 @@ const UNDO_MS = 6000;
 const AGENDA_PREVIEW_ROWS = 8;
 /** Mês corrente e os dois seguintes. */
 const FORECAST_MONTHS = 3;
+/** Meses anteriores no gráfico pago × previsto (com os 3 da previsão, 12 meses). */
+const HISTORY_MONTHS = 9;
 
 function SummaryTile({
   label,
@@ -169,7 +174,7 @@ export function BillsPage() {
         }),
         api.getBillAgenda(7),
         api.listBillTemplates(true),
-        api.getBillForecast(FORECAST_MONTHS),
+        api.getBillForecast(FORECAST_MONTHS, HISTORY_MONTHS),
       ]);
       if (requestId !== loadRequest.current) return;
       setMonth(monthResult);
@@ -198,6 +203,7 @@ export function BillsPage() {
   // A seleção vale para o mês e os filtros exibidos.
   useEffect(() => setSelectedIds(new Set()), [view]);
 
+  const paidVsPlanned = useMemo(() => billsPaidVsPlanned(forecast), [forecast]);
   const weeks = useMemo(
     () => calendarWeeks(view.year, view.month, month?.bills ?? [], today),
     [month, today, view.month, view.year],
@@ -702,7 +708,7 @@ export function BillsPage() {
       )}
 
       <ForecastStrip
-        cards={forecastCards(forecast, view)}
+        cards={forecastCards(forecast ? { ...forecast, months: forecast.months.slice(-FORECAST_MONTHS) } : null, view)}
         onSelect={(year, month) => setView({ year, month })}
       />
 
@@ -890,6 +896,40 @@ export function BillsPage() {
           )}
         </div>
       </section>
+
+      {paidVsPlanned.months.length > 0 && paidVsPlanned.series[0].values.some((value) => value > 0) && (
+        <ChartCard
+          title="Previsto × pago por mês"
+          subtitle="Os 9 meses anteriores, o atual e os 2 seguintes; o pago inclui os pagamentos parciais e as contas puladas ficam de fora."
+          legend={paidVsPlanned.series.map((series) => ({ label: series.label, color: series.color, shape: 'box' as const }))}
+          table={
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="text-left text-ink-500 dark:text-ink-400">
+                  <th className="py-1 font-medium">Mês</th>
+                  <th className="py-1 text-right font-medium">Previsto</th>
+                  <th className="py-1 text-right font-medium">Pago</th>
+                </tr>
+              </thead>
+              <tbody className="tabular-nums">
+                {paidVsPlanned.months.map((item, index) => (
+                  <tr key={`${item.year}-${item.month}`} className="border-t border-ink-100 dark:border-ink-800">
+                    <td className="py-1">{monthLabel(item.year, item.month)}</td>
+                    <td className="py-1 text-right">{formatBRL(paidVsPlanned.series[0].values[index])}</td>
+                    <td className="py-1 text-right">{formatBRL(paidVsPlanned.series[1].values[index])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          }
+        >
+          <ColumnChart
+            label="Previsto e pago das contas por mês"
+            categories={paidVsPlanned.months.map((item) => ({ short: MONTHS_SHORT[item.month - 1], long: monthLabel(item.year, item.month) }))}
+            columns={paidVsPlanned.series}
+          />
+        </ChartCard>
+      )}
 
       {dialog?.kind === 'form' && (
         <BillFormDialog

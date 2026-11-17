@@ -141,7 +141,7 @@ export function registerBillRoutes(app: FastifyInstance, db: AppDatabase) {
 
   app.get('/api/bills/forecast', async (request) => {
     const query = parseWith(billForecastQuerySchema, request.query, 'Parâmetros da previsão inválidos.');
-    return getForecast(db, { months: query.months });
+    return getForecast(db, { months: query.months, past: query.past });
   });
 
   /** Ações em massa: tudo ou nada; o erro cita a conta que impediu. */

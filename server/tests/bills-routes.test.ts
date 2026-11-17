@@ -153,6 +153,14 @@ describe('rotas de contas a pagar — ocorrências', () => {
     expect(forecast.body.months).toHaveLength(2);
     expect(forecast.body.months[0].from).toBe(`${TODAY.slice(0, 7)}-01`);
     expect(forecast.body.months[0].summary.openCents).toBe(1000);
+
+    // Meses anteriores para o gráfico previsto × pago: começa `past` meses antes do corrente.
+    const withPast = await call('GET', '/api/bills/forecast?months=1&past=2');
+    expect(withPast.status).toBe(200);
+    expect(withPast.body.months.map((month: { from: string }) => month.from.slice(0, 7))).toHaveLength(3);
+    expect(withPast.body.months[2].from).toBe(`${TODAY.slice(0, 7)}-01`);
+    expect(withPast.body.months[0].from < withPast.body.months[1].from).toBe(true);
+    expect((await call('GET', '/api/bills/forecast?past=13')).status).toBe(400);
     expect(forecast.body.months[1].summary.openCents).toBe(2000);
   });
 
