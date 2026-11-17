@@ -89,6 +89,7 @@ server/
     lib/        moeda, datas, normalização, parcelas
     routes/     endpoints Fastify
     services/   regras de negócio
+      import/   Módulo 2: importação de movimentações (arquivo, mapeamento, linha, duplicidade, prévia, gravação)
       bills/    Módulo 1: recorrência, ocorrências, pagamentos, guards, consultas
   tests/        Vitest
 docs/           análise, planos e referências visuais
