@@ -28,6 +28,7 @@ const apiMock = {
   payBill: vi.fn(),
   bulkPayBills: vi.fn(),
   bulkSkipBills: vi.fn(),
+  payBillsGroup: vi.fn(),
   unpayBill: vi.fn(),
   undoBillPayment: vi.fn(),
   skipBill: vi.fn(),
@@ -239,7 +240,7 @@ describe('tela de contas a pagar', () => {
   });
 
   it('pagamento parcial mantém a conta em aberto e mostra quanto falta (sem Desfazer após o primeiro)', async () => {
-    const partialPayment = { id: 7, transactionId: null, amountCents: 30000, paidAt: TODAY, origin: 'manual' as const, createdTransaction: false, paymentMethodName: null, transactionDescription: null };
+    const partialPayment = { id: 7, transactionId: null, amountCents: 30000, paidAt: TODAY, origin: 'manual' as const, createdTransaction: false, paymentMethodName: null, transactionDescription: null, groupSize: 1 };
     apiMock.payBill.mockResolvedValue({ bill: bill({ partialPaidCents: 30000, payments: [partialPayment] }) });
     await render('/contas', [bill({ partialPaidCents: 30000, payments: [partialPayment] })]);
 
@@ -434,6 +435,30 @@ describe('contas — ações em massa e atalhos', () => {
     expect(document.body.textContent).not.toContain('selecionadas ·');
   });
 
+  it('boleto agrupado: pede a conta de saída e paga todas com um lançamento só', async () => {
+    apiMock.payBillsGroup.mockResolvedValue({ updated: 2, paidCents: 23000, transactionId: 50 });
+    await render('/contas', monthBills());
+
+    await click(checkbox('Selecionar as contas em aberto do mês') as HTMLInputElement);
+    await click(buttons('Marcar como pagas')[0]);
+    const groupToggle = [...document.querySelectorAll('[role="dialog"] label')]
+      .find((label) => label.textContent?.includes('Registrar um lançamento só'))
+      ?.querySelector('input') as HTMLInputElement;
+    await click(groupToggle);
+    // Mesma categoria nas duas: não pergunta a categoria.
+    expect(document.getElementById('bulk-group-category')).toBeNull();
+    const confirm = () => [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Marcar como pagas') as HTMLButtonElement;
+    await click(confirm());
+    expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe('Escolha a conta de onde saiu o pagamento.');
+    expect(apiMock.payBillsGroup).not.toHaveBeenCalled();
+
+    await type(document.getElementById('bulk-group-account') as HTMLSelectElement, '1');
+    await click(confirm());
+    expect(apiMock.payBillsGroup).toHaveBeenCalledWith([1, 2], { paidAt: TODAY, paymentMethodId: 1, categoryId: null, description: null });
+    expect(apiMock.bulkPayBills).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('2 contas pagas com um lançamento de R$ 230,00.', 'success', undefined);
+  });
+
   it('pular em massa é bloqueado com conta de pagamento parcial e envia as demais', async () => {
     apiMock.bulkSkipBills.mockResolvedValue({ updated: 1 });
     await render('/contas', monthBills());
@@ -509,7 +534,21 @@ describe('contas — calendário do mês', () => {
 
 describe('contas — pagamentos um a um', () => {
   const payment = (id: number, amountCents: number, paidAt: string) => ({
-    id, transactionId: null, amountCents, paidAt, origin: 'manual' as const, createdTransaction: false, paymentMethodName: null, transactionDescription: null,
+    id, transactionId: null, amountCents, paidAt, origin: 'manual' as const, createdTransaction: false, paymentMethodName: null, transactionDescription: null, groupSize: 1,
+  });
+
+  it('pagamento de boleto agrupado abre a lista com o aviso, mesmo sendo o único', async () => {
+    const grouped = { ...payment(20, 78200, '2026-03-06'), transactionId: 50, transactionDescription: 'Boleto agrupado: Condomínio, Taxa', groupSize: 2 };
+    await render('/contas', [bill({ state: 'paid', displayStatus: 'paid', paidAt: '2026-03-06', paidCents: 78200, payments: [grouped] })]);
+    await click(buttons('Pagamentos de Condomínio')[0]);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.textContent).toContain('boleto agrupado com 2 contas');
+    expect(dialog.textContent).toContain('Desfazer um boleto agrupado desfaz o pagamento de todas as contas pagas por ele.');
+
+    apiMock.undoBillPayment.mockResolvedValue({ bill: bill() });
+    await click(buttons('Desfazer pagamento de R$ 782,00 em 06/03/2026')[0]);
+    expect(apiMock.undoBillPayment).toHaveBeenCalledWith(1, 20);
+    expect(showToast).toHaveBeenCalledWith('Boleto agrupado desfeito: 2 contas reabertas.', 'success', undefined);
   });
 
   it('com mais de um pagamento, o desfazer abre a lista e desfaz só o escolhido', async () => {

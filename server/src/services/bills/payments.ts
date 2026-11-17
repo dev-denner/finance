@@ -10,7 +10,7 @@
  * de valor variável). Com `partial`, a conta continua em aberto até a soma dos
  * pagamentos alcançar o valor previsto.
  */
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../../db/client';
 import { billPayments, scheduledBills, transactions } from '../../db/schema';
 import { parseDateValue, todayIso } from '../../lib/dates';
@@ -157,7 +157,7 @@ export function payBill(db: AppDatabase, id: number, input: PayBillInput, today 
 }
 
 /** Soma dos pagamentos registrados da conta. */
-function paidSoFar(db: AppDatabase, id: number): number {
+export function paidSoFar(db: AppDatabase, id: number): number {
   return db
     .select({ total: sql<number>`coalesce(sum(${billPayments.amountCents}), 0)` })
     .from(billPayments)
@@ -165,25 +165,85 @@ function paidSoFar(db: AppDatabase, id: number): number {
     .get()?.total ?? 0;
 }
 
+type PaymentRow = typeof billPayments.$inferSelect;
+
+/**
+ * Pagamentos que saem juntos: os que compartilham lançamento com os
+ * informados (boleto agrupado) são desfeitos todos, porque o lançamento é um
+ * pagamento só.
+ */
+function withGroupMates(db: AppDatabase, rows: PaymentRow[]): PaymentRow[] {
+  const transactionIds = [...new Set(rows.map((row) => row.transactionId).filter((id): id is number => id !== null))];
+  if (transactionIds.length === 0) return rows;
+  const mates = db.select().from(billPayments).where(inArray(billPayments.transactionId, transactionIds)).all();
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  for (const mate of mates) byId.set(mate.id, mate);
+  return [...byId.values()];
+}
+
+/**
+ * Remove os pagamentos e acerta cada conta afetada: ela só continua paga se
+ * ainda tem pagamentos e o removido não era o último (o que a quitou); senão
+ * reabre, com os restantes como parciais. O lançamento criado pelo pagamento
+ * é apagado quando nenhum pagamento o usa mais.
+ */
+function removePayments(db: AppDatabase, rows: PaymentRow[]): void {
+  if (rows.length === 0) return;
+  const billIds = [...new Set(rows.map((row) => row.billId))];
+  const latestByBill = new Map<number, number>();
+  for (const row of db.select({ id: billPayments.id, billId: billPayments.billId }).from(billPayments).where(inArray(billPayments.billId, billIds)).all()) {
+    latestByBill.set(row.billId, Math.max(latestByBill.get(row.billId) ?? 0, row.id));
+  }
+  const removedIds = new Set(rows.map((row) => row.id));
+  db.delete(billPayments).where(inArray(billPayments.id, [...removedIds])).run();
+
+  const created = new Set(
+    rows.filter((row) => row.createdTransaction === 1 && row.transactionId !== null).map((row) => row.transactionId as number),
+  );
+  for (const transactionId of created) {
+    const stillUsed = db.select({ id: billPayments.id }).from(billPayments).where(eq(billPayments.transactionId, transactionId)).get();
+    if (!stillUsed) deleteTransaction(db, transactionId);
+  }
+
+  for (const billId of billIds) {
+    const bill = loadBillRow(db, billId);
+    const remaining = db
+      .select({
+        count: sql<number>`count(*)`,
+        total: sql<number>`coalesce(sum(${billPayments.amountCents}), 0)`,
+        lastPaidAt: sql<string | null>`max(${billPayments.paidAt})`,
+      })
+      .from(billPayments)
+      .where(eq(billPayments.billId, billId))
+      .get();
+    const removedLatest = removedIds.has(latestByBill.get(billId) ?? -1);
+    const stillPaid = billState(bill.state) === 'paid' && !removedLatest && (remaining?.count ?? 0) > 0;
+    db.update(scheduledBills)
+      .set({
+        ...(stillPaid
+          ? { paidAt: remaining?.lastPaidAt ?? bill.paidAt, paidCents: remaining?.total ?? 0 }
+          : { state: 'open', paidAt: null, paidCents: null, migratedPayment: 0 }),
+        updatedAt: nowIso(),
+      })
+      .where(eq(scheduledBills.id, billId))
+      .run();
+  }
+}
+
 /**
  * Reabre a conta e desfaz todos os pagamentos, inclusive os parciais de uma
  * conta ainda em aberto. O lançamento só é apagado quando foi criado pelo
  * próprio pagamento — um lançamento importado vinculado continua no Módulo 2.
+ * Um pagamento agrupado (um lançamento para várias contas) é desfeito em todas.
  */
 export function unpayBill(db: AppDatabase, id: number, today = todayIso()): BillDto {
   const existing = loadBillRow(db, id);
-  if (billState(existing.state) !== 'paid' && paidSoFar(db, id) === 0) return getBill(db, id, today);
+  const rows = db.select().from(billPayments).where(eq(billPayments.billId, id)).all();
+  if (billState(existing.state) !== 'paid' && rows.length === 0) return getBill(db, id, today);
 
   db.transaction(() => {
-    const links = db
-      .select({ transactionId: billPayments.transactionId, createdTransaction: billPayments.createdTransaction })
-      .from(billPayments)
-      .where(eq(billPayments.billId, id))
-      .all();
-    db.delete(billPayments).where(eq(billPayments.billId, id)).run();
-    for (const link of links) {
-      if (link.createdTransaction === 1 && link.transactionId !== null) deleteTransaction(db, link.transactionId);
-    }
+    removePayments(db, withGroupMates(db, rows));
+    // Conta paga sem registro de pagamento (migração 0015) também reabre.
     db.update(scheduledBills)
       .set({ state: 'open', paidAt: null, paidCents: null, migratedPayment: 0, updatedAt: nowIso() })
       .where(eq(scheduledBills.id, id))
@@ -198,48 +258,17 @@ export function unpayBill(db: AppDatabase, id: number, today = todayIso()): Bill
  * removido não é o último (o que a quitou); nesse caso o valor pago passa a
  * ser a soma dos que ficaram. Remover o último reabre a conta, que volta a ter
  * pagamento parcial se ainda restarem pagamentos. O lançamento só é apagado
- * quando foi criado pelo próprio pagamento.
+ * quando foi criado pelo próprio pagamento. Num pagamento agrupado, as demais
+ * contas pagas pelo mesmo lançamento também são desfeitas.
  */
 export function undoBillPayment(db: AppDatabase, id: number, paymentId: number, today = todayIso()): BillDto {
-  const existing = loadBillRow(db, id);
+  loadBillRow(db, id);
   const payment = db
     .select()
     .from(billPayments)
     .where(and(eq(billPayments.id, paymentId), eq(billPayments.billId, id)))
     .get();
   if (!payment) throw notFound('Pagamento não encontrado nesta conta.');
-
-  db.transaction(() => {
-    const latest = db
-      .select({ id: billPayments.id })
-      .from(billPayments)
-      .where(eq(billPayments.billId, id))
-      .orderBy(desc(billPayments.id))
-      .limit(1)
-      .get();
-    db.delete(billPayments).where(eq(billPayments.id, payment.id)).run();
-    if (payment.createdTransaction === 1 && payment.transactionId !== null) deleteTransaction(db, payment.transactionId);
-
-    const remaining = db
-      .select({
-        count: sql<number>`count(*)`,
-        total: sql<number>`coalesce(sum(${billPayments.amountCents}), 0)`,
-        lastPaidAt: sql<string | null>`max(${billPayments.paidAt})`,
-      })
-      .from(billPayments)
-      .where(eq(billPayments.billId, id))
-      .get();
-    const stillPaid = billState(existing.state) === 'paid' && latest?.id !== payment.id && (remaining?.count ?? 0) > 0;
-    db.update(scheduledBills)
-      .set({
-        ...(stillPaid
-          ? { paidAt: remaining?.lastPaidAt ?? existing.paidAt, paidCents: remaining?.total ?? 0 }
-          : { state: 'open', paidAt: null, paidCents: null, migratedPayment: 0 }),
-        updatedAt: nowIso(),
-      })
-      .where(eq(scheduledBills.id, id))
-      .run();
-  });
-
+  db.transaction(() => removePayments(db, withGroupMates(db, [payment])));
   return getBill(db, id, today);
 }

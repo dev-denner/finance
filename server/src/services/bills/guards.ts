@@ -14,6 +14,8 @@ export interface BillPaymentLink {
   billId: number;
   description: string;
   dueDate: string;
+  /** Contas pagas pelo lançamento (mais de uma num boleto agrupado). */
+  billCount: number;
 }
 
 /** Vínculos de pagamento de conta dos lançamentos informados, por id do lançamento. */
@@ -33,10 +35,16 @@ export function loadBillPaymentLinks(db: Reader, transactionIds: number[]): Map<
     .all();
   for (const row of rows) {
     if (row.transactionId === null) continue;
+    const existing = result.get(row.transactionId);
+    if (existing) {
+      existing.billCount += 1;
+      continue;
+    }
     result.set(row.transactionId, {
       billId: row.billId,
       description: row.description,
       dueDate: row.dueDate,
+      billCount: 1,
     });
   }
   return result;
@@ -44,7 +52,8 @@ export function loadBillPaymentLinks(db: Reader, transactionIds: number[]): Map<
 
 function describe(link: BillPaymentLink): string {
   const [year, month, day] = link.dueDate.split('-');
-  return `"${link.description}" (vencimento ${day}/${month}/${year})`;
+  const others = link.billCount > 1 ? ` e mais ${link.billCount - 1} conta(s)` : '';
+  return `"${link.description}" (vencimento ${day}/${month}/${year})${others}`;
 }
 
 /** Bloqueia a exclusão de lançamentos que pagam uma conta a pagar. */

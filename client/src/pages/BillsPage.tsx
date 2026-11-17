@@ -24,7 +24,7 @@ import { Button } from '../components/ui/Button';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Page';
 import { BillFormDialog, type BillFormTarget } from '../components/bills/BillFormDialog';
 import { BillsCalendar } from '../components/bills/BillsCalendar';
-import { BulkBillsDialog } from '../components/bills/BulkBillsDialog';
+import { BulkBillsDialog, type GroupPaymentChoice } from '../components/bills/BulkBillsDialog';
 import { ForecastStrip } from '../components/bills/ForecastStrip';
 import { PayDialog } from '../components/bills/PayDialog';
 import { DeleteBillDialog, PaymentsDialog, ScheduleDialog } from '../components/bills/SmallBillDialogs';
@@ -109,6 +109,11 @@ function SummaryTile({
       <p className="text-[11px] text-ink-400">{detail}</p>
     </div>
   );
+}
+
+/** Mais de um pagamento, ou um boleto agrupado: o desfazer passa pela lista, que avisa o efeito. */
+function needsPaymentsDialog(bill: Bill): boolean {
+  return bill.payments.length > 1 || bill.payments.some((payment) => payment.groupSize > 1);
 }
 
 function plural(count: number, one: string, many: string) {
@@ -297,25 +302,32 @@ export function BillsPage() {
 
   const undoPayment = async (bill: Bill, paymentId: number) => {
     try {
+      const groupSize = bill.payments.find((payment) => payment.id === paymentId)?.groupSize ?? 1;
       const { bill: updated } = await api.undoBillPayment(bill.id, paymentId);
       const message =
-        updated.state === 'paid'
+        groupSize > 1
+          ? `Boleto agrupado desfeito: ${plural(groupSize, 'conta reaberta', 'contas reabertas')}.`
+          : updated.state === 'paid'
           ? 'Pagamento desfeito; a conta continua paga.'
           : updated.partialPaidCents > 0
             ? `Pagamento desfeito; faltam ${formatBRL(remainingCents(updated))}.`
             : 'Pagamento desfeito.';
       await afterChange(message);
       // Com mais de um pagamento restante, o diálogo continua aberto com a conta atualizada.
-      if (updated.payments.length > 1) setDialog({ kind: 'payments', bill: updated });
+      if (needsPaymentsDialog(updated)) setDialog({ kind: 'payments', bill: updated });
     } catch (err) {
       showToast(errorMessage(err), 'error');
     }
   };
 
-  const runBulk = async (action: 'pay' | 'skip', paidAt: string) => {
+  const runBulk = async (action: 'pay' | 'skip', paidAt: string, group: GroupPaymentChoice | null) => {
     const ids = selection.bills.map((bill) => bill.id);
     try {
-      if (action === 'pay') {
+      if (action === 'pay' && group) {
+        const result = await api.payBillsGroup(ids, { paidAt, ...group });
+        setSelectedIds(new Set());
+        await afterChange(`${plural(result.updated, 'conta paga', 'contas pagas')} com um lançamento de ${formatBRL(result.paidCents)}.`);
+      } else if (action === 'pay') {
         const result = await api.bulkPayBills(ids, paidAt);
         setSelectedIds(new Set());
         await afterChange(`${plural(result.updated, 'conta marcada', 'contas marcadas')} como paga${result.updated === 1 ? '' : 's'} (${formatBRL(result.paidCents)}).`);
@@ -373,12 +385,12 @@ export function BillsPage() {
         <button
           type="button"
           className="icon-btn"
-          title={bill.payments.length > 1 ? 'Ver e desfazer pagamentos' : 'Desfazer pagamento'}
+          title={needsPaymentsDialog(bill) ? 'Ver e desfazer pagamentos' : 'Desfazer pagamento'}
           aria-label={
-            bill.payments.length > 1 ? `Pagamentos de ${bill.description}` : `Desfazer pagamento de ${bill.description}`
+            needsPaymentsDialog(bill) ? `Pagamentos de ${bill.description}` : `Desfazer pagamento de ${bill.description}`
           }
           onClick={() =>
-            bill.payments.length > 1
+            needsPaymentsDialog(bill)
               ? setDialog({ kind: 'payments', bill })
               : void run(() => api.unpayBill(bill.id), 'Pagamento desfeito.')
           }
@@ -865,8 +877,10 @@ export function BillsPage() {
           action={dialog.action}
           selection={selection}
           today={today}
+          paymentMethods={paymentMethods}
+          categories={categories}
           onClose={() => setDialog(null)}
-          onConfirm={(paidAt) => runBulk(dialog.action, paidAt)}
+          onConfirm={(paidAt, group) => runBulk(dialog.action, paidAt, group)}
         />
       )}
       {dialog?.kind === 'payments' && (

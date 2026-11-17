@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import type { AppDatabase } from '../../db/client';
 import {
   billPayments,
@@ -44,6 +44,8 @@ export interface BillPaymentDto {
   createdTransaction: boolean;
   paymentMethodName: string | null;
   transactionDescription: string | null;
+  /** Contas pagas pelo mesmo lançamento (boleto agrupado); 1 no pagamento comum. */
+  groupSize: number;
 }
 
 export interface BillDto {
@@ -134,6 +136,18 @@ export function loadPayments(db: AppDatabase, billIds: number[]): Map<number, Bi
     .where(inArray(billPayments.billId, billIds))
     .orderBy(billPayments.id)
     .all();
+  const transactionIds = [...new Set(rows.map((row) => row.payment.transactionId).filter((id): id is number => id !== null))];
+  const groupSizes = new Map<number, number>();
+  if (transactionIds.length > 0) {
+    for (const group of db
+      .select({ transactionId: billPayments.transactionId, count: sql<number>`count(*)` })
+      .from(billPayments)
+      .where(inArray(billPayments.transactionId, transactionIds))
+      .groupBy(billPayments.transactionId)
+      .all()) {
+      if (group.transactionId !== null) groupSizes.set(group.transactionId, group.count);
+    }
+  }
   for (const row of rows) {
     const list = result.get(row.payment.billId) ?? [];
     list.push({
@@ -145,6 +159,7 @@ export function loadPayments(db: AppDatabase, billIds: number[]): Map<number, Bi
       createdTransaction: row.payment.createdTransaction === 1,
       paymentMethodName: row.paymentMethodName ?? null,
       transactionDescription: row.transactionDescription,
+      groupSize: row.payment.transactionId !== null ? (groupSizes.get(row.payment.transactionId) ?? 1) : 1,
     });
     result.set(row.payment.billId, list);
   }
