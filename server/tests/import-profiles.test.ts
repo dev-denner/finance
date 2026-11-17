@@ -68,6 +68,9 @@ describe('perfil Nubank — importação', () => {
     expect(preview.profile).toEqual({ id: 'nubank-checking', label: 'Nubank · conta corrente', accountKind: 'checking' });
     expect(preview.mapping).toMatchObject({ dueDate: 0, description: 3, amount: 1, purchaseDate: null });
     expect(preview.mappingWarnings).toEqual([expect.objectContaining({ level: 'info', message: expect.stringContaining('Nubank · conta corrente') })]);
+    // A tela refaz a prévia com o mapeamento escolhido: o aviso do formato continua.
+    const again = previewImport(handle.db, Buffer.from(NUBANK_CSV, 'utf8'), 'NU_extrato.csv', preview.mapping);
+    expect(again.mappingWarnings).toEqual([expect.objectContaining({ message: expect.stringContaining('Nubank · conta corrente') })]);
     expect(preview.rows.map((row) => [row.values.description, row.values.amountCents, row.values.dueDate])).toEqual([
       ['Pix enviado - Fulano de Tal', -10000, '2026-09-01'],
       ['Pix recebido - EMPRESA FICTICIA LTDA', 150000, '2026-09-01'],

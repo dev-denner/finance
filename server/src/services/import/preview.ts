@@ -39,6 +39,8 @@ export function previewImport(
   if (Object.keys(requested).length > 0) {
     // Mapeamento explícito do usuário tem prioridade sobre modelos.
     mapping = effectiveMapping(requested, workbook.mapping);
+    // A tela refaz a prévia com o mapeamento escolhido: o aviso do formato reconhecido continua valendo.
+    if (workbook.profile) headerWarnings = [profileNotice(workbook.profile)];
   } else {
     const applied = applyTemplateMapping(db, workbook.headers, templateId);
     mapping = applied.mapping;
