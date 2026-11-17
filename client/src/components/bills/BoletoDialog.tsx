@@ -40,12 +40,10 @@ export function BoletoDialog({
 
   // Confere a linha digitável enquanto se digita (pelo servidor, que também valida ao gravar).
   useEffect(() => {
-    const digits = barcode.replace(/\D/g, '');
-    if (digits.length === 0) {
-      setCheck(null);
-      return;
-    }
+    // Toda mudança invalida o resultado anterior e as consultas em andamento.
     const requestId = ++parseRequest.current;
+    setCheck(null);
+    if (barcode.replace(/\D/g, '').length === 0) return;
     const timer = window.setTimeout(() => {
       api
         .parseBarcode(barcode)
@@ -78,7 +76,8 @@ export function BoletoDialog({
 
   const digits = barcode.replace(/\D/g, '');
   const changed = digits !== (current.barcode ?? '');
-  const valid = check?.valid === true ? check : null;
+  // Só vale o resultado da consulta feita para o código que está no campo.
+  const valid = check?.valid === true && check.digits === digits ? check : null;
   const suggestion =
     valid &&
     ((valid.amountCents !== null && valid.amountCents !== current.amountCents) ||

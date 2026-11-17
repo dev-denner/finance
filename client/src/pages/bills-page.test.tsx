@@ -620,6 +620,20 @@ describe('contas — boleto e anexos', () => {
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     expect(dialog.textContent).toContain('Boleto bancário válido · R$ 800,00 · vence 12/03/2026');
 
+    // Editar o código esconde o resultado anterior até a nova conferência voltar.
+    vi.useFakeTimers();
+    try {
+      await type(input, `${LINE.slice(0, 46)}9`);
+      expect(dialog.textContent).not.toContain('Boleto bancário válido');
+      expect(buttons('Usar R$ 800,00 e vencimento 12/03/2026')).toHaveLength(0);
+      await type(input, LINE);
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
     await click(buttons('Usar R$ 800,00 e vencimento 12/03/2026')[0]);
     expect(apiMock.updateBill).toHaveBeenCalledWith(1, { barcode: LINE, amountCents: 80000, dueDate: '2026-03-12' });
     expect(apiMock.getBill).toHaveBeenCalledWith(1);
