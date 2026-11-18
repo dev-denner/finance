@@ -1,4 +1,5 @@
 /** Constantes, campos e tipos compartilhados pela prévia e pela gravação da importação. */
+import type { FileProfile } from './profiles';
 import type { DueDateSource } from '../../lib/dates';
 import type { CategorySuggestion, CategorySuggestionAlternative } from '../category-matching';
 import type { TransferCandidate } from '../transfer-detection';
@@ -57,6 +58,8 @@ export interface ParsedWorkbook {
   headers: string[];
   rows: SheetRow[];
   mapping: ColumnMapping;
+  /** Formato de banco reconhecido (mapeamento fixo e descrições resumidas); nulo no reconhecimento genérico. */
+  profile: FileProfile | null;
 }
 
 export type PurchaseDateSource = 'file' | 'due_date_fallback';
@@ -141,6 +144,8 @@ export interface ImportPreview {
   mappingErrors: string[];
   /** Avisos do reconhecimento automático (ambiguidades, colunas sem campo). */
   mappingWarnings: MappingWarning[];
+  /** Formato de banco reconhecido pelo arquivo, quando houver. */
+  profile: FileProfile | null;
   /** Modelo de mapeamento aplicado automaticamente, quando houver. */
   appliedTemplate: { id: number; name: string } | null;
   totalRows: number;

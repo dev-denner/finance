@@ -39,6 +39,8 @@ export function importWorkbook(
     const applied = applyTemplateMapping(db, workbook.headers, options.templateId);
     mapping = applied.mapping;
     batchTemplateId = applied.appliedTemplate?.id ?? null;
+    // Mesmo critério da prévia: formato de banco reconhecido sem modelo salvo usa o mapeamento do perfil.
+    if (!applied.appliedTemplate && workbook.profile) mapping = workbook.mapping;
   }
   const problems = mappingProblems(mapping, workbook.headers);
   if (problems.length > 0) {

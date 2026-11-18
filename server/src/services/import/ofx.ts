@@ -6,6 +6,7 @@
 import { badRequest } from '../../lib/errors';
 import { FIELD_LABELS, IMPORT_FIELDS, MAX_ROWS, type ParsedWorkbook, type SheetRow } from './types';
 import { suggestMapping } from './mapping';
+import { detectOfxProfile } from './profiles';
 
 export interface OfxTransaction {
   /** AAAA-MM-DD (data do lançamento no extrato). */
@@ -19,6 +20,9 @@ export interface OfxTransaction {
 
 export interface OfxStatement {
   kind: 'bank' | 'credit_card';
+  /** Instituição (ORG) e código dela (FID), do cabeçalho de assinatura. */
+  org: string | null;
+  fid: string | null;
   bankId: string | null;
   accountId: string | null;
   transactions: OfxTransaction[];
@@ -110,7 +114,14 @@ export function parseOfx(buffer: Buffer): OfxStatement {
       type: field(block, 'TRNTYPE'),
     });
   }
-  return { kind, bankId: field(account, 'BANKID'), accountId: field(account, 'ACCTID'), transactions };
+  return {
+    kind,
+    org: field(text, 'ORG'),
+    fid: field(text, 'FID'),
+    bankId: field(account, 'BANKID'),
+    accountId: field(account, 'ACCTID'),
+    transactions,
+  };
 }
 
 function brDate(iso: string): string {
@@ -136,11 +147,13 @@ export function ofxToWorkbook(buffer: Buffer, filename: string): ParsedWorkbook 
     throw badRequest(`O arquivo possui mais de ${MAX_ROWS} linhas. Divida a importação em partes.`);
   }
   const headers = IMPORT_FIELDS.map((key) => FIELD_LABELS[key]);
+  const match = detectOfxProfile(statement);
+  const clean = match?.cleanDescription ?? ((text: string) => text);
   const rows: SheetRow[] = statement.transactions.map((transaction, index) => {
     const values: Record<(typeof IMPORT_FIELDS)[number], string> = {
       purchaseDate: brDate(transaction.postedAt),
       dueDate: brDate(transaction.postedAt),
-      description: transaction.description,
+      description: clean(transaction.description),
       amount: brAmount(transaction.amountCents),
       paymentMethod: '',
       installments: '',
@@ -158,5 +171,6 @@ export function ofxToWorkbook(buffer: Buffer, filename: string): ParsedWorkbook 
     headers,
     rows,
     mapping: suggestMapping(headers),
+    profile: match?.profile ?? null,
   };
 }

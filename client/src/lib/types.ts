@@ -571,6 +571,8 @@ export interface ImportPreview {
   mappingWarnings: { level: 'info' | 'warning'; field: ImportField | null; message: string }[];
   /** Modelo de mapeamento aplicado automaticamente ao arquivo, quando houver. */
   appliedTemplate: { id: number; name: string } | null;
+  /** Formato de banco reconhecido pelo arquivo (mapeamento fixo e descrições resumidas). */
+  profile?: { id: string; label: string; accountKind: 'checking' | 'credit_card' } | null;
   totalRows: number;
   validRows: number;
   invalidRows: number;
