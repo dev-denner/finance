@@ -27,5 +27,5 @@ export { listMappingTemplates, saveMappingTemplate, deleteMappingTemplate } from
 export type { ImportMappingTemplate } from './import/templates';
 export { isOfx, parseOfx, ofxToWorkbook } from './import/ofx';
 export type { OfxStatement, OfxTransaction } from './import/ofx';
-export { cleanNubankDescription, detectCsvProfile, detectOfxProfile } from './import/profiles';
+export { cleanInterDescription, cleanNubankDescription, detectCsvProfile, detectOfxProfile } from './import/profiles';
 export type { FileProfile } from './import/profiles';
